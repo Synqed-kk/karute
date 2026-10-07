@@ -8720,8 +8720,9 @@ export function TodayScreen(props: TodayProps) {
    *  rather than a second rendering of the same booking that can drift from it. */
   function cardFace(item: BoardItem, settledHere: boolean, words: ResourceWords, timeLabel: string = item.time) {
     // ⚖ 10/7 S25 round 3 (D5) — the name line in parts, so the label tiers (today.css @container) decide what prints:
-    // WIDE = the full name + the room tag (as before) · MID = the full name, no tag (the detail view carries it) ·
-    // NARROW = the family name only · SLIVER = the bar. The tag's source is unchanged; the text at WIDE is unchanged.
+    // WIDE = the full name + the room tag (as before) · MID = the family name + the time line (round 4: no given name,
+    // no tag — MID prints the family name because any fixed boundary would chop some full names) · NARROW = the family
+    // name only · SLIVER = the bar. The tag's source is unchanged; the text at WIDE is unchanged.
     const family = familyNameOf(item.title)
     const given = item.title.trimStart().slice(family.length)
     return (

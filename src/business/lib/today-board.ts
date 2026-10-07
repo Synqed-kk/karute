@@ -142,7 +142,7 @@ export interface RulerLabel { hour: number; text: string; leftPct: number; width
 export const FAMILY_NAME_PX = 26
 /** ⚖ 10/7 S25 round 3 (D5: NARROW = the family name ONLY) — the family name of a card's display name: the text before
  *  the first whitespace (a half-width space or the full-width 「　」; JS `\s` covers U+3000), trimmed. The card's name
- *  line splits on it so the NARROW tier can print the family name alone (round 2B measured the whole line, full name +
+ *  line splits on it so the MID and NARROW tiers can print the family name alone (round 2B measured the whole line, full name +
  *  room tag, ellipsising to one kanji at the floor). A name with no space returns the whole name; at the floor it
  *  ellipsises as the last resort, like any 3+-kanji family name. */
 export function familyNameOf(displayName: string): string {
@@ -161,15 +161,19 @@ export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
  *  THE LINES STACK (`.biz .event strong` / `small` are display: block, one line each), so a tier needs the WIDEST
  *  of its lines, not the sum of them (round 2B, the lead's D-3 ruling).
  *  · MID from LABEL_TIER_PX.mid = the width that fits the wider of the name and time lines = max(FAMILY_NAME_PX 26,
- *    CARD_TIME_PX 46) + CARD_TIGHT_PAD_PX 7 = 53 px: name · HH:MM〜, tight padding, the menu/price line dropped (a
- *    60-minute card at the floor, 66 px, keeps its time line). CARD_TIME_PX = 「07:00〜」
+ *    CARD_TIME_PX 46) + CARD_TIGHT_PAD_PX 7 = 53 px: the FAMILY NAME · HH:MM〜 (no given name, no room tag), tight
+ *    padding, the menu/price line dropped (a 60-minute card at the floor, 66 px, keeps its time line). MID prints the
+ *    family name because any fixed boundary would chop some full names (⚖ round 4: a chopped name never beats a whole
+ *    shorter one; round 3's full name 「渡辺 さやか」 67 px ellipsised in the 66 px card's 59 px), so 53 is true for what
+ *    MID prints. CARD_TIME_PX = 「07:00〜」
  *    at `.e-time` (11.5px; no rule sets a weight on `.biz .event small`, so the inherited 400) measured 45.34 px in the
  *    same run (500: 46.22 · 600: 47.36 · 700: 48.89) → 46. Round 1's 37.70 was Chromium's default font, not the stack.
  *  · WIDE from LABEL_TIER_PX.wide = the WIDEST of the three lines at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 +
  *    border 1 + 1). Measured on the real page (round 2B, the practice gym, headless Chromium 148, `.e-tkt` 11.5px /
  *    400): the menu/price line is the widest — 「単発 ¥11,000」 / 「単発 ¥13,750」 76.63 px (「単発 ¥6,600」 68.89),
  *    wider than the time line (45.34) and the longest sample full name (「木村 沙也加」 69.34 at 13px / 700) — so
- *    CARD_MENU_PX = 77 and WIDE = max(26, 46, 77) + 18 = 95 px: today's full card, every line whole. A longer menu
+ *    CARD_MENU_PX = 77 and WIDE = max(26, 46, 77) + 18 = 95 px: today's full card (the full name + the room tag + the
+ *    menu/price line; the given name joins at WIDE only), the widest measured line whole. A longer menu
  *    line still ellipsises (the last resort).
  *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 77 · 35 · 2), pinned by test. */
 export const CARD_TIME_PX = 46

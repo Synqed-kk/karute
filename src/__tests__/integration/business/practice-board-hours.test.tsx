@@ -283,14 +283,14 @@ it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 2
   }
 })
 
-it('⚖ S25 round 3 (D5) — MOUNTED: the 07:00 card\'s name line per tier — WIDE the full name + the room tag · MID the full name, no tag · NARROW the family name only (familyNameOf) · SLIVER the bar', async () => {
+it('⚖ S25 round 3 (D5) + round 4 — MOUNTED: the 07:00 card\'s name line per tier — WIDE the full name + the room tag · MID the family name + the time line (no given name, no tag) · NARROW the family name only (familyNameOf) · SLIVER the bar', async () => {
   // jsdom runs no container queries, so the tiers are read from today.css as written (content-box px, today-board.ts
   // LABEL_TIER_PX − CARD_PAD_PX) and applied to the rendered name line: what each tier hides is removed, the rest is the line.
   const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
-  expect(css).toContain('@container (width < 77px) {\n  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .tg { display: none; }')
-  expect(css).toContain('@container (width < 35px) { .biz .page-today .event > .e-time, .biz .page-today .event > strong > .e-given { display: none; } }')
+  expect(css).toContain('@container (width < 77px) {\n  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .e-given, .biz .page-today .event > strong > .tg { display: none; }')
+  expect(css).toContain('@container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }')
   expect(css).toContain('@container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }')
-  const HIDDEN = { wide: [], mid: ['.tg'], narrow: ['.tg', '.e-given'] } as const
+  const HIDDEN = { wide: [], mid: ['.e-tkt', '.e-given', '.tg'], narrow: ['.e-tkt', '.e-given', '.tg', '.e-time'] } as const
   const host = document.body.appendChild(document.createElement('div'))
   const root = createRoot(host)
   try {
@@ -299,13 +299,14 @@ it('⚖ S25 round 3 (D5) — MOUNTED: the 07:00 card\'s name line per tier — W
     const card = Array.from(host.querySelectorAll<HTMLElement>('.lane .track .event[data-book]:not(.cleanup)')).find((el) => el.querySelector('.e-time')?.textContent?.startsWith('07:00') && el.querySelector('.tg')?.textContent)!
     expect(card).toBeTruthy()
     const strong = card.querySelector<HTMLElement>(':scope > strong')!
-    const line = (hide: ReadonlyArray<string>) => {
-      const copy = strong.cloneNode(true) as HTMLElement
+    // a tier's face = [the name line, the time line] as printed (null = hidden)
+    const face = (hide: ReadonlyArray<string>) => {
+      const copy = card.cloneNode(true) as HTMLElement
       for (const sel of hide) copy.querySelectorAll(sel).forEach((n) => n.remove())
-      return copy.textContent
+      return [copy.querySelector(':scope > strong')!.textContent, copy.querySelector(':scope > .e-time')?.textContent ?? null]
     }
-    expect([line(HIDDEN.wide), line(HIDDEN.mid), line(HIDDEN.narrow)]).toEqual(['松田 亜希子【未定】', '松田 亜希子', '松田'])
-    expect(strong.querySelector('.e-fam')!.textContent).toBe(familyNameOf(line(HIDDEN.mid)!))
+    expect([face(HIDDEN.wide)[0], face(HIDDEN.mid), face(HIDDEN.narrow)]).toEqual(['松田 亜希子【未定】', ['松田', '07:00〜'], ['松田', null]])
+    expect(face(HIDDEN.mid)[0]).toBe(familyNameOf(face(HIDDEN.wide)[0]!.replace(strong.querySelector('.tg')!.textContent!, '')))
   } finally {
     act(() => root.unmount())
     host.remove()

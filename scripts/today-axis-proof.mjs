@@ -9,9 +9,9 @@
 //   PORT=<after port> [BEFORE_PORT=<a second server on an origin/main copy>] STATE=<storageState json> OUT=<dir> \
 //     node scripts/today-axis-proof.mjs
 // ONLY=gym-1280-open,gym-1180-open re-runs those runs alone; their results replace the same runs in OUT's existing
-// today-axis-proof.json (the other runs are kept as they were). Round 3 (D5): the name line is split into .e-fam ·
-// .e-given · .tg and the tiers print WIDE full name + tag · MID full name · NARROW the family name; the script ASSERTS
-// it on the gym at 1280/1180 open (exit code 1 + a FAIL line when a check does not hold).
+// today-axis-proof.json (the other runs are kept as they were). Round 3 (D5) + round 4: the name line is split into
+// .e-fam · .e-given · .tg and the tiers print WIDE full name + tag · MID the family name + the time line · NARROW the
+// family name; the script ASSERTS it on the gym at 1280/1180 open (exit code 1 + a FAIL line when a check does not hold).
 //
 // The servers it reads (no value is written here, and none belongs in this file): a LOCAL `next dev -p <port>` (or
 // `next build` + `next start -p <port>`) of this worktree, started in a subshell that sources the repo's local env
@@ -144,7 +144,7 @@ const kept = ONLY && existsSync(JSON_OUT) ? JSON.parse(readFileSync(JSON_OUT, 'u
 const stamp = new Date().toISOString()
 writeFileSync(JSON_OUT, JSON.stringify({ chromium: browser.version(), rerun: ONLY ? { at: stamp, runs: results.map(key) } : undefined, results: [...kept, ...results.map((x) => (ONLY ? { ...x, rerunAt: stamp } : x))] }, null, 2))
 // round 3 (D5) — the asserted checks on the gym at 1280 / 1180, sidebar open (after): NARROW prints the family name
-// whole, MID the full name without the tag + the time line, WIDE the tag.
+// whole, MID (round 4) the family name whole without the given name or the tag + 「07:00〜」, WIDE the tag.
 let failed = 0
 const check = (ok, what) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failed += 1 }
 for (const x of results.filter((r) => r.store === 'gym' && r.sidebar === 'open' && r.tag === 'after')) {
@@ -158,9 +158,15 @@ for (const x of results.filter((r) => r.store === 'gym' && r.sidebar === 'open' 
   const c07 = x.cards.find((c) => c.time?.startsWith('07:00') && c.min === 30)
   check(!!c07 && c07.name.line === familyNameOf(c07.name.full) && c07.nameScroll <= c07.nameClient && !c07.timeShown,
     `${at} NARROW 07:00 30-min card: line 「${c07?.name.line}」 = familyNameOf(「${c07?.name.full}」) 「${c07 ? familyNameOf(c07.name.full) : '-'}」 · scroll/client ${c07?.nameScroll}/${c07?.nameClient} · time hidden ${c07 ? !c07.timeShown : '-'}`)
-  const mid = x.cards.find((c) => c.min === 60 && c.w >= 53 && c.w < 95)
-  check(!!mid && mid.name.line === mid.name.full && !mid.name.tagShown && mid.timeShown,
-    `${at} MID 60-min card (w ${mid?.w}): line 「${mid?.name.line}」 = full 「${mid?.name.full}」 · tag 「${mid?.name.tag}」 shown ${mid?.name.tagShown} · time 「${mid?.time}」 shown ${mid?.timeShown}`)
+  const mid = x.cards.find((c) => c.min === 60 && c.w >= 53 && c.w < 95 && c.time?.startsWith('07:00'))
+  check(!!mid && mid.name.line === familyNameOf(mid.name.full) && !mid.name.givenShown && !mid.name.tagShown && mid.nameScroll <= mid.nameClient && mid.timeShown && mid.time === '07:00〜',
+    `${at} MID 60-min 07:00 card (w ${mid?.w}): line 「${mid?.name.line}」 = familyNameOf(「${mid?.name.full}」) · given shown ${mid?.name.givenShown} · tag 「${mid?.name.tag}」 shown ${mid?.name.tagShown} · scroll/client ${mid?.nameScroll}/${mid?.nameClient} · time 「${mid?.time}」 shown ${mid?.timeShown}`)
+  // round 4: every card's name line at MID (53 ≤ w < 95) and NARROW (20 ≤ w < 53) — whole = scrollWidth ≤ clientWidth
+  for (const [tier, lo, hi] of [['MID', 53, 95], ['NARROW', 20, 53]]) {
+    const cs = x.cards.filter((c) => c.w >= lo && c.w < hi)
+    const chopped = cs.filter((c) => c.nameScroll > c.nameClient)
+    console.log(`INFO ${at} ${tier} name lines whole: ${cs.length - chopped.length}/${cs.length} · printed ${[...new Set(cs.map((c) => c.name.line))].map((t) => `「${t}」`).join(' ')}${chopped.length ? ` · chopped ${chopped.map((c) => `「${c.name.line}」 ${c.nameScroll}/${c.nameClient}`).join(' ')}` : ''}`)
+  }
   console.log(`INFO ${at}: cards ≥ WIDE 95 px: ${x.cards.filter((c) => c.w >= 95).length} (widest ${Math.max(...x.cards.map((c) => c.w))}); the WIDE check runs at 1920`)
 }
 for (const x of results) {
@@ -171,7 +177,7 @@ for (const x of results) {
     `now ${x.now ? `${x.now.text} inView=${x.now.inView}` : '-'}`,
     x.scroll ? `scroll applied ${x.scroll.applied} laneShift ${x.scroll.laneShift} l13Shift ${x.scroll.l13Shift} strip13−ruler13 ${x.scroll.stripVsRuler13}` : 'scroll -',
     c07 ? `07:00 30min card w ${c07.w} line ${c07.name?.line} full ${c07.name?.full} family ${c07.name?.family}(${c07.name?.familyW}) scroll/client ${c07.nameScroll}/${c07.nameClient} timeShown ${c07.timeShown}` : '07:00 30min card -',
-    ((c) => (c ? `60min card w ${c.w} timeShown ${c.timeShown} tktShown ${c.tktShown}` : '60min card -'))(x.cards.find((c) => c.min === 60) ?? x.cards.find((c) => c.min === 45)),
+    ((c) => (c ? `60min card w ${c.w} line ${c.name?.line} scroll/client ${c.nameScroll}/${c.nameClient} timeShown ${c.timeShown} tktShown ${c.tktShown}` : '60min card -'))(x.cards.find((c) => c.min === 60) ?? x.cards.find((c) => c.min === 45)),
   ].join(' | '))
 }
 console.log(`json: ${JSON_OUT}`)
