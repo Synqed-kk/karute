@@ -27,7 +27,7 @@ const STORES = [
   { ...ROW, storeId: '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7', storeName: '恵比寿', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 260 },
 ]
 
-type Run = { storeId: string; resolve: (r: Response) => void }
+type Run = { storeId: string; resolve: (r: Response) => void; signal?: AbortSignal | null }
 let runs: Run[] = []
 let extraRows: unknown[] = []
 // What the form's saves wrote: the next /configs read shows it (store id → row fields).
@@ -53,12 +53,22 @@ const apiFetch = jest.fn((url: string, init?: RequestInit) => {
     // A run answers only when the test resolves it; an abort (the run deadline) rejects it like fetch does.
     return new Promise<Response>((resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
-      runs.push({ storeId, resolve })
+      runs.push({ storeId, resolve, signal: init.signal })
     })
   }
   return Promise.reject(new Error(`unexpected ${url}`))
 })
 const ok = reply({ success: true, created: 1, updated: 2, cancelled: 3, skipped: 4 })
+// A 2xx whose body stalls: text() stays pending until the request's signal aborts, then rejects like fetch does.
+const stalledBody = (signal?: AbortSignal | null) =>
+  ({
+    ok: true,
+    status: 200,
+    text: () =>
+      new Promise<string>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+      }),
+  }) as unknown as Response
 const loginFail = reply({ error: 'QR login failed: 401' }, 502)
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 const selectStore = jest.fn(async () => ({ ok: true as const }))
@@ -695,6 +705,51 @@ describe('viewAll caller', () => {
       // The list re-reads after the deadline too: the server may have finished the run.
       expect(configsCalls()).toBe(readsBefore + 1)
       expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it('a row run answered 2xx whose body stalls: at the deadline the row shows failed (never a zero-count result) and the claim is released', async () => {
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      const row = () => within(screen.getByTestId(`sync-row-${shibuya}`))
+      await act(async () => { fireEvent.click(row().getByText('runNow')) })
+      expect(runs.map((r) => r.storeId)).toEqual([shibuya])
+      await act(async () => { runs[0].resolve(stalledBody(runs[0].signal)) })
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(shibuya)).toBe(true) // the body is still pending one ms before the deadline
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(shibuya)).toBe(false)
+      expect(row().getByText('runFailed')).toBeTruthy()
+      expect(row().queryByText(/^runResult/)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it("the form's 今すぐ同期 answered 2xx whose body stalls: at the deadline it shows the failure line (never 同期完了), the claim is released and the list re-reads once", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+      expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+      await act(async () => { runs[0].resolve(stalledBody(runs[0].signal)) })
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(daikanyama)).toBe(true)
+      const readsBefore = configsCalls()
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(daikanyama)).toBe(false)
+      expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+      expect(screen.queryByText(/^result\{/)).toBeNull()
+      expect(configsCalls()).toBe(readsBefore + 1)
     } finally {
       jest.useRealTimers()
     }
