@@ -1,3 +1,7 @@
+import { shiftTotals, type ShiftCapacityInput, type ShiftState } from './shift-capacity'
+export { receivableIntervals } from './shift-capacity'
+export type { ShiftCapacityInput, ShiftState, ShiftRow, ShiftPerson, Interval } from './shift-capacity'
+
 // ---------------------------------------------------------------------------
 // ONE capacity per store-day — the pure leaf module.
 //
@@ -63,6 +67,8 @@ export interface DayHours {
  *     has no notion of "now".
  */
 export interface CapacityInput {
+  /** Present only when the caller enables shiftLanes. */
+  shift?: ShiftCapacityInput
   laneKind: LaneKind
   /** The store's booking roster headcount for the day, or null when the roster
    *  could not be read / there is no store (FAIL CLOSED — C1 §5, C3 E28; the
@@ -91,6 +97,10 @@ export type NoCapacityReason =
   | 'over-concurrency'
 
 export interface CapacityFact {
+  /** Absent on the legacy/OFF path, preserving its serialized bytes. */
+  shiftState?: ShiftState
+  onShiftNoBooking?: number
+  unassignedOverflow?: number
   /** lanes × laneMinutes, or null. NEVER 0-as-unknown, NEVER NaN (E10: a brand
    *  new store printed 「NaN% 稼働」 under the design's un-guarded formula). */
   capacityMinutes: number | null
@@ -228,8 +238,35 @@ export function bandFor(occupancyPct: number): Band {
   return 'busy'
 }
 
+/** Shared rounding/full convention, used by both the legacy and shift paths. */
+function roundedCapacity(capacityMinutes: number, bookedMinutes: number) {
+  const full = capacityMinutes - bookedMinutes < 0.5
+  return {
+    full,
+    percent: full ? 100 : Math.min(99, Math.round((bookedMinutes / capacityMinutes) * 100)),
+    free: Math.round(Math.max(0, capacityMinutes - bookedMinutes)),
+  }
+}
+
 export function capacityForDay(input: CapacityInput): CapacityFact {
   const hours = input.hours
+  if (input.shift) {
+    const totals = shiftTotals(input, input.shift)
+    const { shiftState, onShiftNoBooking, unassignedOverflow, bookedMinutes, lanes } = totals
+    const capacityMinutes = input.laneKind === 'staff' ? totals.capacityMinutes : null
+    const rounded = capacityMinutes == null ? null : roundedCapacity(capacityMinutes, bookedMinutes)
+    return {
+      capacityMinutes, bookedMinutes, lanes, laneKind: input.laneKind,
+      hoursSource: hours?.source ?? null,
+      occupancyPct: rounded?.percent ?? null,
+      full: rounded?.full ?? false,
+      band: rounded ? bandFor(rounded.percent) : null,
+      availableMinutes: hours?.source === 'store' ? rounded?.free ?? null : null,
+      // Existing neutral fallback: never the hours-not-saved/未設定 promise.
+      reason: capacityMinutes == null ? 'roster-unknown' : null,
+      shiftState, onShiftNoBooking, unassignedOverflow,
+    }
+  }
   // The hours DESCRIBE this day only when a human declared them for a trading
   // day: a missing fact, a 定休日 and the 10:00–24:00 fallback all fail it
   // (E25), and so does a window that does not run forwards. When they fail, the
@@ -378,11 +415,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   // point, and that is still 満. `occupancyPct`/`availableMinutes` are
   // DERIVED from this same flag (R2 round 2, HIGH-2), so 100% / 満 / 空き 0
   // can never disagree (E23) — 100 prints ONLY when `full` is true.
-  const full = capacityMinutes - windowMinutes < 0.5
-  const occupancyPct = full
-    ? 100
-    : Math.min(99, Math.round((windowMinutes / capacityMinutes) * 100))
-  const free = Math.round(Math.max(0, capacityMinutes - windowMinutes))
+  const { full, percent: occupancyPct, free } = roundedCapacity(capacityMinutes, windowMinutes)
   return {
     capacityMinutes,
     lanes,
