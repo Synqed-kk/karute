@@ -7,7 +7,7 @@ export const minute = (n: number) => DAY + n * 60_000
 export const span = (staffId: string | null, start: number, end: number) => ({ staffId, startMs: minute(start), endMs: minute(end) })
 export const t1Spans = [span('s1', 600, 900), span('s2', 600, 900), span('s3', 600, 900)]
 export const t4Spans = [span('s1', 600, 990), span('s2', 600, 990), span('s3', 600, 780)]
-export function input(spans = t1Spans): CapacityInput {
+export function input(spans: CapacityInput['spans'] = t1Spans): CapacityInput {
   return { laneKind: 'staff', rosterLanes: 5, hours: { openMs: minute(600), closeMs: minute(1200), source: 'store', closed: false }, dayStartMs: DAY, dayEndMs: DAY + 86_400_000, spans }
 }
 export function appointments(spans = t1Spans): Appointment[] {

@@ -30,6 +30,7 @@ import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/
 import {
   customerLensFor,
   storeDivisorRosterForBusiness,
+  shiftRosterForBusiness,
   storeStaffIdSetForBusiness,
 } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
@@ -40,6 +41,8 @@ import {
   fetchCoreStaffByProfileId,
   getAppointmentsByDateWithClient,
 } from '@/lib/appointments/by-date'
+import { readStaffShifts } from '@/lib/appointments/staff-shifts'
+import type { ShiftCapacityInput } from '@/lib/capacity/capacity'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import {
@@ -367,6 +370,17 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 
+    let shiftCapacity: Omit<ShiftCapacityInput, 'date'> | undefined
+    if (BOOKING_SWITCHES.shiftLanes) {
+      const [read, roster] = storeId && !blind
+        ? await Promise.all([
+            readStaffShifts(synqed, businessId, storeId, span.fromYmd, span.toExclusiveYmd),
+            shiftRosterForBusiness(businessId, storeId),
+          ])
+        : [{ rows: [], readComplete: false }, null]
+      shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown }
+    }
+
     const screen = buildAppointmentsScreen({
       locale,
       weekStart: facadeWeekStart(url.searchParams.get('weekStart'), locale),
@@ -377,6 +391,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       activeStaffId: selfRow?.id ?? null,
       storeStaffIds,
       divisorStaffIds,
+      ...(shiftCapacity ? { shiftCapacity } : {}),
       // ⚖ R1-9 — the same flag the web door reports: a filter naming somebody
       // the roster cannot place (its window holds only 担当未定 rows) gets no
       // capacity, not one idle lane.

@@ -8,6 +8,7 @@
 // not survive JSON; the thin screen revives it before handing to the view.
 
 import { z } from 'zod'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 
 export const ReservationViewDTO = z.object({
   id: z.string(),
@@ -53,7 +54,9 @@ const WeekDayBookingChipDTO = z.object({
  *  any server/bundle skew. Every default is the honest "no capacity" state,
  *  which is exactly what a server that does not send these fields means. */
 const capacityFields = {
-  shiftState: z.enum(['entered', 'partial', 'none', 'nobody', 'solo', 'off', 'unavailable']).default('unavailable'),
+  // The default supports bundle skew ON; OFF decoding/JSON keeps today's shape.
+  shiftState: z.enum(['entered', 'partial', 'none', 'nobody', 'solo', 'off', 'unavailable'])
+    .default('unavailable').transform(value => BOOKING_SWITCHES.shiftLanes ? value : undefined),
   onShiftNoBooking: z.number().optional(),
   unassignedOverflow: z.number().optional(),
   /** lanes × the day's declared minutes; null = no honest capacity (see
@@ -169,7 +172,7 @@ export const MonthCellDTO = z.object({
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's
  *  month loader returns on BOTH doors (facade GET on the phone, server action
  *  on web), so neither host hand-rolls its own. */
-export type MonthCellDTOType = z.infer<typeof MonthCellDTO>
+export type MonthCellDTOType = Omit<z.infer<typeof MonthCellDTO>, 'shiftState'> & { shiftState?: z.infer<typeof MonthCellDTO>['shiftState'] }
 
 export const AppointmentsScreenDTO = z.object({
   /** Echo of the resolved query params — the view treats them as canon. */

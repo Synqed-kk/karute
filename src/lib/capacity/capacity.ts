@@ -5,13 +5,11 @@ export type { ShiftCapacityInput, ShiftState, ShiftRow, ShiftPerson, Interval } 
 // ---------------------------------------------------------------------------
 // ONE capacity per store-day — the pure leaf module.
 //
-// Karute's reservation adapter and Business's board both read capacity through
-// this file and nothing else computes it (C4 §(3): the 1a adapter is
-// screen-shaped — it imports @synqed-kk types — so a shared FACT cannot live
-// there without coupling it to one screen). Everything here is arithmetic over
-// primitives: no Date parsing, no timezone code, no React, no SDK, no DOM, no
-// switches. The CALLER reads the switches and hands instants down; the module
-// knows nothing of business types, rosters or stores.
+// The booking reservation adapter reads this public entry. Business's board
+// uses its own capacity ledger; it does not read this file (the old header
+// incorrectly claimed that both surfaces shared this computation).
+// Arithmetic over explicit instants: no SDK, React, DOM, or switch reads.
+// The caller supplies store/day/roster/shift facts when shiftLanes is enabled.
 //
 // The model is ADJUDICATION-CAPACITY-2026-09-15 (v2), built from council C1
 // (data), C2 (personas), C3 (blind spots) and C4 (layers). Each rule below
