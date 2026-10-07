@@ -188,6 +188,9 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // so the fence and this allowlist can never disagree; judged on the RESOLVED
     // target like the row above (a barrel such as `@/lib/appointments` stays out).
     [SHARED_CORES.doorFile]: SHARED_CORES.modules,
+    // ⚖ S81 — the ONE hours resolver, a pure function: imports only @/lib/date/jst, @/lib/date/calendar-range and a
+    // type-only capacity import; no core, no prisma, no next. Named imports from this one file (never a barrel).
+    'src/business/lib/practice-door/store-hours.ts': ['src/lib/operating-hours'],
   }
   // Bare packages: the render runtime only. `node:` builtins ride along because
   // the territory's own test file reads fixtures off disk — stdlib reaches no
