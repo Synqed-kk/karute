@@ -1412,7 +1412,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
     withReads({ closedDays: { [STORE.tokyo]: [row] } })
     const day = await data.readDayPlanes(STORE.tokyo, TODAY)
-    expect([day.shownDayClosed, day.closedWeekdays, day.operatingHours, day.hoursSource]).toEqual(['closed_date', [2], { open: 600, close: 1140 }, 'core'])
+    expect([day.shownDayClosed, day.closedWeekdays, day.operatingHours, hoursSource(day)]).toEqual(['closed_date', [2], { open: 600, close: 1140 }, 'core'])
     // as a closed weekday: nobody is seated off the sample roster — only a person with a live row that day keeps a lane
     const live = new Set((await data.listAppointments(STORE.tokyo, {})).filter((a) => jstDayKey(a.starts_at) === TODAY).map((a) => a.staff_id))
     const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY, to: TODAY + 7 })).get(TODAY)!
@@ -1425,7 +1425,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const failed = await data.readDayPlanes(STORE.tokyo, TODAY)
-      expect([failed.hoursSource, failed.operatingHours]).toEqual(['sample', operatingHours])
+      expect([hoursSource(failed), failed.operatingHours]).toEqual(['sample', operatingHours])
       expect(quiet).toHaveBeenCalledWith('[practice hours] core did not answer:', 'closed days down')
     } finally {
       quiet.mockRestore()
