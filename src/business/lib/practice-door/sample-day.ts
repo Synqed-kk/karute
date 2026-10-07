@@ -78,7 +78,10 @@ export function ownHours(shift: FixtureShift, sample: Window, day: Window): Fixt
  *  10 h the store's staff, sorted by NAME (plain code-unit sort), alternate early (open..open+9h) and late (close−9h..close)
  *  by index parity — both sides staffed from two people on, one person = early; a day longer than 18 h adds a middle side
  *  (index % 3). The loader books a profile visit only inside its person's side, so give-way never stretches a shift.
- *  ≤ 10 h: no sides (everyone works the day). */
+ *  ≤ 10 h: no sides (everyone works the day).
+ *  ⚖ S87 Q1 — the parity set is the STYLIST + ASSISTANT people only (the roles the loader's recipes staff). Everyone else —
+ *  OWNER, ADMIN (the lead's call: a manager works the whole day, as the owner), a card with no role, a floating or
+ *  unassigned card — gets NO side and works the whole day (open..close), so an extra card never flips anyone's parity. */
 export function sidesOf(names: readonly string[], pair: Window): Map<string, Span> | null {
   if (pair.close - pair.open <= 10 * 60) return null
   const mid = Math.floor((pair.open + pair.close) / 2)
@@ -91,11 +94,12 @@ export function sidesOf(names: readonly string[], pair: Window): Map<string, Spa
 export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name: string; role?: string }>, pair: Window, absence: FixtureAbsence | null,
   templates: readonly FixtureSellSlot[], prices: { price_low: number; price_high: number } | null = null, pin = 13 * 60 + 24, rows: readonly LiveSpan[] = []) {
   const hash = (id: string) => [...id].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261)
-  const sides = sidesOf(people.map((p) => p.name), pair)
+  const onSide = (p: { role?: string }) => p.role === 'STYLIST' || p.role === 'ASSISTANT' // ⚖ S87 Q1 (sidesOf)
+  const sides = sidesOf(people.filter(onSide).map((p) => p.name), pair)
   const rank: Record<string, number> = {} // the person's place among their side, by name — staggers the split breaks
   const byName = [...people].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  const shifts: FixtureShift[] = byName.map(({ id, name }) => {
-    const side = sides?.get(name) ?? { start: pair.open, end: pair.close }
+  const shifts: FixtureShift[] = byName.map(({ id, name, role }) => {
+    const side = (onSide({ role }) ? sides?.get(name) : undefined) ?? { start: pair.open, end: pair.close }
     const key = `${side.start}-${side.end}`
     const r = rank[key] ?? 0
     rank[key] = r + 1

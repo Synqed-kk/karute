@@ -8,12 +8,14 @@ import { weekFromPair } from '@/business/lib/practice-door/store-hours'
 const sample = { open: 600, close: 1140 }
 const roster = shifts.map((s) => s.staff_id)
 const GYM = { open: 420, close: 1320 }
-const NAMES = ['見本 けんた', '見本 だいち', 'テスト りな', '見本 なつみ', '見本 こはる', '見本 ゆうと']
+const NAMES = ['見本 けんた', '見本 だいち', 'テスト りな', '見本 なつみ', 'テスト こはる', '見本 ゆうと'] // as scripts/test-world/recipes/personal_gym.ts names them
+const ROLES = ['STYLIST', 'STYLIST', 'STYLIST', 'STYLIST', 'ASSISTANT', 'STYLIST'] // the recipe's roles, parallel
+const crew = (names: readonly string[] = NAMES) => roster.map((id, i) => ({ id, name: names[i], role: ROLES[i] }))
 const input = (pair = sample) => ({
   shifts, absence, roster, rows: [] as LiveSpan[], carried: new Set<string>(), taken: sellSlots, sellSlots, sample, dayKey: 20733,
   hours: { operatingHours: pair, weeklyHours: weekFromPair(pair, []), closedWeekdays: [], hoursSource: 'core' as const, shownDayKey: 20733, shownDayClosed: null },
 })
-const gym = (rows: LiveSpan[] = []) => serveDay({ ...input(GYM), type: 'personal_gym', names: NAMES, prices: SAMPLE_SLOT_PRICES.personal_gym, pin: 804, rows })
+const gym = (rows: LiveSpan[] = []) => serveDay({ ...input(GYM), type: 'personal_gym', names: NAMES, roles: ROLES, prices: SAMPLE_SLOT_PRICES.personal_gym, pin: 804, rows })
 type Day = ReturnType<typeof serveDay>
 const onFloor = (out: Day, t: number) => out.shifts.filter((s) => s.start <= t && t < s.end && !s.breaks.some((b) => b.start <= t && t < b.end)
   && !(out.absence && out.absence.staff_id === s.staff_id && t >= out.absence.from)).length
@@ -70,13 +72,13 @@ it('T7 (R4): serveDay with today\'s plan-shaped rows — shifts stay ≤ 9 h, th
 })
 
 it('T7 (R4): one person works early with no absence; 00–24 adds a middle side; an 11–18 salon staggers lunch', () => {
-  const one = shiftDay('personal_gym', [{ id: 'solo', name: 'solo' }], GYM, absence, sellSlots)
+  const one = shiftDay('personal_gym', [{ id: 'solo', name: 'solo', role: 'STYLIST' }], GYM, absence, sellSlots)
   expect(one.shifts.map((s) => [s.start, s.end])).toEqual([[420, 960]])
   expect(one.absence).toBeNull()
-  const day = shiftDay('personal_gym', roster.map((id, i) => ({ id, name: NAMES[i] })), { open: 0, close: 1440 }, absence, sellSlots)
+  const day = shiftDay('personal_gym', crew(), { open: 0, close: 1440 }, absence, sellSlots)
   expect(new Set(day.shifts.map((s) => s.start))).toEqual(new Set([0, 450, 900]))
   for (let t = 0; t < 1440; t += 30) expect(day.shifts.some((s) => s.start <= t && t < s.end)).toBe(true)
-  const salon = shiftDay('hair_salon', roster.map((id, i) => ({ id, name: NAMES[i] })), { open: 660, close: 1080 }, absence, sellSlots, SAMPLE_SLOT_PRICES.hair_salon)
+  const salon = shiftDay('hair_salon', crew(), { open: 660, close: 1080 }, absence, sellSlots, SAMPLE_SLOT_PRICES.hair_salon)
   for (const s of salon.shifts) {
     expect([s.start, s.end]).toEqual([660, 1080])
     expect(s.breaks[0].start).toBeGreaterThanOrEqual(720); expect(s.breaks[0].end).toBeLessThanOrEqual(900)
@@ -86,11 +88,11 @@ it('T7 (R4): one person works early with no absence; 00–24 adds a middle side;
 })
 
 it('R19: an overnight day (18:00–03:00) generates no inverted shift', () => {
-  expect(shiftDay('hair_salon', [{ id: 'a', name: 'a' }, { id: 'b', name: 'b' }], { open: 1080, close: 180 }, absence, sellSlots).shifts).toEqual([])
+  expect(shiftDay('hair_salon', [{ id: 'a', name: 'a', role: 'STYLIST' }, { id: 'b', name: 'b', role: 'STYLIST' }], { open: 1080, close: 180 }, absence, sellSlots).shifts).toEqual([])
 })
 
 it('R15/R16: generated slots yield to a busy person or room; a closed day keeps the slots it always had', () => {
-  const base = { ...input({ open: 660, close: 1080 }), type: 'hair_salon' as const, prices: SAMPLE_SLOT_PRICES.hair_salon }
+  const base = { ...input({ open: 660, close: 1080 }), type: 'hair_salon' as const, roles: ROLES, prices: SAMPLE_SLOT_PRICES.hair_salon }
   const out = serveDay(base)
   const slot = out.sellSlots![0]
   expect(slot.start).toBeGreaterThan(804)
