@@ -62,6 +62,8 @@ import {
   readAnalyticsPlanes,
   readShellIdentity,
   renderNow,
+  sampleDateline,
+  practiceDoorOn,
   type StoreLens,
 } from '@/business/lib/data'
 import {
@@ -213,6 +215,7 @@ export async function analyticsProps({
   }
 
   // ONE CLOCK READ PER RENDER (the cycle-1 law).
+  const doorOn = await practiceDoorOn()
   const now = renderNow()
   const today = jstYmd(now)
   const todayKey = jstDayKey(now)
@@ -767,7 +770,7 @@ export async function analyticsProps({
 
   const rest: Omit<AnalyticsProps, 'provenance'> = {
     denied: null,
-    dateline: `サンプルデータ ${spanWord}${asOf ? `（${selected.short}${today.d}日時点）` : ''}`,
+    dateline: sampleDateline(now, lensLabel, doorOn, `${spanWord}${asOf ? `（${selected.short}${today.d}日時点）` : ''}`),
     period: {
       label: selected.label,
       prevHref: selected.monthsAgo + 1 < LEDGER_MONTHS && ledger[selected.monthsAgo + 1] ? monthHref(selected.monthsAgo + 1) : null,

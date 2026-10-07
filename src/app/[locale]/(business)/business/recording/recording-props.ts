@@ -34,6 +34,7 @@ import {
   listStaff,
   listStoreOptions,
   renderNow,
+  sampleDateline,
   type StoreLens,
   readShellIdentity,
   practiceDoorOn,
@@ -579,7 +580,7 @@ export async function recordingProps({
   const attentionNote = recoverable === null ? null : daysLeftLine(recoverable.dayKey, todayKey)
 
   const props: RecordingProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
     lensLabel,
     operatorName: operator.name,
     // Canon's own subtitle (fable-record-session.html:404), amended for the two

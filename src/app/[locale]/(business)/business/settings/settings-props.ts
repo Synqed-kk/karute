@@ -54,6 +54,7 @@ import {
   readStoreDays,
   readStoreHours,
   renderNow,
+  sampleDateline,
   specialDayBadge,
   SPECIAL_OPEN_DAYS_NOTE,
   type StoreDaysReadResult,
@@ -309,7 +310,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   const props: SettingsProps = {
     // ⚖ PR-3 §v3 V3-5 — under the door the topbar names the practice world, so
     // the dateline drops its サンプルデータ word; OFF unchanged.
-    dateline: !doorOn ? `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}` : `${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
     subtitle:
       'お店の決まりごとと、自分の見え方をここでまとめて変えます。左の一覧から見たい設定を選ぶと、右にその中身が出ます。',
     // ⚖ H3 — and the same sentence where the room is one column deep, told the
