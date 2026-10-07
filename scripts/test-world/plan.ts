@@ -381,7 +381,10 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
 /** ⚖ R4 — THE SIDE RULE (one rule, two halves; the other half is src/business/lib/practice-door/sample-day.ts shiftDay):
  *  on a day longer than 10 h the store's staff, sorted by NAME, alternate early (open..open+9h) and late (close−9h..close)
  *  by index parity — both sides staffed from two people on, one person = early; a day longer than 18 h adds a middle side
- *  (index % 3). The planner gives a profile visit to a person only inside their side. ≤ 10 h: no sides. */
+ *  (index % 3). The planner gives a profile visit to a person only inside their side. ≤ 10 h: no sides.
+ *  ⚖ S87 Q1 — the parity set is the STYLIST + ASSISTANT people only (the roles the loader's recipes staff). Everyone else —
+ *  OWNER, ADMIN (the lead's call: a manager works the whole day, as the owner), a card with no role, a floating or
+ *  unassigned card — gets NO side and works the whole day (open..close), so an extra card never flips anyone's parity. */
 export function sidesOf(names: readonly string[], open: number, close: number): Map<string, { start: number; end: number }> | null {
   if (close - open <= 10 * 60) return null
   const mid = Math.floor((open + close) / 2)
