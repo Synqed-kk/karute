@@ -92,13 +92,13 @@ export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name:
   templates: readonly FixtureSellSlot[], prices: { price_low: number; price_high: number } | null = null, pin = 13 * 60 + 24, rows: readonly LiveSpan[] = []) {
   const hash = (id: string) => [...id].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261)
   const sides = sidesOf(people.map((p) => p.name), pair)
-  const rank = new Map<string, number>() // the person's place among their side, by name — staggers the split breaks
+  const rank: Record<string, number> = {} // the person's place among their side, by name — staggers the split breaks
   const byName = [...people].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   const shifts: FixtureShift[] = byName.map(({ id, name }) => {
     const side = sides?.get(name) ?? { start: pair.open, end: pair.close }
     const key = `${side.start}-${side.end}`
-    const r = rank.get(key) ?? 0
-    rank.set(key, r + 1)
+    const r = rank[key] ?? 0
+    rank[key] = r + 1
     const { start, end } = side
     let br: number
     if (sides) {
