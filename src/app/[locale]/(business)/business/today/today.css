@@ -493,13 +493,15 @@
    SLIVER below 20 → 2 (the lines stack, so a tier needs its widest line, not the sum; WIDE's is the menu/price line). Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
    (left 4, right 1: −6 / −5 px on the text lines, never on the absolute resize grips); below MID the time line goes
    too (NARROW: the family name); SLIVER keeps only the coloured bar (the full text stays in the hover/tap detail).
-   CSS ellipsis stays as the last-resort overflow. */
+   CSS ellipsis stays as the last-resort overflow. Round 3, the name line (TodayScreen cardFace: .e-fam · .e-given ·
+   .tg): the room tag prints at WIDE only (below WIDE it goes, the detail view carries it); below MID the given name
+   goes too, so NARROW prints the family name alone (familyNameOf, today-board.ts). */
 .biz .page-today .event { container-type: inline-size; }
 @container (width < 77px) {
-  .biz .page-today .event > .e-tkt { display: none; }
+  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .tg { display: none; }
   .biz .page-today .event > strong, .biz .page-today .event > small { margin-left: -6px; margin-right: -5px; }
 }
-@container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }
+@container (width < 35px) { .biz .page-today .event > .e-time, .biz .page-today .event > strong > .e-given { display: none; } }
 @container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
    詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer

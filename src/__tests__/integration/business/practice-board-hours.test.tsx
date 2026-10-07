@@ -42,7 +42,7 @@ import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallb
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
-import { minPxPer30 } from '@/business/lib/today-board'
+import { familyNameOf, minPxPer30 } from '@/business/lib/today-board'
 
 let mockOptions: RecordedOptions = {}
 const mockReads = () => recordedReads(mockOptions)
@@ -280,5 +280,34 @@ it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 2
     act(() => root.unmount())
     host.remove()
     for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]
+  }
+})
+
+it('⚖ S25 round 3 (D5) — MOUNTED: the 07:00 card\'s name line per tier — WIDE the full name + the room tag · MID the full name, no tag · NARROW the family name only (familyNameOf) · SLIVER the bar', async () => {
+  // jsdom runs no container queries, so the tiers are read from today.css as written (content-box px, today-board.ts
+  // LABEL_TIER_PX − CARD_PAD_PX) and applied to the rendered name line: what each tier hides is removed, the rest is the line.
+  const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+  expect(css).toContain('@container (width < 77px) {\n  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .tg { display: none; }')
+  expect(css).toContain('@container (width < 35px) { .biz .page-today .event > .e-time, .biz .page-today .event > strong > .e-given { display: none; } }')
+  expect(css).toContain('@container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }')
+  const HIDDEN = { wide: [], mid: ['.tg'], narrow: ['.tg', '.e-given'] } as const
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const card = Array.from(host.querySelectorAll<HTMLElement>('.lane .track .event[data-book]:not(.cleanup)')).find((el) => el.querySelector('.e-time')?.textContent?.startsWith('07:00') && el.querySelector('.tg')?.textContent)!
+    expect(card).toBeTruthy()
+    const strong = card.querySelector<HTMLElement>(':scope > strong')!
+    const line = (hide: ReadonlyArray<string>) => {
+      const copy = strong.cloneNode(true) as HTMLElement
+      for (const sel of hide) copy.querySelectorAll(sel).forEach((n) => n.remove())
+      return copy.textContent
+    }
+    expect([line(HIDDEN.wide), line(HIDDEN.mid), line(HIDDEN.narrow)]).toEqual(['松田 亜希子【未定】', '松田 亜希子', '松田'])
+    expect(strong.querySelector('.e-fam')!.textContent).toBe(familyNameOf(line(HIDDEN.mid)!))
+  } finally {
+    act(() => root.unmount())
+    host.remove()
   }
 })

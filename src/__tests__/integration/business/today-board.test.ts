@@ -63,6 +63,7 @@ import {
   boardDay,
   boardRows,
   boardCells,
+  familyNameOf,
   labelTier,
   LABEL_TIER_PX,
   CARD_MENU_PX,
@@ -1827,6 +1828,9 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     for (const px of [LABEL_TIER_PX.wide, LABEL_TIER_PX.mid, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - CARD_PAD_PX}px)`)
     // the offers (確保 · 詰め込み · スキマ枠 · 販売可能枠) take the same SLIVER boundary on their own padding + border.
     expect(css).toContain(`@container (width < ${LABEL_TIER_PX.sliver - OFFER_PAD_PX}px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }`)
+  })
+  it('round 3 (D5: NARROW = the family name ONLY) — familyNameOf: the text before the first half- or full-width space, trimmed; no space = the whole name (it ellipsises at the floor as the last resort)', () => {
+    expect(['山本 大輔', '山本\u3000大輔', 'ブラウン ジョン', '山本', ' 山本 大輔 ', '\u3000山本\u3000大輔\u3000'].map(familyNameOf)).toEqual(['山本', '山本', 'ブラウン', '山本', '山本', '山本'])
   })
   it('round 2 item 8 — the strip has one cell per grid unit of the ruler span (gym 07–22 · the 06:30-widened day · 24 h), and the overflow arithmetic at the floor', () => {
     const perHour = 60 / step

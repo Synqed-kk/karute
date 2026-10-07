@@ -140,6 +140,16 @@ export interface RulerLabel { hour: number; text: string; leftPct: number; width
  *  ellipsises at the floor — a known limit, not a bug: the card carries NO `title` (flag 8, Liam 2026-08-20: the
  *  browser's tooltip fired mid-drag), so the full name is in the card's tap/hover detail and its aria-label. */
 export const FAMILY_NAME_PX = 26
+/** ⚖ 10/7 S25 round 3 (D5: NARROW = the family name ONLY) — the family name of a card's display name: the text before
+ *  the first whitespace (a half-width space or the full-width 「　」; JS `\s` covers U+3000), trimmed. The card's name
+ *  line splits on it so the NARROW tier can print the family name alone (round 2B measured the whole line, full name +
+ *  room tag, ellipsising to one kanji at the floor). A name with no space returns the whole name; at the floor it
+ *  ellipsises as the last resort, like any 3+-kanji family name. */
+export function familyNameOf(displayName: string): string {
+  const name = displayName.trim()
+  const cut = name.search(/\s/)
+  return cut < 0 ? name : name.slice(0, cut)
+}
 export const CARD_TIGHT_PAD_PX = 7
 export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
 

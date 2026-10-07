@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { boardCells, bookingColorHex, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { boardCells, bookingColorHex, familyNameOf, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -8719,10 +8719,16 @@ export function TodayScreen(props: TodayProps) {
    *  so what travels under the cursor is the visual he grabbed, to the character,
    *  rather than a second rendering of the same booking that can drift from it. */
   function cardFace(item: BoardItem, settledHere: boolean, words: ResourceWords, timeLabel: string = item.time) {
+    // ⚖ 10/7 S25 round 3 (D5) — the name line in parts, so the label tiers (today.css @container) decide what prints:
+    // WIDE = the full name + the room tag (as before) · MID = the full name, no tag (the detail view carries it) ·
+    // NARROW = the family name only · SLIVER = the bar. The tag's source is unchanged; the text at WIDE is unchanged.
+    const family = familyNameOf(item.title)
+    const given = item.title.trimStart().slice(family.length)
     return (
       <>
         <strong>
-          {item.title}
+          <span className="e-fam">{family}</span>
+          {given && <span className="e-given">{given}</span>}
           <i className="tg">{item.tag}</i>
         </strong>
         <small className="e-time">{timeLabel}</small>
