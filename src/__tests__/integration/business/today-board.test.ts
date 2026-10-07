@@ -65,6 +65,7 @@ import {
   boardCells,
   labelTier,
   LABEL_TIER_PX,
+  CARD_MENU_PX,
   minPxPer30,
   trackOverflows,
   edgeText,
@@ -1817,11 +1818,11 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     expect(labelTier(minPxPer30)).toBe('narrow') // a one-cell card at the floor shows its family name
     expect(FRAMES.map((px) => trackOverflows(got, step, px))).toEqual(overflow)
   })
-  it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 53 = max(26, 「07:00〜」 46) + 7 · WIDE from 64 = max(26, 46) + 18 (the lines stack: the widest line, not the sum); the CSS @container rules mirror them in content-box px', () => {
+  it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 53 = max(26, 「07:00〜」 46) + 7 · WIDE from 95 = max(26, 46, menu/price 77) + 18 (the lines stack: the widest line, not the sum); the CSS @container rules mirror them in content-box px', () => {
     expect([FAMILY_NAME_PX, CARD_TIGHT_PAD_PX, minPxPer30, CARD_TIME_PX, CARD_PAD_PX]).toEqual([26, 7, 33, 46, 18])
-    expect(LABEL_TIER_PX).toEqual({ sliver: 20, mid: 53, wide: 64 })
-    expect([19, 20, 32, 33, 52, 53, 63, 64].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
-    expect(labelTier(2 * minPxPer30)).toBe('wide') // a 60-minute card at the floor (66 px) keeps its time line
+    expect([CARD_MENU_PX, LABEL_TIER_PX]).toEqual([77, { sliver: 20, mid: 53, wide: 95 }])
+    expect([19, 20, 32, 33, 52, 53, 94, 95].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
+    expect(labelTier(2 * minPxPer30)).toBe('mid') // a 60-minute card at the floor (66 px) keeps its time line
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     for (const px of [LABEL_TIER_PX.wide, LABEL_TIER_PX.mid, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - CARD_PAD_PX}px)`)
     // the offers (確保 · 詰め込み · スキマ枠 · 販売可能枠) take the same SLIVER boundary on their own padding + border.

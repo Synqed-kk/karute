@@ -155,15 +155,20 @@ export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
  *    60-minute card at the floor, 66 px, keeps its time line). CARD_TIME_PX = 「07:00〜」
  *    at `.e-time` (11.5px; no rule sets a weight on `.biz .event small`, so the inherited 400) measured 45.34 px in the
  *    same run (500: 46.22 · 600: 47.36 · 700: 48.89) → 46. Round 1's 37.70 was Chromium's default font, not the stack.
- *  · WIDE from LABEL_TIER_PX.wide = the same widest line at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 + border 1 + 1)
- *    = max(26, 46) + 18 = 64 px: today's full card, unchanged; the menu/price line below it ellipsises as today.
- *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 46 · 35 · 2), pinned by test. */
+ *  · WIDE from LABEL_TIER_PX.wide = the WIDEST of the three lines at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 +
+ *    border 1 + 1). Measured on the real page (round 2B, the practice gym, headless Chromium 148, `.e-tkt` 11.5px /
+ *    400): the menu/price line is the widest — 「単発 ¥11,000」 / 「単発 ¥13,750」 76.63 px (「単発 ¥6,600」 68.89),
+ *    wider than the time line (45.34) and the longest sample full name (「木村 沙也加」 69.34 at 13px / 700) — so
+ *    CARD_MENU_PX = 77 and WIDE = max(26, 46, 77) + 18 = 95 px: today's full card, every line whole. A longer menu
+ *    line still ellipsises (the last resort).
+ *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 77 · 35 · 2), pinned by test. */
 export const CARD_TIME_PX = 46
 export const CARD_PAD_PX = 18
+export const CARD_MENU_PX = 77
 export const LABEL_TIER_PX = {
   sliver: FAMILY_NAME_PX / 2 + CARD_TIGHT_PAD_PX,
   mid: Math.max(FAMILY_NAME_PX, CARD_TIME_PX) + CARD_TIGHT_PAD_PX,
-  wide: Math.max(FAMILY_NAME_PX, CARD_TIME_PX) + CARD_PAD_PX,
+  wide: Math.max(FAMILY_NAME_PX, CARD_TIME_PX, CARD_MENU_PX) + CARD_PAD_PX,
 } as const
 /** The offers' own padding + border (`.cell-price` / `.cell-packed` / `.cell-gapfill` 5 + 5; `.cell-held` 4 + 4 +
  *  border 1 + 1): today.css's offer @container rule measures the content box, so SLIVER there is below

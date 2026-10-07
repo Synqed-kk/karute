@@ -489,13 +489,13 @@
 .biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
 
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 4 — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A
-   container query measures the CONTENT box (width − CARD_PAD_PX 18), so: below WIDE 64 → 46 · below MID 53 → 35 ·
-   SLIVER below 20 → 2 (the name and time lines stack, so a tier needs its widest line, not the sum). Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
+   container query measures the CONTENT box (width − CARD_PAD_PX 18), so: below WIDE 95 → 77 · below MID 53 → 35 ·
+   SLIVER below 20 → 2 (the lines stack, so a tier needs its widest line, not the sum; WIDE's is the menu/price line). Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
    (left 4, right 1: −6 / −5 px on the text lines, never on the absolute resize grips); below MID the time line goes
    too (NARROW: the family name); SLIVER keeps only the coloured bar (the full text stays in the hover/tap detail).
    CSS ellipsis stays as the last-resort overflow. */
 .biz .page-today .event { container-type: inline-size; }
-@container (width < 46px) {
+@container (width < 77px) {
   .biz .page-today .event > .e-tkt { display: none; }
   .biz .page-today .event > strong, .biz .page-today .event > small { margin-left: -6px; margin-right: -5px; }
 }
