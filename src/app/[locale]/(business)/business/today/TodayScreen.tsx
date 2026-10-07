@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, stripColumns, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -5646,7 +5646,14 @@ export function TodayScreen(props: TodayProps) {
     }
     const before = e.el.scrollLeft
     e.el.scrollLeft = before + e.dir * DRAG_EDGE_STEP_PX
-    e.step(e.el.scrollLeft - before)
+    const moved = e.el.scrollLeft - before
+    // ⚖ S26 Round E (E4) — at the scroll limit nothing moved: no callback, and the loop pauses (edgeAim restarts it on
+    // the next pointer move in a zone, its `dir ≠ 0 && frame == null` rule).
+    if (moved === 0) {
+      e.frame = null
+      return
+    }
+    e.step(moved)
     e.frame = requestAnimationFrame(edgeFrame)
   }
   function edgeAim(clientX: number | null) {
@@ -8493,6 +8500,8 @@ export function TodayScreen(props: TodayProps) {
             carries `0` on every rail, always. */}
         <div
           className="guard-rail-track"
+          // ⚖ S26 Round E (E1) — each cell's column is its real share of the day (stripColumns, one source with place()).
+          style={{ '--strip-cols': stripColumns(hours, railDay.stepMin, rail.cells.map((c) => c.start)) } as React.CSSProperties}
           onKeyDown={(e) => {
             const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
             if (step === 0) return
@@ -10516,6 +10525,9 @@ export function TodayScreen(props: TodayProps) {
             if (el) el.style.transform = proxyAt.current
           }}
           aria-hidden="true"
+          // ⚖ S26 Round E (E2) — a booking's proxy carries the booking marker like the card it copies (empty, so
+          // cardNodes' `[data-book="<id>"]` never finds it); a block's carries its blockChrome class via `state`.
+          data-book={proxy.kind === 'card' ? '' : undefined}
           data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
           style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)) }}
         >
@@ -10533,7 +10545,7 @@ export function TodayScreen(props: TodayProps) {
             // said where it was going. Its grammar is the span, not the start.
             <>
               <strong>{proxy.item.title}</strong>
-              {!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
+              {!proxy.item.micro && <small className="e-time">{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
             </>
           ) : (
             // ⚖ R8 GAP-11 — the ONE difference between the card in hand and the

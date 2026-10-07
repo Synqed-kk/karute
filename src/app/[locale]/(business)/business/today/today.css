@@ -515,8 +515,10 @@
 /* S25-15 (7), the lead's ruling over S25-14 — a BLOCK card (休憩 · 勤務不可 · 終業 / 開店前 · booth: no data-book) prints its
    「HH:MM〜HH:MM」 line (.e-time) from WIDE only — 72 px of time never fits MID's content box; below WIDE the label
    alone, and 勤務不可 ellipsises at NARROW (known limit, no new tier). S25-15 (9): the give-back above skips .micro, so
-   a micro block (18–30 px, padding 0 2px) keeps the base's 3 px inset. */
-@container (width < 77px) { .biz .page-today .event:not([data-book]) > .e-time { display: none; } }
+   a micro block (18–30 px, padding 0 2px) keeps the base's 3 px inset.
+   S26 Round E (E2): the selector names the block classes (blockChrome's cls) positively, so a booking's drag proxy
+   never matches it and a block's proxy (which carries its class and .e-time) hides its time line like the card. */
+@container (width < 77px) { .biz .page-today .event:is(.block, .absence, .cleanup) > .e-time { display: none; } }
 @container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
    詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer
@@ -1194,7 +1196,8 @@
    decide when it is painted, so hiding the guide can never weaken the rule. */
 .biz .guard-placement-rail { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); height: 18px; min-height: 18px; border-bottom: 1px solid var(--row); background: #fff; }
 .biz .guard-rail-label { position: sticky; left: 0; z-index: 7; display: flex; align-items: center; padding: 0 8px 0 11px; border-right: 1px solid var(--section); background: #fafafb; color: #666670; font-size: 9px; font-weight: 800; white-space: nowrap; }
-.biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
+/* S26 Round E (E1): --strip-cols (stripColumns, today-board.ts) sizes each cell by its real share of the day. */
+.biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-columns: var(--strip-cols, none); gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
 /* ⚖ flag 44 (3) — THE CHIPS ARE BUTTONS NOW. They were `role="img"` spans
    carrying their explanation where only a screen reader could reach it; every
    one of them answers a press with that sentence. `appearance`/`margin` are the

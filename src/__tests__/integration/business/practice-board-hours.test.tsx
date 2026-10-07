@@ -342,7 +342,7 @@ it('⚖ S25-15 (1) + (7) + (10) — MOUNTED 07–24 (テスト恵比寿ジム + 
     const blocks = Array.from(host.querySelectorAll('.lane .track .event:not([data-book]):not(.micro)'))
     expect([blocks.length > 0, blocks.filter((b) => !(b.querySelector(':scope > strong') && b.querySelector(':scope > small.e-time'))).length]).toEqual([true, 0])
     const css = todayCss()
-    expect(css).toContain('@container (width < 77px) { .biz .page-today .event:not([data-book]) > .e-time { display: none; } }')
+    expect(css).toContain('@container (width < 77px) { .biz .page-today .event:is(.block, .absence, .cleanup) > .e-time { display: none; } }') // S26 E2: positive
     expect(css).toContain('.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill) { overflow: hidden; }')
     // (9) the give-back skips micro blocks, so they keep the base's 3 px inset
     expect(css).toContain('  .biz .page-today .event:not(.micro) > strong, .biz .page-today .event:not(.micro) > small { margin-left: -6px; margin-right: -5px; }')
@@ -517,6 +517,93 @@ it('⚖ Liam S25-17 (2) — MOUNTED: a SHELF CHIP held in the right edge zone of
     act(() => root.unmount())
     host.remove()
     Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
+
+// ⚖ S26 Round E — the drag proxy's identity (E2) and the edge loop's pause at the scroll limit (E4).
+function rig(limit: number | null) {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = limit == null ? v : Math.max(0, Math.min(v, limit)) } } })
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('timeline-scroll')) return { left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect
+    if (this.hasAttribute('data-book') || this.hasAttribute('data-block')) return { left: 400, right: 600, top: 0, bottom: 0, width: 200, height: 0, x: 400, y: 0 } as DOMRect
+    return rect.call(this)
+  }
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  const restore = () => { for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]; Element.prototype.getBoundingClientRect = rect }
+  return { box, ev, restore }
+}
+
+it('⚖ S26 Round E (E2) — MOUNTED: a booking\'s drag proxy carries data-book (empty: no card lookup finds it); a block\'s carries the resting block\'s class and an .e-time line', async () => {
+  const { ev, restore } = rig(null)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    const id = card.getAttribute('data-book')!
+    const drawn = host.querySelectorAll(`.event[data-book="${id}"]`).length
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    const cardProxy = host.querySelector<HTMLElement>('.drag-proxy.event')!
+    expect([cardProxy !== null, cardProxy?.getAttribute('data-book'), host.querySelectorAll(`.event[data-book="${id}"]`).length]).toEqual([true, '', drawn])
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const block = host.querySelector<HTMLElement>('.lane .track button.event[data-block]:not(.micro)')!
+    const cls = ['block', 'absence', 'cleanup'].filter((c) => block.classList.contains(c))
+    act(() => { block.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    const blockProxy = host.querySelector<HTMLElement>('.drag-proxy.event')!
+    expect([cls.length, blockProxy !== null, cls.every((c) => blockProxy?.classList.contains(c)), blockProxy?.hasAttribute('data-book'), blockProxy?.querySelector(':scope > small.e-time') != null]).toEqual([1, true, true, false, true])
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    restore()
+  }
+})
+
+it('⚖ S26 Round E (E4) — MOUNTED: at the scroll limit one zero-move frame ends the edge loop (no further frame); a later move in the zone restarts it', async () => {
+  const LIMIT = 1102 - 952
+  const { box, ev, restore } = rig(LIMIT)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const raf = jest.spyOn(window, 'requestAnimationFrame')
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = LIMIT
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone, the box already at its limit
+    box.writes.length = 0
+    act(() => { jest.advanceTimersByTime(16) }) // the one zero-move frame
+    const after = box.writes.length
+    raf.mockClear()
+    act(() => { jest.advanceTimersByTime(160) }) // ten frames' time: nothing scheduled, nothing written
+    expect([after, box.writes.length, box.at, raf.mock.calls.length]).toEqual([1, 1, LIMIT, 0])
+    box.at = LIMIT - 2 * DRAG_EDGE_STEP_PX // room again (as if the box were scrolled back)
+    act(() => { window.dispatchEvent(ev('pointermove', 941, 1)) }) // a later move in the zone restarts the loop
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(LIMIT - DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 941, 0)) })
+  } finally {
+    raf.mockRestore()
+    act(() => root.unmount())
+    host.remove()
     restore()
   }
 })

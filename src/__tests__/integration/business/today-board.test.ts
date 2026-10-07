@@ -83,6 +83,8 @@ import {
   place,
   rulerLabels,
   rulerLead,
+  stripColumns,
+  RULER_MIN_COLUMN_MIN,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -474,6 +476,30 @@ describe('board derivations', () => {
     expect(rulerLabels({ open: 1080, close: 1560 }).find((l) => l.hour === 24)!.text).toBe('翌0') // a COLUMN at 24 inside a day that runs on
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
+  })
+  it('⚖ S26 Round E (E3) — a whole-hour column shorter than RULER_MIN_COLUMN_MIN (30) is not labelled; the edge tick prints that time', () => {
+    const at = (close: number) => { const l = rulerLabels({ open: 420, close }); return [l.filter((x) => !x.edge).at(-1)!.text, l.find((x) => x.edge)!.text] }
+    expect(RULER_MIN_COLUMN_MIN).toBe(30)
+    expect([at(1265), at(1290), at(1260)]).toEqual([['20', '21:05'], ['21', '21:30'], ['20', '21']])
+  })
+  it('⚖ S26 Round E (E1) — the strip\'s columns are each cell\'s real share of the day (one source with place()): steps 30 · 45 · 60 on 07–22 and 07–24', () => {
+    for (const day of [{ open: 420, close: 1320 }, { open: 420, close: 1440 }]) {
+      for (const step of [30, 45, 60]) {
+        const starts: number[] = []
+        for (let m = day.open; m < day.close; m += step) starts.push(m)
+        const cols = stripColumns(day, step, starts).split(' ')
+        expect(cols.every((c) => c.endsWith('%'))).toBe(true)
+        const widths = cols.map((c) => parseFloat(c))
+        const lefts = widths.map((_, i) => widths.slice(0, i).reduce((a, b) => a + b, 0))
+        const i13 = starts.indexOf(780)
+        expect([widths.length, i13 >= 0]).toEqual([boardCells(day, step), true])
+        expect(lefts.at(-1)! + widths.at(-1)!).toBeCloseTo(100, 9) // the last cell's right edge = the track's right edge
+        expect(lefts[i13]).toBeCloseTo(place(780, 780, day).x, 9) // the 13:00 cell's left = place(780).x
+        expect(widths.at(-1)).toBeCloseTo(place(starts.at(-1)!, starts.at(-1)! + step, day).w, 9) // a partial last cell keeps its own share
+      }
+    }
+    // the drift the equal 1fr columns had: 45 minutes on 07–24 is 22.67 cells, so the 13:00 cell sat at 8/23 of the track
+    expect((8 / 23) * 100).not.toBeCloseTo(place(780, 780, { open: 420, close: 1440 }).x, 1)
   })
 
   it('§v11 V11-15 P20 — rulerLead: the gridlines\' lead is the axis share before the first whole hour (= the first label\'s left); 0 on a whole-hour axis or an empty span', () => {

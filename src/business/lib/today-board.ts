@@ -131,7 +131,7 @@ export function boardRows(
 }
 
 /** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
- *  positions — one label per whole hour h with open ≤ h·60 < close, placed exactly as place() places a card
+ *  positions — one label per whole hour h with open ≤ h·60 < close (and close − h·60 ≥ RULER_MIN_COLUMN_MIN, S26 E3), placed exactly as place() places a card
  *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
  *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %).
  *  ⚖ 10/7 S25-2 (Liam; P20's 「never the closing hour」 was the lead's rule) — the closing edge is printed as an EDGE
@@ -141,10 +141,16 @@ export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
   const span = axis.close - axis.open
   if (!(span > 0)) return []
   const out: RulerLabel[] = []
-  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (Math.min(HOUR_MIN, axis.close - h * HOUR_MIN) / span) * 100 })
+  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) if (axis.close - h * HOUR_MIN >= RULER_MIN_COLUMN_MIN) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (Math.min(HOUR_MIN, axis.close - h * HOUR_MIN) / span) * 100 })
   out.push({ hour: axis.close / HOUR_MIN, text: edgeText(axis.close), leftPct: 100, widthPct: 0, edge: true })
   return out
 }
+
+/** ⚖ S26 Round E (E3, Greptile P2 on #1145) — the shortest whole-hour COLUMN the ruler labels: half the ruler's unit.
+ *  A column shorter than this is the last one before a close just past the hour (21:05 → the 「21」 column is 5
+ *  minutes wide), and its label would sit under the right-aligned edge tick; the edge tick already prints that time
+ *  (「21:05」), so the column's label is dropped and the edge tick stays. */
+export const RULER_MIN_COLUMN_MIN = 30
 
 export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
 
@@ -220,6 +226,14 @@ export function labelTier(px: number): LabelTier {
 /** The cells of the board's day on its grid unit — the strip's cell count (the CSS floor multiplies `floorSlots`). */
 export function boardCells(day: Hours, stepMin: number): number {
   return stepMin > 0 && day.close > day.open ? Math.ceil((day.close - day.open) / stepMin) : 0
+}
+
+/** ⚖ S26 Round E (E1, Greptile P2 on #1145) — THE STRIP'S COLUMNS, one source with `place()`: each cell's width is
+ *  its real share of the day, min(step, close − start) / (close − open), so a step that does not divide the day (45
+ *  minutes on 07–24) keeps every cell under its own minute on the ruler and the last cell is the partial remainder.
+ *  The value is the strip track's `grid-template-columns` (today.css `--strip-cols`); equal `1fr` columns drifted. */
+export function stripColumns(day: Hours, stepMin: number, starts: ReadonlyArray<number>): string {
+  return starts.map((s) => `${place(s, s + stepMin, day).w}%`).join(' ')
 }
 
 /** The minutes one `minPxPer30` floor covers (its name's 30): the floor's time unit, never the store's grid step. */

@@ -11787,7 +11787,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FRAME-SEAM (2026-09-12) — `type Hours` joins it: `handBoardFor` is a
     // module-level exported pure function now (the re-landing rule, spelled once
     // so the strip can ask it too) and its signature names the day's hours.
-    "import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
+    "import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, stripColumns, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
     // `from '…'` across every file in its own territory, this test file
@@ -12575,7 +12575,7 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
     // The branch reads the BLOCK's own landing — the one its dashed ghost is
     // drawn from — and the pre-fix spelling is gone from the file.
-    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small className="e-time">{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
     expect(code).not.toContain('<small>{proxy.item.time}</small>')
     expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
     // The two ways a decoy could make the block's label stand still.
