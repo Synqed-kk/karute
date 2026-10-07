@@ -90,7 +90,8 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   }
   const bookedMinutes = [...booked.values()].reduce((n, s) => n + minutes(s), 0) + unassigned.reduce((n, s) => n + minutes([s]), 0)
   const empty = (state: ShiftState) => ({ bookedMinutes, capacityMinutes: null, shiftState: state, onShiftNoBooking: 0, unassignedOverflow: 0, lanes: shift.personId ? 1 : rows.length })
-  if (!shift.readComplete) return empty('unavailable')
+  // Fail closed here too, not only in the callers: no roster = no divisor.
+  if (!shift.readComplete || shift.roster == null) return empty('unavailable')
   if (!entered) return empty('none')
   // An explicit solo setting supplies one lane even if the owner has no roster card.
   const soloId = eligible[0]?.id ?? booked.keys().next().value ?? '__solo__'
@@ -109,7 +110,6 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   for (const id of ids) {
     const intervals = receivableIntervals(id, shift.storeId, shift.date, effectiveRows, input.hours, shift.blocks)
     receivable.set(id, intervals)
-    if (rows.some(r => r.staffId === id) && minutes(intervals) > 0 && !booked.has(id)) onShiftNoBooking++
     if (!effectiveRows.some(r => r.staffId === id) && booked.has(id) && eligible.some(p => p.id === id)) partial = true
   }
   let overtime = 0
@@ -129,6 +129,10 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
     if (overflow > 0) unassignedOverflow++
     overtime += overflow
     if (person != null) booked.set(person, union([...(booked.get(person) ?? []), ...fitted]))
+  }
+  // Counted AFTER the unassigned fill: a person given one is not 予約0件.
+  for (const id of ids) {
+    if (rows.some(r => r.staffId === id) && minutes(receivable.get(id) ?? []) > 0 && !booked.has(id)) onShiftNoBooking++
   }
   const capacityMinutes = [...ids].reduce((n, id) => n + minutes([...(receivable.get(id) ?? []), ...(booked.get(id) ?? [])]), overtime)
   const shiftState: ShiftState = capacityMinutes === 0 ? 'nobody' : partial ? 'partial' : rows.length === 0 && solo ? 'solo' : 'entered'

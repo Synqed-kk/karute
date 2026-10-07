@@ -77,6 +77,12 @@ test('T17: individual view off only on entered days', () => {
 test('T18: saved receivable rows with no bookings are counted', () => {
   expect(fact({}, [span('s1', 600, 900), span('s2', 600, 900)]).onShiftNoBooking).toBe(1)
 })
+test('a null roster fails closed inside the module, never a number', () => {
+  expect(fact({ roster: null })).toMatchObject({ shiftState: 'unavailable', occupancyPct: null, band: null, capacityMinutes: null, reason: 'roster-unknown', bookedMinutes: 900 })
+})
+test('onShiftNoBooking is counted after the unassigned fill', () => {
+  expect(fact({}, [span('s1', 600, 900), span('s2', 600, 900), span(null, 600, 660)])).toMatchObject({ onShiftNoBooking: 0, unassignedOverflow: 0 })
+})
 test('future assignments do not make a historical day partial or solo', () => {
   const future = { id: 's2', active: true, stores: [{ storeId: 'store', createdAtMs: minute(1500) }] }
   expect(fact({ rows: [row()], roster: [roster[0], future] }, [span('s2', 600, 660)]).shiftState).toBe('entered')
