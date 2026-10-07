@@ -653,7 +653,12 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     const step = 20
     const { hours } = board.props
     expect([hours.open, hours.close]).toEqual([420, 1320])
-    await act(async () => root.render(<BusinessSessionEdits>{cloneElement(board, { guard: { ...board.props.guard, bookingStepMin: step }, sell: { ...board.props.sell, nowMinute: 360 } })}</BusinessSessionEdits>))
+    // The real guard refuses Kenta's fixture 「終業」 at 21:30; extend only this case's shift to closing.
+    const lanes = board.props.lanes.map((lane) => lane.group === 'staff' && lane.key === GYM.kenta
+      ? { ...lane, window: { from: lane.window!.from, until: hours.close }, untilLabel: '22:00', items: lane.items.filter((item) => !(item.kind === 'absence' && item.title === '終業')) }
+      : lane)
+    // seedSpanIn reads standardSessionMin, not the menu duration; keep the 20-minute seed at 21:40.
+    await act(async () => root.render(<BusinessSessionEdits>{cloneElement(board, { lanes, guard: { ...board.props.guard, bookingStepMin: step, standardSessionMin: step }, sell: { ...board.props.sell, nowMinute: 360 } })}</BusinessSessionEdits>))
     r.box.at = 0
     const rails = Array.from(host.querySelectorAll('.guard-placement-rail'))
     expect(rails.length).toBeGreaterThan(0)
@@ -689,6 +694,14 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分早く"]')!.click())
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration - step)}–21:40`)
+    act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="作成をやめる"]')!.click())
+    // 21:45 floors to 21:40 on the 20-minute grid; Kenta's last fixture booking ends at 21:30.
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
+    const placeNearClose = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')
+    if (placeNearClose) act(() => placeNearClose.click())
+    expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
+    // A fixed-30 form clamp would open at 21:30 instead: this assertion must catch it.
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe('21:40–22:00')
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="作成をやめる"]')!.click())
     // A real drag supplies the landing; the hold selector and aimed chip must resolve to that same drawn cell.
     act(() => { card.dispatchEvent(r.ev('pointerdown', 500, 1)) })
