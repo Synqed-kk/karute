@@ -1900,3 +1900,21 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     expect([floorSlots(salon) * minPxPer30, over(salon)]).toEqual([594, [[840, 0, false], [740, 0, false], [1028, 0, false]]])
   })
 })
+
+describe('S26 round C — the real page numbers (FIX 2) and the proof script mirror (C8)', () => {
+  it('the measured overflow is floorSlots × minPxPer30 − (clientWidth − --label): 154 at 1280, 254 at 1180', () => {
+    const gym = { open: 420, close: 1320 }
+    const LABEL = 136 // today.css: `.page-today .timeline` at max-width 1320px — the real page's label column
+    const over = (clientWidth: number) => [floorSlots(gym) * minPxPer30 - (clientWidth - LABEL), trackOverflows(gym, clientWidth - LABEL)]
+    expect([LABEL + floorSlots(gym) * minPxPer30, over(972), over(872)]).toEqual([1126, [154, true], [254, true]])
+  })
+  it('scripts/today-axis-proof.mjs splits the family name with the SAME regex as familyNameOf', () => {
+    const cut = (src: string) => src.match(/\.search\((\/[^)]*\/)\)/g)
+    const lib = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    const script = readFileSync(join(process.cwd(), 'scripts/today-axis-proof.mjs'), 'utf8')
+    const libRe = lib.slice(lib.indexOf('export function familyNameOf')).match(/\.search\((\/[^)]*\/)\)/)?.[1]
+    expect(libRe).toBe('/[\\s\\u30FB]/')
+    expect(cut(script)).toEqual([`.search(${libRe})`])
+    expect([familyNameOf('ジョン・スミス'), familyNameOf('山本 大輔'), familyNameOf('John Smith')]).toEqual(['ジョン', '山本', 'John'])
+  })
+})

@@ -40,11 +40,15 @@ const ALL_RUNS = [
   // round 3: the gym's day has no card ≥ WIDE 95 px at 1280 / 1180 open (its widest, a 75-minute card, is 82.5 px), so
   // the WIDE check reads the same day at 1920 open, where a 60-minute card is ≥ 95 px
   ['gym', 1920, 'open'],
+  // S26 C1: the salon at 1280 collapsed too (both stores at 1280 open / 1180 open / 1280 collapsed)
+  ['jiyugaoka', 1280, 'collapsed'],
 ]
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null
 const RUNS = ONLY ? ALL_RUNS.filter((r) => ONLY.includes(r.join('-'))) : ALL_RUNS
-// the family name as today-board.ts familyNameOf computes it (before the first half- or full-width space, trimmed)
-const familyNameOf = (n) => { const t = n.trim(); const c = t.search(/\s/); return c < 0 ? t : t.slice(0, c) }
+// S26 C8 — a MIRROR of today-board.ts familyNameOf, the same rule character for character (this .mjs runs in plain
+// node and cannot import the TypeScript module): trimmed, cut before the first half/full-width space OR 「・」 (U+30FB).
+// today-board.test.ts pins that the two regexes stay identical.
+const familyNameOf = (n) => { const t = n.trim(); const c = t.search(/[\s\u30FB]/); return c < 0 ? t : t.slice(0, c) }
 const HEIGHT = 900
 const SCROLL_PROBE = 200 // the scrollLeft the sticky / ruler checks set on the scroll box (a client-side scroll only)
 
@@ -95,6 +99,29 @@ function readBoard(probe) {
     boxRect: box ? { left: +r(box).left.toFixed(2), right: +r(box).right.toFixed(2) } : null,
     cards,
   }
+  // S26 C2 — the strip's cells per lane vs the ruler's --board-cells
+  out.stripCells = [...document.querySelectorAll('.guard-rail-track')].map((t) => t.querySelectorAll('.guard-rail-cell').length)
+  // S26 C3 — the box model chain from the scroll box to the first cell (rects + every padding/border/gap/margin)
+  const geo = (el) => { if (!el) return null; const c = getComputedStyle(el); const b = r(el)
+    return { left: +b.left.toFixed(2), right: +b.right.toFixed(2), w: +b.width.toFixed(2), cw: el.clientWidth, sw: el.scrollWidth, minW: c.minWidth, boxSizing: c.boxSizing,
+      pad: [c.paddingLeft, c.paddingRight].join('/'), border: [c.borderLeftWidth, c.borderRightWidth].join('/'), margin: [c.marginLeft, c.marginRight].join('/'),
+      gap: c.columnGap, cols: c.gridTemplateColumns, label: c.getPropertyValue('--label').trim(), floorSlots: c.getPropertyValue('--floor-slots').trim(), cellFloor: c.getPropertyValue('--cell-floor').trim(), gutter: c.scrollbarGutter, ox: c.overflowX, oy: c.overflowY } }
+  const lane0 = document.querySelector('.timeline .lane')
+  // the descendants whose right edge reaches past the timeline's own right edge (what makes scrollWidth > the timeline)
+  const tlRight = timeline ? r(timeline).right : 0
+  const past = timeline ? [...timeline.querySelectorAll('*')].filter((e) => r(e).width > 0 && r(e).right > tlRight + 0.5).slice(0, 12).map((e) => ({ tag: e.tagName.toLowerCase(), cls: String(e.className).slice(0, 60), text: e.textContent.trim().slice(0, 12), right: +r(e).right.toFixed(2), over: +(r(e).right - tlRight).toFixed(2) })) : []
+  out.geo = { box: geo(box), timeline: geo(timeline), timeHead: geo(document.querySelector('.time-head')), timeHeadLabel: geo(document.querySelector('.time-head > span')), hours: geo(document.querySelector('.time-head .hours')),
+    lane: geo(lane0), laneLabel: geo(lane0?.querySelector('.lane-label') ?? laneLabel), track: geo(lane0?.querySelector('.track')), edge: geo(edge), pastTimeline: past }
+  // S26 C4 + C5 — every block card (not a booking): its classes, content width, the label / time line as printed
+  out.blocks = [...document.querySelectorAll('.event:not([data-book])')].map((e) => {
+    const c = getComputedStyle(e); const s = e.querySelector(':scope > strong'); const t = e.querySelector(':scope > .e-time')
+    const textLeft = (el) => { if (!el || !el.firstChild) return null; const g = document.createRange(); g.selectNodeContents(el); return g.getBoundingClientRect().left }
+    const content = e.clientWidth - parseFloat(c.paddingLeft) - parseFloat(c.paddingRight)
+    return { cls: String(e.className), tag: e.tagName.toLowerCase(), w: +r(e).width.toFixed(2), content: +content.toFixed(2), label: s?.textContent ?? null, labelShown: shown(s),
+      labelScroll: s?.scrollWidth ?? null, labelClient: s?.clientWidth ?? null, labelWhole: s ? s.scrollWidth <= s.clientWidth : null,
+      time: t?.textContent ?? null, timeShown: shown(t), timeScroll: t?.scrollWidth ?? null, timeClient: t?.clientWidth ?? null,
+      inset: s ? +(r(s).left - r(e).left).toFixed(2) : null, textInset: s && textLeft(s) != null ? +(textLeft(s) - r(e).left).toFixed(2) : null, printed: e.innerText.replace(/\n/g, ' / ') }
+  })
   if (box && probe != null) {
     const loadLeft = box.scrollLeft
     box.scrollLeft = 0
@@ -168,6 +195,30 @@ for (const x of results.filter((r) => r.store === 'gym' && r.sidebar === 'open' 
     console.log(`INFO ${at} ${tier} name lines whole: ${cs.length - chopped.length}/${cs.length} · printed ${[...new Set(cs.map((c) => c.name.line))].map((t) => `「${t}」`).join(' ')}${chopped.length ? ` · chopped ${chopped.map((c) => `「${c.name.line}」 ${c.nameScroll}/${c.nameClient}`).join(' ')}` : ''}`)
   }
   console.log(`INFO ${at}: cards ≥ WIDE 95 px: ${x.cards.filter((c) => c.w >= 95).length} (widest ${Math.max(...x.cards.map((c) => c.w))}); the WIDE check runs at 1920`)
+}
+// S26 C1 + C2 + C5 — asserted on EVERY after-run at 1280 / 1180 (both stores, open and collapsed)
+for (const x of results.filter((r) => r.tag === 'after' && (r.width === 1280 || r.width === 1180))) {
+  const at = `${x.store} ${x.width} ${x.sidebar}`
+  check(x.page.sw === x.page.cw, `${at} page never scrolls sideways: documentElement ${x.page.sw}/${x.page.cw}`)
+  check(x.scroll && Math.abs(x.scroll.laneShift) < 0.5, `${at} name column moves 0 px: laneShift ${x.scroll?.laneShift} (scrollLeft applied ${x.scroll?.applied})`)
+  check(x.scroll && Math.abs(x.scroll.l13Shift - x.scroll.applied) < 0.5, `${at} 13:00 ruler label moves exactly scrollLeft: l13Shift ${x.scroll?.l13Shift} = applied ${x.scroll?.applied}`)
+  check(x.scroll && x.scroll.stripVsRuler13 != null && Math.abs(x.scroll.stripVsRuler13) <= 1, `${at} strip 13:00 cell x − ruler 13:00 label x = ${x.scroll?.stripVsRuler13} (±1)`)
+  check(x.stripCells.length > 0 && x.stripCells.every((n) => n === x.cells), `${at} strip cells per lane == --board-cells ${x.cells}: lanes ${x.stripCells.length} · counts {${[...new Set(x.stripCells)].join(',')}}`)
+  check(!!x.now && x.now.inView, `${at} now-line in view: ${x.now ? `${x.now.text} inView ${x.now.inView}` : 'none'}`)
+  if (x.store === 'gym' && x.sidebar === 'open') {
+    for (const [tier, lo, hi] of [['MID', 53, 95], ['NARROW', 20, 53]]) {
+      const cs = x.cards.filter((c) => c.w >= lo && c.w < hi)
+      check(cs.length > 0 && cs.every((c) => c.nameScroll <= c.nameClient), `${at} ${tier} names whole ${cs.filter((c) => c.nameScroll <= c.nameClient).length}/${cs.length}`)
+    }
+  }
+  // C5: a block's time line shows only at ≥ WIDE (content ≥ 77 px) and is never a clipped fragment
+  const bad = x.blocks.filter((b) => b.time != null && (b.timeShown !== (b.content >= 77) || (b.timeShown && b.timeScroll > b.timeClient)))
+  check(bad.length === 0, `${at} block time lines: ${x.blocks.filter((b) => b.timeShown).length} shown (all content ≥ 77) · fragments/misplaced ${bad.length}${bad.length ? ` ${bad.map((b) => `「${b.printed}」 c${b.content}`).join(' ')}` : ''}`)
+  console.log(`INFO ${at} labels ${x.labels.join(' ')} · edge ${x.edge?.text} — rows outside the served hours widen the ruler past them`)
+  console.log(`INFO ${at} geo box w ${x.geo.box?.w} cw ${x.geo.box?.cw} sw ${x.geo.box?.sw} gutter ${x.geo.box?.gutter} · timeline w ${x.geo.timeline?.w} minW ${x.geo.timeline?.minW} sw ${x.geo.timeline?.sw} --label ${x.geo.timeline?.label} --floor-slots ${x.geo.timeline?.floorSlots} --cell-floor ${x.geo.timeline?.cellFloor} · laneLabel w ${x.geo.laneLabel?.w} border ${x.geo.laneLabel?.border} · track w ${x.geo.track?.w} · past timeline ${x.geo.pastTimeline.map((p) => `${p.tag}.${p.cls}「${p.text}」+${p.over}`).join(' ') || 'none'}`)
+}
+for (const x of results.filter((r) => r.store === 'gym' && (r.width === 1280 || r.width === 1180) && r.sidebar === 'open')) {
+  for (const b of x.blocks) console.log(`BLOCK ${x.store} ${x.width} ${x.tag} ${b.tag}.${b.cls.replace(/\s+/g, '.')} w ${b.w} content ${b.content} label 「${b.label}」 ${b.labelWhole ? 'whole' : 'ellipsised'} ${b.labelScroll}/${b.labelClient} · time 「${b.time ?? '-'}」 shown ${b.timeShown} · inset ${b.inset} textInset ${b.textInset} · printed 「${b.printed}」`)
 }
 for (const x of results) {
   const c07 = x.cards.find((c) => c.time?.startsWith('07:00') && c.min === 30)
