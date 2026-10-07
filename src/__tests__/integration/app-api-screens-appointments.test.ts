@@ -1267,3 +1267,60 @@ describe('⚖ W0.5 — a 臨時営業日 reaches the phone open, and the wire st
     expect(JSON.stringify(body)).not.toContain('"special"')
   })
 })
+
+// ⚖ FIX ROUND 3 item 11 (S2, picker side) — the picker's rows are the DAY rows,
+// and the day fetch is store-clamped at route.ts (`storeId` = clamp.storeId,
+// passed to getAppointmentsByDateWithClient). Through the REAL clamp: a
+// branch viewer's picker never lists another store's booking or staff. The
+// fake core honours store_id the way core's server-side filter does.
+describe('⚖ FIX ROUND 3 item 11 — the 担当未定 picker under a clamped viewer', () => {
+  it('clamped to store-A: only store-A staff-less rows get a picker, offering only store-A staff', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'bookings.manage']))
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const staffless = (id: string, store: string) => ({
+      id,
+      staff_id: null,
+      store_id: store,
+      customer_id: 'cust-1',
+      starts_at: inMs(90),
+      duration_minutes: 60,
+      title: null,
+      notes: null,
+      created_at: inMs(-600),
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+    })
+    const all = [staffless('u-A', 'store-A'), staffless('u-B', 'store-B')]
+    listAppointments.mockImplementation(async (...a: unknown[]) => {
+      const sid = (a[0] as { store_id?: string } | undefined)?.store_id
+      const rows = sid ? all.filter((r) => r.store_id === sid) : all
+      return { appointments: rows, total: rows.length } as never
+    })
+    const coreStaff = fakeClient.staff.list
+    fakeClient.staff.list = jest.fn(async () => ({
+      staff: [
+        { id: 'staff-core-1', user_id: 'auth-user-1', name: 'Mika Tanaka', is_active: true },
+        { id: 'staff-core-2', user_id: 'profile-2', name: 'Yuko Sato', is_active: true },
+      ],
+    }))
+    // auth-user-1 works at store-B only; profile-2 at store-A only.
+    storeStaffIdSetForBusiness.mockImplementation(async (_l: unknown, sid: unknown) =>
+      sid === 'store-A' ? new Set(['profile-2']) : new Set(['auth-user-1']),
+    )
+    try {
+      const res = await GET(req({ 'store-id': 'store-A' }), route)
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.canAssign).toBe(true)
+      expect(dto.assignStaffIdsByBooking).toEqual({ 'u-A': ['profile-2'] })
+      expect(JSON.stringify(dto.assignStaffIdsByBooking)).not.toContain('auth-user-1')
+      const storeIds = (listAppointments.mock.calls as unknown as { store_id?: string }[][]).map(
+        (c) => c[0]?.store_id,
+      )
+      expect(new Set(storeIds)).toEqual(new Set(['store-A']))
+    } finally {
+      fakeClient.staff.list = coreStaff
+      storeStaffIdSetForBusiness.mockReset()
+    }
+  })
+})

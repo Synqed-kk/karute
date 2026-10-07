@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
@@ -18,6 +19,8 @@ import { countedClientIds } from '@/lib/appointments/by-date'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
+import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import { weekStartFor } from '@/lib/date/week-start'
@@ -275,6 +278,18 @@ export default async function AppointmentsPage({
   ])
   t.end()
 
+  // 担当未定 picker: per staff-less booking, the active staff of ITS store.
+  const canAssign = await getMyCapabilities().then((c) => c.has('bookings.manage'), () => false)
+  const assignStaffIdsByBooking = canAssign
+    ? await getSynqedClient()
+        .then((synqed) =>
+          assignableStaffIdsByBooking(dayAppointments, staffList, synqed, (sid) =>
+            storeStaffIdSet(staffList, sid),
+          ),
+        )
+        .catch(() => ({}))
+    : {}
+
   const screen = buildAppointmentsScreen({
     locale,
     weekStart: weekStartFor(locale),
@@ -354,6 +369,8 @@ export default async function AppointmentsPage({
         soloMode={screen.soloMode}
         reservationViews={screen.reservationViews}
         reservationStaff={screen.reservationStaff}
+        canAssign={canAssign}
+        assignStaffIdsByBooking={assignStaffIdsByBooking}
         colorRosterIds={screen.colorRosterIds}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}

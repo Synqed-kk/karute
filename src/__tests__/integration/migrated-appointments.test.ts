@@ -24,6 +24,8 @@ jest.mock('next/headers', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'profile-1' }, { id: 'staff-1' }]),
 }))
 
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive
@@ -73,6 +75,8 @@ const karuteRecords = {
 }
 const staff = {
   list: jest.fn(),
+  // createAppointmentCore's live active + business check (fix round 7).
+  get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: '00000000-0000-0000-0000-000000000001' })),
 }
 // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
 // delete — mirrors cancel-appointment.test.ts's packs mock. Signature must

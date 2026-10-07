@@ -15,6 +15,7 @@
 // booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
+import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
@@ -401,9 +402,18 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       packUsage,
     })
 
+    // 担当未定 picker: per staff-less booking, the active staff of ITS store.
+    const assignStaffIdsByBooking = ctx.identity.capabilities.has('bookings.manage')
+      ? await assignableStaffIdsByBooking(dayAppointments, staffList, synqed, (sid) =>
+          storeStaffIdSetForBusiness(staffList, sid, businessId),
+        )
+      : {}
+
     return ok(
       ctx,
       AppointmentsScreenDTO.parse({
+        canAssign: ctx.identity.capabilities.has('bookings.manage'),
+        assignStaffIdsByBooking,
         view,
         selectedDateIso: selectedDate.toISOString(),
         staffFilter,

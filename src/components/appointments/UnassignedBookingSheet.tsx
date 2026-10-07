@@ -5,11 +5,19 @@
 // always renders a record row (a staff-less booking is not a recording
 // target). Same primitives as the ui sheet — Sheet side="bottom" on a phone,
 // Dialog max-w-md otherwise — and the ui sheet's own row type, so it reads as
-// one app. Read-only: the two lines (no staff yet; recording opens once a
-// staff is assigned) and nothing else (no dead-end buttons). A staff-less
-// booking is not a recording target, so this sheet has no record row.
+// one app. With bookings.manage: the picker, committing on tap. Without: the
+// two read-only lines and nothing else (no dead-end buttons).
+//
+// One component, two transports: `assignAppointmentStaff` is the web server
+// action; the thin shell's alias maps it to POST …/assign-staff. Both refuse a
+// booking that already has a staff; that answer closes the sheet and
+// refreshes (no error toast). A failed or rejected request re-enables
+// the rows and leaves the sheet closable. An empty picker (nobody at the
+// booking's store) falls back to the read-only lines.
 
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -21,31 +29,100 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@synqed-kk/ui'
+import { useRouter } from '@/i18n/navigation'
+import { assignAppointmentStaff } from '@/actions/appointments'
+import { BOOKING_ALREADY_STAFFED } from '@/lib/appointments/assign-refusal'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+
+export interface AssignableStaff {
+  id: string
+  name: string
+}
 
 interface UnassignedBookingSheetProps {
   /** The staff-less booking — `null` keeps the sheet closed. */
   booking: ReservationView | null
+  canAssign: boolean
+  staff: readonly AssignableStaff[]
   isMobile: boolean
   onClose: () => void
 }
 
 export function UnassignedBookingSheet({
   booking,
+  canAssign,
+  staff,
   isMobile,
   onClose,
 }: UnassignedBookingSheetProps) {
   const t = useTranslations('reservation')
   const tu = useTranslations('unassignedStaff')
+  const tc = useTranslations('common')
+  const router = useRouter()
+  const [pendingId, setPendingId] = useState<string | null>(null)
 
   const open = booking !== null
   const onOpenChange = (next: boolean) => {
-    if (!next) onClose()
+    if (!next && pendingId === null) onClose()
+  }
+
+  async function assign(member: AssignableStaff) {
+    if (!booking || pendingId !== null) return
+    setPendingId(member.id)
+    let saved = false
+    let alreadyStaffed = false
+    try {
+      const res = await assignAppointmentStaff(booking.id, member.id)
+      saved = !('error' in res)
+      alreadyStaffed = 'error' in res && res.error === BOOKING_ALREADY_STAFFED
+    } catch {
+      saved = false // offline / 5xx / a stale server-action id after a deploy
+    } finally {
+      setPendingId(null)
+    }
+    if (alreadyStaffed) {
+      // ⚖ FIX ROUND 3 item 10 — someone else assigned it first: not an error.
+      // Close and refresh; the row then shows its real staff.
+      onClose()
+      router.refresh()
+      return
+    }
+    if (!saved) {
+      toast.error(tc('somethingWentWrong'))
+      router.refresh() // someone else may have assigned it: show the fresh row
+      return
+    }
+    toast.success(tu('assigned', { staff: member.name }))
+    onClose()
+    router.refresh()
   }
 
   const title = booking ? `${booking.customerName}${t('card.customerSuffix')}` : ''
-  const subtitle = tu('sheetSubtitleReadOnly')
-  const body = (
+  const pickable = canAssign && staff.length > 0
+  const subtitle = pickable ? tu('sheetSubtitle') : tu('sheetSubtitleReadOnly')
+  const body = pickable ? (
+    <div className="space-y-2 pt-2">
+      <div>
+        <div className="text-[15px] font-semibold text-[var(--color-text)]">{tu('pickerTitle')}</div>
+        <div className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">{tu('pickerLead')}</div>
+      </div>
+      <ul className="space-y-2">
+        {staff.map((m) => (
+          <li key={m.id}>
+            <button
+              type="button"
+              disabled={pendingId !== null}
+              aria-busy={pendingId === m.id}
+              onClick={() => void assign(m)}
+              className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] p-3 text-left text-[15px] font-semibold text-[var(--color-text)] transition-colors active:bg-[var(--color-bg-card-hover)] disabled:opacity-60"
+            >
+              <span className="min-w-0 flex-1 truncate">{m.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : (
     <div className="pt-2 text-[12px] text-[var(--color-text-muted)]">{tu('recordBlockedReadOnly')}</div>
   )
 

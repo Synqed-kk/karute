@@ -24,7 +24,7 @@ import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { validateAppointmentInput } from '@/lib/appointments'
-import { createAppointmentCore } from '@/lib/appointments/mutations'
+import { createAppointmentCore, STAFF_NOT_ON_ROSTER } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
 
@@ -102,10 +102,7 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
   }
   if (!roster.some((s) => s.id === parsed.data.staffProfileId)) {
-    throw new AppApiError(
-      'validation',
-      'staffProfileId is not a staff member of this business',
-    )
+    throw new AppApiError('validation', STAFF_NOT_ON_ROSTER)
   }
 
   // Validate the PURE half BEFORE the resolver — the web action's own

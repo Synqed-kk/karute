@@ -5,7 +5,10 @@ import { useTranslations } from 'next-intl'
 import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
-import { UnassignedBookingSheet } from '@/components/appointments/UnassignedBookingSheet'
+import {
+  UnassignedBookingSheet,
+  type AssignableStaff,
+} from '@/components/appointments/UnassignedBookingSheet'
 
 interface BookingActionSheetWrapperProps {
   /** Currently selected booking — `null` keeps the sheet closed. */
@@ -13,6 +16,13 @@ interface BookingActionSheetWrapperProps {
   onClose: () => void
   /** Force the mobile bottom-sheet variant. Defaults to media-query detection. */
   forceMobile?: boolean
+  /** bookings.manage — a 担当未定 booking offers the staff picker. */
+  canAssign?: boolean
+  /** The picker's list: the booking dialog's own store-scoped staff. */
+  assignStaff?: readonly AssignableStaff[]
+  /** booking id → the staff ids the booking's own store may offer; a booking
+   *  missing here offers nobody (fail closed → the read-only lines). */
+  assignStaffIdsByBooking?: Readonly<Record<string, readonly string[]>>
 }
 
 // `deriveKaruteNumber` removed — the hex slice produced an
@@ -39,6 +49,9 @@ export function BookingActionSheetWrapper({
   selected,
   onClose,
   forceMobile,
+  canAssign = false,
+  assignStaff = [],
+  assignStaffIdsByBooking = {},
 }: BookingActionSheetWrapperProps) {
   const isMobile = useIsMobile()
   const router = useRouter()
@@ -103,11 +116,15 @@ export function BookingActionSheetWrapper({
   // `=== null`: an undefined or '' staffId routes here too, never to 録音開始.
   const unassigned = selected != null && !selected.staffId
   const sheetSelected = unassigned ? null : selected
+  const offered = unassigned && selected ? (assignStaffIdsByBooking[selected.id] ?? []) : []
+  const pickerStaff = assignStaff.filter((m) => offered.includes(m.id))
 
   return (
     <>
       <UnassignedBookingSheet
         booking={unassigned ? selected : null}
+        canAssign={canAssign}
+        staff={pickerStaff}
         isMobile={forceMobile ?? isMobile}
         onClose={onClose}
       />

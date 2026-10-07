@@ -282,6 +282,8 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       // a superset of the string the schema accepts (record-screen precedent).
       reservationViews={dto.reservationViews as ReservationView[]}
       reservationStaff={dto.reservationStaff}
+      canAssign={dto.canAssign ?? false}
+      assignStaffIdsByBooking={dto.assignStaffIdsByBooking ?? {}}
       colorRosterIds={dto.colorRosterIds}
       businessHours={dto.businessHours}
       staffFilter={dto.staffFilter}
