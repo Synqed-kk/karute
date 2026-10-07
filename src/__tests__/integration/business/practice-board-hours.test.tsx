@@ -373,6 +373,32 @@ it('⚖ S25-15 (5) — MOUNTED: the now-line scroll keys on the shown day and th
   }
 })
 
+it('⚖ S25-15 (5) — MOUNTED: today → another day on the same instance puts the scrolled board back to the day\'s start (scrollLeft 0); back to today brings the now-line in again', async () => {
+  // A box wide enough that today's now-line scroll is a real, positive offset; the setter clamps like a browser does.
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 2400 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = Math.max(0, Math.min(v, 2400 - 952)) } } })
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const page = (day?: string) => TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve(day ? { store: STORE.gym, day } : { store: STORE.gym }) })
+  try {
+    await act(async () => root.render(<BusinessSessionEdits>{await page()}</BusinessSessionEdits>))
+    const todayAt = box.at
+    expect([box.writes.length, todayAt > 0]).toEqual([1, true]) // today, overflowing: the now-line is brought in
+    await act(async () => root.render(<BusinessSessionEdits>{await page('1')}</BusinessSessionEdits>)) // 明日: dayOffset 1, sell.nowMinute null, nowFraction null
+    expect([box.writes.length, box.writes.at(-1), box.at]).toEqual([2, 0, 0]) // the reset write, nothing else
+    await act(async () => root.render(<BusinessSessionEdits>{await page()}</BusinessSessionEdits>))
+    expect([box.writes.length, box.at]).toEqual([3, todayAt]) // back on today: the now-line write happens again
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]
+  }
+})
+
 it('⚖ S25-15 (4) — MOUNTED: a card held in the right edge zone of an overflowing board scrolls it DRAG_EDGE_STEP_PX a frame; the middle does not; the release stops the loop', async () => {
   const { box, restore } = overflowingBox()
   const rect = Element.prototype.getBoundingClientRect
@@ -401,6 +427,42 @@ it('⚖ S25-15 (4) — MOUNTED: a card held in the right edge zone of an overflo
     act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) })
     act(() => { jest.advanceTimersByTime(16) })
     expect(box.at).toBe(2 * DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
+
+it('⚖ Liam S25-17 (2) — MOUNTED: a BLOCK (button.event, onBlockPointerDown) held in the right edge zone of an overflowing board scrolls it DRAG_EDGE_STEP_PX a frame; the release stops the loop', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    return this.classList.contains('timeline-scroll') ? ({ left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect) : rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = 0
+    // the draggable block: a <button> (the washes are <span role="note">), pressed in its middle — a MOVE, not a resize
+    const block = host.querySelector<HTMLElement>('.lane .track button.event[data-block]')!
+    expect(block).not.toBeNull()
+    act(() => { block.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
     act(() => { window.dispatchEvent(ev('pointerup', 940, 0)) })
     const up = box.at
     act(() => { jest.advanceTimersByTime(64) })
