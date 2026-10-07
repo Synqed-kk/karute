@@ -2117,9 +2117,13 @@ export function TodayScreen(props: TodayProps) {
    *  selector, so the label and the strip never agreed during a drag. The only
    *  genuine parity gap study 50 found. Floored to the 30-minute rail lattice for
    *  flag 48's reason: an off-lattice landing belongs to the cell it starts
-   *  INSIDE, and rounding would name the next chip along. */
+   *  INSIDE, and rounding would name the next chip along.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
+  const step = props.guard.bookingStepMin
   const aimed = landing && landing.w > 0
-    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
+    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / step) * step }
     : null
   /** ⚖ R8 GAP-11 — THE SAME LANDING, IN MINUTES, FOR THE CARD IN HAND.
    *
@@ -4837,7 +4841,10 @@ export function TodayScreen(props: TodayProps) {
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
    *  lattice can put a card on 14:05) belongs to the cell it starts inside. Read
    *  as a selector rather than a rect, because the rect has to be measured in
-   *  the same frame as the popover's own. */
+   *  the same frame as the popover's own.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
   const holdRailSel = useMemo(() => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not batch-7's day-only test — this
     // builds a selector into the board ON SCREEN, so a 仮押さえ staged in another
@@ -4845,9 +4852,10 @@ export function TodayScreen(props: TodayProps) {
     if (!pending || pendingOffBoard) return null
     const at = moves[pending.id]
     if (!at) return null
-    const start = Math.floor(minuteOf(at.x, hours) / 30) * 30
+    const step = props.guard.bookingStepMin
+    const start = Math.floor(minuteOf(at.x, hours) / step) * step
     return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
-  }, [pending, pendingOffBoard, moves, hours])
+  }, [pending, pendingOffBoard, moves, hours, props.guard.bookingStepMin])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {

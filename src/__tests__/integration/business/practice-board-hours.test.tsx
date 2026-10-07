@@ -217,6 +217,9 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     const block = (anchor: string) => src.slice(src.indexOf(anchor), src.indexOf(anchor) + 900)
     expect(block('const inputOn = useCallback(')).toMatch(/open: business\.open,\n\s+close: business\.close,/)
     expect(block('const originHeld = heldCommittedFor({')).toContain('closeMin: business.close,')
+    // ⚖ Q-25 — no fixed-30 lattice remains on the board; every rail/click lattice reads the store's booking step.
+    expect(src).not.toMatch(/\/ 30\) \* 30/)
+    expect(src.split('props.guard.bookingStepMin').length - 1).toBeGreaterThanOrEqual(16)
     // TodayScreen.tsx:3030-3031 — guardRailsFor (the 60分配置 strip).
     expect(closes(argsOf(guardRailsFor), ([, o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
     // TodayScreen.tsx:3403-3404 — guardVerdictAt (one landing's verdict): asked by an empty-slot click on a staff track.

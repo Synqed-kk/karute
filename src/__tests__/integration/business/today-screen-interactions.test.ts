@@ -486,9 +486,13 @@ describe('drag wiring — a pointer event becomes canon geometry', () => {
     const hours = { open: 420, close: 1320 } // 07:00–22:00
     const track = document.createElement('div')
     rect(track, { left: 0, top: 0, width: 900, height: 40 })
-    const clientX = 445 - 420 // fraction (445 − 420) / 900 lands at 07:25
+    const clientX = 25 // 25 px = 25 min on this 900 px / 900 min track → 07:25
     expect(slotStartAt(track, clientX, hours, hours, 20)).toBe(440)
     expect(slotStartAt(track, clientX, hours)).toBe(420)
+    expect(slotStartAt(track, 25, hours, hours, 0)).toBe(420)
+    expect(slotStartAt(track, 25, hours, hours, Number.NaN)).toBe(420)
+    // documents the midnight lattice; pre-existing: Math.floor(445 / 45) * 45 = 405, clamped to open 420.
+    expect(slotStartAt(track, 25, hours, hours, 45)).toBe(420)
     expect(slotStartAt(track, 900, hours, hours, 20)).toBe(1300)
     expect(slotStartAt(track, 900, hours, hours, 15)).toBe(1305)
   })
@@ -6046,7 +6050,8 @@ describe('BATCH-7 ⚖ 48 — the confirm prefers to leave the landing’s rail c
     // 30-minute lattice: an off-lattice landing (canon's dual lattice can put a
     // card on 14:05) belongs to the cell it starts inside, so the start is
     // floored — never rounded, which would name the next chip along.
-    expect(SRC).toContain('const start = Math.floor(minuteOf(at.x, hours) / 30) * 30')
+    // ⚖ Q-25 (2026-10-07) — the lattice unit is the store's booking step (opsConfig.bookingStepMin), not a fixed 30; the floor-not-round rule this pin guards is unchanged.
+    expect(SRC).toContain('const start = Math.floor(minuteOf(at.x, hours) / step) * step')
     expect(SRC).toContain('`.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`')
     // Measured in the same frame as the popover's own box, never cached.
     expect(SRC).toContain('boardRef.current?.querySelector(holdRailSel)?.getBoundingClientRect() ?? null')
@@ -6494,7 +6499,8 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect((SRC.match(/aimed\?\.laneKey === rail\.laneKey/g) ?? [])).toHaveLength(1)
     // Floored to the rail's own 30-minute lattice, never rounded: an off-lattice
     // landing belongs to the cell it starts INSIDE (flag 48's rule).
-    expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
+    // ⚖ Q-25 (2026-10-07) — the lattice unit is the store's booking step (opsConfig.bookingStepMin), not a fixed 30; the floor-not-round rule this pin guards is unchanged.
+    expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / step) * step')
     expect(SRC).not.toContain('start: Math.round(minuteOf(landing.x, hours) / 30) * 30')
   })
 })
