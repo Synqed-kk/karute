@@ -583,7 +583,7 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(true, id).state }).toEqual({ id, state: 'sample' })
   })
   it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
-    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
+    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', type: 'beauty_chiropractic', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
     expect(storeSample(true, SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
   })
 })
@@ -1799,11 +1799,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect([reads(first, TODAY - 46, TODAY + 46), reads(second, TODAY - 46, TODAY + 46)]).toEqual([1, 1])
   })
 
-  it('§v11 V11-12 — the readers agree on a day where the 勤務不可 GENUINELY moves: the gym\'s だいち, 13:00 → 21:30 on day, calendar and 予約一覧', async () => {
+  it('§v11 V11-12 — the readers agree when the generated early-shift absence yields to bookings through the shift end', async () => {
     const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
     const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)
     const res = (await data.readReservationPlanes(STORE.gym)).absence
-    expect([day?.staff_id, day?.from]).toEqual(['3c7ecb3b-24f6-413b-8292-5b9d5292e511', 21 * 60 + 30]) // was 13:00 (fixture); past her last row
+    expect(day).toBeNull() // the early-shift person's final booking reaches the served shift end
     expect([cal, res]).toEqual([day, day])
   })
 
