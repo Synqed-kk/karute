@@ -124,7 +124,7 @@ export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name:
     const s = shifts.find((x) => !used.has(x.staff_id) && x.start <= t && t + 60 <= x.end && !meetsBreak(x, t) && !(away && away.staff_id === x.staff_id && t + 60 > away.from))
     if (!template || typeof template.resource_id !== 'string' || !s) return []
     used.add(s.staff_id)
-    return [{ ...template, ...(prices ?? {}), id: `${template.id}:${type}:${t}`, staff_id: s.staff_id, start: t, end: t + 60 }]
+    return [{ ...template, ...(prices ?? {}), staff_id: s.staff_id, start: t, end: t + 60 }] // ⚖ Q3: keeps template.id, so its decision card and badge stay served
   })
   return { shifts, absence: away, sellSlots }
 }

@@ -52,7 +52,7 @@ import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
   sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
+import { liveIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { customers, operator, staff as fxStaff, stores as fxStores, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
@@ -1805,6 +1805,24 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const res = (await data.readReservationPlanes(STORE.gym)).absence
     expect(day).not.toBeNull() // ⚖ R4 T7: the early trainer's 勤務不可 survives the day's bookings
     expect([cal, res]).toEqual([day, day])
+  })
+
+  it('Q3 — a generated hair store keeps its 販売可能枠 decision card: the generated slot keeps the template id, so the card is served and counted', async () => {
+    // Dev Salon (hair) on its rooms, with a core week of 10:00–20:00 every day: not the 10–19 twin, so its day is GENERATED
+    const spy = withRooms()
+    const day = { open: '10:00', close: '20:00' }
+    const week = { sun: day, mon: day, tue: day, wed: day, thu: day, fri: day, sat: day }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.devSalon ? { ...POLICIES[id], source: 'custom', weekly_hours: week } : POLICIES[id]))
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const { price_low, price_high } = SAMPLE_SLOT_PRICES.hair_salon!
+    expect(planes.operatingHours).toEqual({ open: 600, close: 1200 })
+    expect(planes.sellSlots.length).toBeGreaterThan(0)
+    expect(planes.sellSlots.every((x) => x.price_low === price_low && x.price_high === price_high)).toBe(true) // generated (R16), not the fixture's
+    const cards = planes.decisions.filter((d) => d.sell_slot_id !== null && planes.sellSlots.some((x) => x.id === d.sell_slot_id))
+    expect(cards.length).toBeGreaterThan(0) // the card is present
+    const counts = await data.readUnresolvedCounts()
+    expect(counts.byStore[STORE.devSalon]).toBe(planes.decisions.filter((d) => d.state === 'open').length) // and counted
+    expect(counts.byStore[STORE.devSalon]).toBeGreaterThan(0)
   })
 
   it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
