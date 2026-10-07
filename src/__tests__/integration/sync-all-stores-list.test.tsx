@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
 import { claim, release, snapshot as inFlightNow } from '@/lib/sync/in-flight'
+import { SYNC_RUN_DEADLINE_MS } from '@/lib/sync/run-deadline'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (k: string, p?: Record<string, unknown>) => (p ? `${k}${JSON.stringify(p)}` : k),
@@ -49,7 +50,11 @@ const apiFetch = jest.fn((url: string, init?: RequestInit) => {
   if (url.startsWith('/api/sync/quickreserve/config?')) return Promise.resolve(reply({ username: 'form-login', enabled: true }))
   if (url === '/api/sync/quickreserve' && init?.method === 'POST') {
     const { storeId } = JSON.parse(String(init.body))
-    return new Promise<Response>((resolve) => runs.push({ storeId, resolve }))
+    // A run answers only when the test resolves it; an abort (the run deadline) rejects it like fetch does.
+    return new Promise<Response>((resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+      runs.push({ storeId, resolve })
+    })
   }
   return Promise.reject(new Error(`unexpected ${url}`))
 })
@@ -651,5 +656,45 @@ describe('viewAll caller', () => {
     expect(screen.getByText('runAllDone{"n":1}')).toBeTruthy()
     expect((screen.getByText('runAll').closest('button') as HTMLButtonElement).disabled).toBe(false)
     expect(inFlightNow().size).toBe(0)
+  })
+
+  it('a row run whose POST never resolves: after the deadline the row shows failed and the claim is released', async () => {
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      const row = () => within(screen.getByTestId(`sync-row-${shibuya}`))
+      await act(async () => { fireEvent.click(row().getByText('runNow')) })
+      expect(runs.map((r) => r.storeId)).toEqual([shibuya])
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(shibuya)).toBe(true) // still waiting, one ms before the deadline
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(shibuya)).toBe(false)
+      expect(row().getByText('runFailed')).toBeTruthy()
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it("the form's 今すぐ同期 whose POST never resolves: after the deadline it shows the failure line and the claim is released", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+      expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(daikanyama)).toBe(true)
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(daikanyama)).toBe(false)
+      expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+      expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
   })
 })

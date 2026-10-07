@@ -9,6 +9,7 @@ import type { SyncStoreRow } from '@/app/api/sync/quickreserve/configs/route'
 import { syncFailureReason, syncStoreState, type SyncFailureReason, type SyncStoreState } from '@/lib/sync/sync-store-state'
 import { readSyncResponse } from '@/lib/sync/read-sync-response'
 import * as syncInFlight from '@/lib/sync/in-flight'
+import { SYNC_RUN_DEADLINE_MS } from '@/lib/sync/run-deadline'
 
 type RunOutcome =
   | { ok: true; created: number; updated: number; cancelled: number; skipped: number }
@@ -38,11 +39,16 @@ const OUTLINE_BUTTON =
 /** One store's 今すぐ同期 through PR-A's run route, which resolves the named
  *  store with the shared resolver (resolveSyncRunStore). */
 export async function runStoreSync(storeId: string): Promise<RunOutcome> {
+  // A run that never answers fails at the deadline (the abort lands in the
+  // catch below), so the caller releases the store's claim.
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), SYNC_RUN_DEADLINE_MS)
   try {
     const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ storeId }),
+      signal: deadline.signal,
     })
     const parsed = await readSyncResponse(res)
     if (!parsed.ok) return { ok: false, reason: syncFailureReason(parsed.message) }
@@ -53,6 +59,8 @@ export async function runStoreSync(storeId: string): Promise<RunOutcome> {
     return { ok: true, created: d.created ?? 0, updated: d.updated ?? 0, cancelled: d.cancelled ?? 0, skipped: d.skipped ?? 0 }
   } catch {
     return { ok: false, reason: 'other' }
+  } finally {
+    clearTimeout(timer)
   }
 }
 

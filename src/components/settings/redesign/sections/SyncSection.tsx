@@ -8,6 +8,7 @@ import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { SyncAllStoresList } from './SyncAllStoresList'
 import { readSyncResponse } from '@/lib/sync/read-sync-response'
 import * as syncInFlight from '@/lib/sync/in-flight'
+import { SYNC_RUN_DEADLINE_MS } from '@/lib/sync/run-deadline'
 
 // Re-exported: the reader moved to src/lib/sync/read-sync-response.ts.
 export { readSyncResponse }
@@ -213,11 +214,16 @@ export function SyncSection({
     const key = forStore ?? ''
     beginSyncing(key)
     setLastResult({ text: t('syncing'), error: false })
+    // A run that never answers fails at the deadline (the abort lands in the
+    // catch), and finally releases the claim.
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(), SYNC_RUN_DEADLINE_MS)
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(storeId ? { storeId } : {}),
+        signal: deadline.signal,
       })
       const parsed = await readSyncResponse(res)
       setListGeneration((g) => g + 1)
@@ -238,6 +244,7 @@ export function SyncSection({
       if (shownStore.current !== forStore) return
       setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
+      clearTimeout(timer)
       endSyncing(key)
     }
   }
