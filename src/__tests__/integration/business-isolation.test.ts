@@ -331,6 +331,23 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('@/lib/synqed/client', door)).not.toBeNull()
   })
 
+  // ⚖ S81 — the store-hours door: store-hours.ts alone may import the hours resolver, never through a barrel.
+  it('the store-hours door: store-hours.ts may import src/lib/operating-hours in either spelling, nothing else may', () => {
+    const hours = 'src/business/lib/practice-door/store-hours.ts'
+    expect(FILE_ALLOWED_TARGETS[hours]).toEqual(['src/lib/operating-hours'])
+    // Both spellings resolve to the one allowed target.
+    expect(outwardOffense('@/lib/operating-hours', hours)).toBeNull()
+    expect(outwardOffense('../../../lib/operating-hours', hours)).toBeNull()
+    // Another territory file importing the same module is an offender.
+    expect(outwardOffense('@/lib/operating-hours', 'src/business/lib/practice-door/door.ts')).not.toBeNull()
+    expect(outwardOffense('../../../lib/operating-hours', 'src/business/lib/practice-door/sample-day.ts')).not.toBeNull()
+    expect(outwardOffense('@/lib/operating-hours', 'src/business/lib/data.ts')).not.toBeNull()
+    // A barrel from store-hours.ts stays out, in either spelling, as does a neighbour of the module.
+    expect(outwardOffense('@/lib', hours)).not.toBeNull()
+    expect(outwardOffense('../../../lib/index', hours)).not.toBeNull()
+    expect(outwardOffense('@/lib/operating-hours-extra', hours)).not.toBeNull()
+  })
+
   /** Every scanned file (both walks) whose import resolves to the door file. */
   function importersOfDoor(scanned: Array<{ rel: string; src: string }>): string[] {
     const doorModule = SHARED_CORES.doorFile.replace(/\.[cm]?[jt]sx?$/, '')
