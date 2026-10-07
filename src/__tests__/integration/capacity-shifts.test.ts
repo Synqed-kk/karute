@@ -50,6 +50,10 @@ test('T12: greedy unassigned allocation, overflow adds to both totals', () => {
   expect(fact({ rows: [row()] }, [span(null, 600, 660), span(null, 600, 660)])).toMatchObject({ bookedMinutes: 120, capacityMinutes: 540, unassignedOverflow: 1 })
   expect(fact({ rows: [row()] }, [span(null, 1110, 1170)])).toMatchObject({ bookedMinutes: 60, capacityMinutes: 510, unassignedOverflow: 1 })
 })
+test('T12 variant: unassigned fill prefers the person whose free time covers most of the booking', () => {
+  const rows = [row('s1', { breaks: [] }), row('s2', { breaks: [] })]
+  expect(fact({ rows }, [span('s1', 630, 1140), span(null, 600, 720)])).toMatchObject({ bookedMinutes: 630, capacityMinutes: 1080, occupancyPct: 58, unassignedOverflow: 0 })
+})
 test('T13: almost full pins 99; truly full = 100', () => {
   const rows = [row('s1', { breaks: [] })]
   expect(fact({ rows }, [span('s1', 600, 1139)]).occupancyPct).toBe(99)

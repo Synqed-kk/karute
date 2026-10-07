@@ -115,10 +115,16 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   let overtime = 0
   let unassignedOverflow = 0
   for (const booking of unassigned.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)) {
-    // One booking uses ONE free person, chosen deterministically by staff id.
-    const person = [...ids].sort().find(id => subtract(receivable.get(id) ?? [], booked.get(id) ?? []).some(s => s.startMs <= booking.startMs && s.endMs > booking.startMs))
-    const free = person == null ? [] : subtract(receivable.get(person) ?? [], booked.get(person) ?? [])
-    const fitted = free.map(s => ({ startMs: Math.max(s.startMs, booking.startMs), endMs: Math.min(s.endMs, booking.endMs) }))
+    // One booking uses ONE free person: the one whose free time covers the
+    // most of it, ties broken by staff id; nobody covering any of it = none.
+    const fit = (id: string) => subtract(receivable.get(id) ?? [], booked.get(id) ?? [])
+      .map(s => ({ startMs: Math.max(s.startMs, booking.startMs), endMs: Math.min(s.endMs, booking.endMs) }))
+    let person: string | undefined
+    let fitted: Interval[] = []
+    for (const id of [...ids].sort()) {
+      const candidate = fit(id)
+      if (minutes(candidate) > minutes(fitted)) { person = id; fitted = candidate }
+    }
     const overflow = minutes([booking]) - minutes(fitted)
     if (overflow > 0) unassignedOverflow++
     overtime += overflow
