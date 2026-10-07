@@ -485,7 +485,7 @@ describe('viewAll caller', () => {
     await flush()
     expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
     // while 代官山 runs, the owner turns 渋谷's auto-sync OFF in the form and saves
-    await act(async () => { fireEvent.click(document.querySelector('button.w-11') as HTMLButtonElement) })
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'autoSyncTitle' })) })
     await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
     await flush()
     expect(saved[shibuya]).toMatchObject({ enabled: false })

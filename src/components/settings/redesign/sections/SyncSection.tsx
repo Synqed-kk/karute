@@ -353,6 +353,9 @@ export function SyncSection({
         </div>
         <button
           type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={t('autoSyncTitle')}
           onClick={() => setEnabled(!enabled)}
           disabled={syncing}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
