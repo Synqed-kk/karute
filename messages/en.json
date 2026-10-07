@@ -3713,7 +3713,7 @@
   "syncAllStores": {
     "blockTitle": "Sync by store",
     "scopeLine": "Scope: all stores ({n} stores)",
-    "blockNote": "Each store's bookings are imported with that store's own Quick Reserve login. Every store you can edit is shown, whichever store is selected at the top left.",
+    "blockNote": "Each store's bookings are imported with that store's own Quick Reserve login. Every store you can edit is shown, whichever store is currently selected.",
     "colStore": "Store",
     "colQrStore": "Quick Reserve store",
     "colState": "Status",
@@ -3742,7 +3742,7 @@
     "reasonLogin": "Could not log in to Quick Reserve",
     "reasonStore": "The Quick Reserve store is not registered",
     "reasonLoginFix": "Could not log in to Quick Reserve. Check the login ID and password.",
-    "reasonStoreFix": "The Quick Reserve store is not registered. Check the store ID and store number.",
+    "reasonStoreFix": "The Quick Reserve store is not registered. Check that the store number shown here exists under this store's Quick Reserve account.",
     "runFailed": "Sync failed",
     "resultFailed": "Sync failed ({reason})",
     "runResult": "Synced: {created} new, {updated} updated, {cancelled} cancelled, {skipped} skipped",
