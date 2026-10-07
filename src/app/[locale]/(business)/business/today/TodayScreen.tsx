@@ -885,14 +885,10 @@ interface DragCtx {
    *  half right now". */
   home: PairLanes
   track: Element
-  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL. The scroll box and its two edge lines, taken ONCE at drag start
-   *  and only when the track overflows (null = a day that fits, never scrolls); the move handler compares clientX with
-   *  these two numbers and reads nothing else. `scrolled` is how far the box moved under the held card: it is added to
-   *  the pointer's travel, so the card stays under the pointer and the drop lands where it shows. `at` = the last
-   *  pointer position, re-applied each scrolled frame while the pointer rests in the zone. */
-  edge: { el: HTMLElement; left: number; right: number } | null
-  edgeDir: -1 | 0 | 1
-  edgeFrame: number | null
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL runs on the board's ONE loop (`edgeStart` / `edgeAim` /
+   *  `edgeStop`, `edgeRef`). `scrolled` is how far the box moved under the held card: it is added to the pointer's
+   *  travel, so the card stays under the pointer and the drop lands where it shows. `at` = the last pointer position,
+   *  re-applied each scrolled frame while the pointer rests in the zone. */
   scrolled: number
   at: { clientX: number; clientY: number } | null
   moved: boolean
@@ -984,6 +980,9 @@ interface BlockDragCtx {
   grab: { dx: number; dy: number; w: number; h: number }
   pending: { clientX: number; clientY: number } | null
   frame: number | null
+  /** ⚖ Liam S25-17 (2) — the block drag rides the same edge loop; the card's `scrolled` / `at`, same meaning. */
+  scrolled: number
+  at: { clientX: number; clientY: number } | null
   detach: () => void
 }
 
@@ -1549,7 +1548,11 @@ export function TodayScreen(props: TodayProps) {
    *  popup would close itself the instant it appeared. */
   const adviceOpenedAt = useRef(0)
   const blockAdviceOpenedAt = useRef(0)
-  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; aimKey: string; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
+  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; aimKey: string; at?: number; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — THE ONE EDGE LOOP, shared by every drag that lands on the board (a card, a
+   *  block, a shelf chip). The scroll box and its two edge lines are taken ONCE at drag start and only when the track
+   *  overflows (null = a day that fits, never scrolls); `step` tells the gesture how far the box really moved. */
+  const edgeRef = useRef<{ el: HTMLElement; left: number; right: number; dir: -1 | 0 | 1; frame: number | null; step: (moved: number) => void } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
   const [hiInput, setHiInput] = useState(dialogs.pricing.hqMax)
@@ -5621,7 +5624,45 @@ export function TodayScreen(props: TodayProps) {
    *  until the release (canon's `dragMove` only ever calls `evSet` on the card
    *  it started with), and the listeners hang off `window`, so no re-render,
    *  re-order or re-parent anywhere on the board can interrupt a drag. */
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'edge' | 'edgeDir' | 'edgeFrame' | 'scrolled' | 'at'>) {
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL, one loop for every board drag. `edgeStart` at drag start
+   *  takes the scroll box's rect ONCE (its left edge moved past the sticky name column, --label read as the now-line
+   *  effect reads it), only when the track overflows; `edgeAim` is all a move handler calls — it compares clientX with
+   *  those two numbers (`edgeScrollDir`) and starts the frame loop; the loop scrolls DRAG_EDGE_STEP_PX a frame, hands
+   *  the real distance to the gesture's `step`, and stops itself when the pointer leaves the zone; `edgeStop` ends it
+   *  on every ending (up, cancel, blur, the self-heal, unmount). */
+  function edgeStart(within: Element | null | undefined, step: (moved: number) => void) {
+    edgeStop()
+    const box = within?.closest<HTMLElement>('.timeline-scroll') ?? null
+    if (!box || box.scrollWidth <= box.clientWidth) return
+    const r = box.getBoundingClientRect()
+    const label = parseFloat(getComputedStyle(box.firstElementChild ?? box).getPropertyValue('--label')) || 0
+    edgeRef.current = { el: box, left: r.left + label, right: r.right, dir: 0, frame: null, step }
+  }
+  function edgeFrame() {
+    const e = edgeRef.current
+    if (!e || e.dir === 0) {
+      if (e) e.frame = null
+      return
+    }
+    const before = e.el.scrollLeft
+    e.el.scrollLeft = before + e.dir * DRAG_EDGE_STEP_PX
+    e.step(e.el.scrollLeft - before)
+    e.frame = requestAnimationFrame(edgeFrame)
+  }
+  function edgeAim(clientX: number | null) {
+    const e = edgeRef.current
+    if (!e) return
+    e.dir = clientX == null ? 0 : edgeScrollDir(clientX, e)
+    if (e.dir !== 0 && e.frame == null) e.frame = requestAnimationFrame(edgeFrame)
+  }
+  function edgeStop() {
+    const e = edgeRef.current
+    if (e?.frame != null) cancelAnimationFrame(e.frame)
+    edgeRef.current = null
+  }
+  useEffect(() => () => edgeStop(), [])
+
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'scrolled' | 'at'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5652,30 +5693,14 @@ export function TodayScreen(props: TodayProps) {
         rowStamp: () => rowStampRef.current,
       })
     }
-    // ⚖ S25-15 (4) — the edge lines, ONCE, here and only when the track overflows: the scroll box's rect, its left
-    // edge moved past the sticky name column (--label, read as the now-line effect reads it).
-    const box = ctx.track.closest<HTMLElement>('.timeline-scroll')
-    let edge: DragCtx['edge'] = null
-    if (box && box.scrollWidth > box.clientWidth) {
-      const r = box.getBoundingClientRect()
-      const label = parseFloat(getComputedStyle(box.firstElementChild ?? box).getPropertyValue('--label')) || 0
-      edge = { el: box, left: r.left + label, right: r.right }
-    }
-    // One step per animation frame while the pointer stays in a zone; it stops itself on leave, and clearDrag cancels
-    // it on up / cancel / blur.
-    const edgeFrame = () => {
+    // ⚖ S25-15 (4) — the board's one edge loop; each scrolled frame re-applies the last pointer position.
+    edgeStart(ctx.track, (moved) => {
       const c = dragRef.current
-      if (!c?.edge || c.edgeDir === 0) {
-        if (c) c.edgeFrame = null
-        return
-      }
-      const before = c.edge.el.scrollLeft
-      c.edge.el.scrollLeft = before + c.edgeDir * DRAG_EDGE_STEP_PX
-      c.scrolled += c.edge.el.scrollLeft - before
+      if (!c) return
+      c.scrolled += moved
       c.pending = c.at
       applyDragFrame()
-      c.edgeFrame = requestAnimationFrame(edgeFrame)
-    }
+    })
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c) return
@@ -5701,8 +5726,7 @@ export function TodayScreen(props: TodayProps) {
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
       c.pending = { clientX: e.clientX, clientY: e.clientY }
       c.at = c.pending
-      c.edgeDir = edgeScrollDir(e.clientX, c.edge)
-      if (c.edgeDir !== 0 && c.edgeFrame == null) c.edgeFrame = requestAnimationFrame(edgeFrame)
+      edgeAim(e.clientX)
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyDragFrame() })
     }
@@ -5724,14 +5748,11 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
-      edge,
-      edgeDir: 0,
-      edgeFrame: null,
       scrolled: 0,
       at: null,
       detach: () => {
         // ⚖ S25-15 (4) — every ending (up, cancel, blur, the self-heal, unmount) detaches: the edge loop stops here.
-        if (dragRef.current?.edgeFrame != null) cancelAnimationFrame(dragRef.current.edgeFrame)
+        edgeStop()
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -6516,7 +6537,15 @@ export function TodayScreen(props: TodayProps) {
    *  canon binds both through one `bindBlock` (:4276) so a box can never end up
    *  movable but unopenable. `suppressClickUntil` keeps the release's synthetic
    *  click out of it, exactly as the cards already do. */
-  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame'>) {
+  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame' | 'scrolled' | 'at'>) {
+    // ⚖ Liam S25-17 (2) — the same edge loop as the card's, the same re-apply of the last pointer position.
+    edgeStart(ctx.track, (moved) => {
+      const c = blockDragRef.current
+      if (!c) return
+      c.scrolled += moved
+      c.pending = c.at
+      applyBlockFrame()
+    })
     const onMove = (e: PointerEvent) => {
       const c = blockDragRef.current
       if (!c) return
@@ -6529,6 +6558,8 @@ export function TodayScreen(props: TodayProps) {
       if (e.pointerId !== c.pointerId) return
       e.preventDefault()
       c.pending = { clientX: e.clientX, clientY: e.clientY }
+      c.at = c.pending
+      edgeAim(e.clientX)
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })
     }
@@ -6550,7 +6581,10 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
+      scrolled: 0,
+      at: null,
       detach: () => {
+        edgeStop() // ⚖ Liam S25-17 (2) — every ending of a block drag stops the edge loop too.
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -6564,7 +6598,7 @@ export function TodayScreen(props: TodayProps) {
     if (!ctx || !ctx.pending) return
     const { clientX, clientY } = ctx.pending
     ctx.pending = null
-    const dx = clientX - ctx.startX
+    const dx = clientX - ctx.startX + ctx.scrolled // ⚖ Liam S25-17 (2): plus what the edge loop scrolled under the box
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
     const span = nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)
@@ -6639,7 +6673,7 @@ export function TodayScreen(props: TodayProps) {
     // Read off the event's own clock, the same monotonic origin the board's
     // click checks use — nothing in this component reads the wall clock.
     openClickWindow(e.timeStamp, ctx.node)
-    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, BLOCK_STEP)
+    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX + ctx.scrolled, BLOCK_STEP) // ⚖ S25-17 (2)
     let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
       const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
@@ -7103,6 +7137,17 @@ export function TodayScreen(props: TodayProps) {
       grab: { dx: e.clientX - box.left, dy: e.clientY - box.top, w: box.width, h: box.height },
     }
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
+    // ⚖ Liam S25-17 (2) — the board's one edge loop. The chip's landing is read off the track's LIVE rect at the
+    // pointer (`fractionIn`), which moves with the scroll, so nothing is added to it; each scrolled frame only
+    // repaints the verdict under the resting pointer.
+    edgeStart(scrollRef.current, () => {
+      const c = chipDragRef.current
+      const chip = c ? parkChips.find((p) => p.id === c.id) : undefined
+      if (c?.moved && c.at != null && chip) {
+        c.aimKey = ''
+        paintChipVerdict(c, chip, c.at)
+      }
+    })
     e.preventDefault()
   }
 
@@ -7120,6 +7165,7 @@ export function TodayScreen(props: TodayProps) {
   function clearChipDrag(e?: { timeStamp: number; currentTarget: EventTarget | null }) {
     const ctx = chipDragRef.current
     if (e && ctx?.moved) openClickWindow(e.timeStamp, e.currentTarget instanceof Element ? e.currentTarget : null)
+    edgeStop() // ⚖ Liam S25-17 (2) — up, cancel and the self-heal all end here, so the edge loop does too.
     chipDragRef.current = null
     setChipTarget(null)
     setDragLen(null)
@@ -7154,6 +7200,9 @@ export function TodayScreen(props: TodayProps) {
     // in and leaving the person alone.
     ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY) ?? laneKeyAtY(boardRef.current, 'beds', e.clientY)
     setChipTarget(ctx.laneKey)
+    // ⚖ Liam S25-17 (2) — over a lane only: the shelf sits above the board, so a chip still over the shelf never scrolls it.
+    ctx.at = e.clientX
+    edgeAim(ctx.laneKey ? e.clientX : null)
     // ⚖ Liam flag 50(b) — the chip in hand wears the verdict too. It is the same
     // question and the same word; a shelf placement is a landing exactly as a
     // card move is, and canon's own demo drag IS a chip drag.

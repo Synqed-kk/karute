@@ -412,3 +412,49 @@ it('⚖ S25-15 (4) — MOUNTED: a card held in the right edge zone of an overflo
     restore()
   }
 })
+
+it('⚖ Liam S25-17 (2) — MOUNTED: a SHELF CHIP held in the right edge zone of an overflowing board rides the same loop (DRAG_EDGE_STEP_PX a frame); the release stops it', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  // jsdom lays nothing out: every other rect is 0×0 at the origin, so clientY 0 is "over the shelf" for the card's
+  // release (isOverShelf) and "over the first lane" for the chip (laneKeyAtY); a card rect makes the press a MOVE.
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('timeline-scroll')) return { left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect
+    if (this.hasAttribute('data-book')) return { left: 400, right: 600, top: 0, bottom: 0, width: 200, height: 0, x: 400, y: 0 } as DOMRect
+    return rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 0, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    // park one card: carry it in the middle (no edge) and release it over the shelf
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const chip = host.querySelector<HTMLElement>('.park-chip')!
+    expect(chip).not.toBeNull()
+    box.at = 0
+    act(() => { chip.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { chip.dispatchEvent(ev('pointermove', 940, 1)) }) // over a lane, inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { chip.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
