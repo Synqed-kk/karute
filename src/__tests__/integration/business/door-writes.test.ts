@@ -855,3 +855,94 @@ describe('PKT-S32 R21 — attempt row before the delete, remove row after it', (
     expect(r2).not.toEqual(expect.objectContaining({ message: DUPLICATE_SPECIAL_LINE }))
   })
 })
+
+// ── Reserve S66 — 受付ルール: setReservePolicy (its own door file, this suite's mocks) ───────────────────────────────
+describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.ts (the six booking rules, one store)', () => {
+  const { RESERVE_POLICY_DEFAULTS, policyHash, pickReservePolicy } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
+  const PROOF = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_min: 15, cancel_free_until_hours: 12, cancel_late_pct: 30, no_show_pct: 100 } as const
+  const BASED = policyHash(pickReservePolicy(BASE_POLICY))
+
+  it('ok: ONE set(storeId, { acting_staff_id, six fields }) — no lead_time_min, weekly_hours, special_open_days, booking_step_min; basedOn refreshed from the PUT answer', async () => {
+    mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY, ...PROOF, updated_at: '2026-09-29T03:00:00.000Z' })
+    const result = await data.setReservePolicy(STORE_ID, { ...PROOF }, BASED)
+    expect(result).toEqual({ ok: true, row: { ...PROOF, updated_at: '2026-09-29T03:00:00.000Z' }, basedOn: policyHash(PROOF) })
+    expect(mockCore.writer.set.mock.calls).toEqual([[STORE_ID, { acting_staff_id: 'staff-owner', ...PROOF }]])
+    expect(Object.keys(mockCore.writer.set.mock.calls[0][1]).sort()).toEqual(['acting_staff_id', ...Object.keys(PROOF)].sort())
+    expectWrites({ set: 1 })
+  })
+
+  it('two saves in a row: a fresh basedOn passes both times; the first basedOn a second time is stale and nothing is written', async () => {
+    let row = { ...BASE_POLICY }
+    const reads = withReads()
+    reads.storePolicyGet.mockImplementation(async () => ({ ...row }))
+    mockCore.writer.set.mockImplementation(async (_id: string, input: Record<string, unknown>) => {
+      const { acting_staff_id: _a, ...rest } = input
+      row = { ...row, ...rest }
+      return { ...row }
+    })
+    const first = await data.setReservePolicy(STORE_ID, { ...PROOF }, BASED)
+    expect(first.ok).toBe(true)
+    const second = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 50 }, first.ok ? first.basedOn : 'x')
+    expect(second.ok).toBe(true)
+    const third = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 0 }, first.ok ? first.basedOn : 'x')
+    expect(third).toEqual({ ok: false, reason: 'stale', message: expect.stringContaining('ほかの画面や端末で保存された') })
+    expectWrites({ set: 2 })
+  })
+
+  it('stale: a basedOn that is not the row as read → stale, no set', async () => {
+    const result = await data.setReservePolicy(STORE_ID, { ...PROOF }, policyHash(RESERVE_POLICY_DEFAULTS))
+    expect(result).toMatchObject({ ok: false, reason: 'stale' })
+    expectWrites()
+  })
+
+  it.each([
+    ['grid 20', { ...PROOF, reserve_start_grid_min: 20 }],
+    ['101%', { ...PROOF, cancel_late_pct: 101 }],
+    ['0 days', { ...PROOF, booking_open_days: 0 }],
+    ['cutoff 40000', { ...PROOF, cutoff_minutes: 40000 }],
+    ['a fraction', { ...PROOF, no_show_pct: 12.5 }],
+    ['a seventh field', { ...PROOF, lead_time_min: 60 }],
+    ['a missing field', { booking_open_days: 21 }],
+  ])('invalid (%s): refused before any core read or write', async (_name, draft) => {
+    const reads = withReads()
+    const result = await data.setReservePolicy(STORE_ID, draft, BASED)
+    expect(result).toEqual({ ok: false, reason: 'invalid', message: '設定できる範囲を超えた値があるため、保存できませんでした。' })
+    expect(reads.storePolicyGet).not.toHaveBeenCalled()
+    expectWrites()
+  })
+
+  it.each([
+    ['cutoff longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 1441, cancel_free_until_hours: 0 }, '直前締切が受付期間より長いため、予約できる枠がなくなります'],
+    ['free deadline longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 0, cancel_free_until_hours: 25 }, '無料キャンセル期限が受付期間より長いため、すべての予約が期限後になります'],
+  ])('invalid (%s): the §4 line, no core call', async (_name, draft, line) => {
+    const reads = withReads()
+    expect(await data.setReservePolicy(STORE_ID, draft, BASED)).toEqual({ ok: false, reason: 'invalid', message: line })
+    expect(reads.storePolicyGet).not.toHaveBeenCalled()
+    expectWrites()
+  })
+
+  it('forbidden: a store outside the actor’s visible stores is refused before any core read', async () => {
+    as('login-admin')
+    const reads = withReads()
+    expect(await data.setReservePolicy(OTHER_STORE_ID, { ...PROOF }, BASED)).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(reads.storePolicyGet).not.toHaveBeenCalled()
+    expect(reads.businessGrantsCheck).not.toHaveBeenCalled()
+    expectWrites()
+  })
+
+  it('tenant: the practice switch removed → tenant, nothing reaches core', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const reads = withReads()
+    expect(await data.setReservePolicy(STORE_ID, { ...PROOF }, BASED)).toMatchObject({ ok: false, reason: 'tenant' })
+    expect(Object.values(reads).every((fn) => fn.mock.calls.length === 0)).toBe(true)
+    expect(mockCore.writerFor).not.toHaveBeenCalled()
+    expectWrites()
+  })
+
+  it('the R5 note condition: cutoff shorter than the free deadline', () => {
+    const { lateFromBooking } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
+    expect(lateFromBooking(PROOF)).toBe(true) // 90 min < 12 h
+    expect(lateFromBooking({ ...PROOF, cutoff_minutes: 720 })).toBe(false)
+    expect(data.LATE_FROM_BOOKING_NOTE).toContain('最初からキャンセル料の対象')
+  })
+})
