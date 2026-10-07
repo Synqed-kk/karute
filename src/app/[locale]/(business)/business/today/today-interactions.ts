@@ -222,6 +222,20 @@ export function dragModeAt(el: Element, clientX: number): DragMode {
   return dragModeFor(clientX, r.left, r.right)
 }
 
+/** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL WHILE DRAGGING. A pointer within DRAG_EDGE_ZONE_PX inside the
+ *  scroll box's left edge (past the sticky name column) or its right edge scrolls the board toward that edge by
+ *  DRAG_EDGE_STEP_PX per animation frame; anywhere else, or outside the box, nothing. `edge` is null when the track
+ *  fits. 40 px: a band the hand reaches without leaving the board; 12 px a frame: about 720 px a second at 60 fps,
+ *  a whole 990 px gym floor in under two seconds. */
+export const DRAG_EDGE_ZONE_PX = 40
+export const DRAG_EDGE_STEP_PX = 12
+export function edgeScrollDir(clientX: number, edge: { left: number; right: number } | null): -1 | 0 | 1 {
+  if (!edge) return 0
+  if (clientX >= edge.left && clientX < edge.left + DRAG_EDGE_ZONE_PX) return -1
+  if (clientX <= edge.right && clientX > edge.right - DRAG_EDGE_ZONE_PX) return 1
+  return 0
+}
+
 /** The pointer's travel as a percentage of the track it started on. */
 export function deltaPctIn(track: Element, dx: number): number {
   const width = track.getBoundingClientRect().width

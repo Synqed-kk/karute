@@ -337,13 +337,15 @@
 .biz .board-main { min-width: 0; }
 .biz .timeline-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .biz .timeline-scroll:focus-visible { outline-offset: -3px; }
-.biz .timeline { position: relative; min-width: 0; --label: 112px; }
+.biz .timeline { position: relative; --label: 112px; }
 .biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px)); }
 /* ⚖ 10/7 S25-1 — fit to width first; the track never goes below minPxPer30 (today-board.ts) per grid cell, so only a day
    that cannot fit makes .timeline-scroll scroll sideways; the name column (.lane-label / .time-head > span) is sticky-left
    and the ruler scrolls with the schedule. --floor-slots / --cell-floor are set by TodayScreen from the day model.
    S25-15 (2): the floor is a time density, minPxPer30 per 30 minutes of the day (floorSlots) whatever the grid step;
-   --board-cells (the step's cells) feeds the strip only. */
+   --board-cells (the step's cells) feeds the strip only. Amended by the lead's ruling S25-15 (2): 「per grid cell」 above
+   now reads 33 px per 30 minutes of the day whatever the grid step (--floor-slots). S25-15 (10): .timeline's own
+   min-width: 0 went — the one .timeline on this screen sits in .timeline-scroll, and this child rule sets its min-width. */
 .biz .time-head, .biz .lane { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); }
 .biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }
 .biz .time-head > span {
@@ -502,9 +504,14 @@
 .biz .page-today .event { container-type: inline-size; }
 @container (width < 77px) {
   .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .e-given, .biz .page-today .event > strong > .tg { display: none; }
-  .biz .page-today .event > strong, .biz .page-today .event > small { margin-left: -6px; margin-right: -5px; }
+  .biz .page-today .event:not(.micro) > strong, .biz .page-today .event:not(.micro) > small { margin-left: -6px; margin-right: -5px; }
 }
 @container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }
+/* S25-15 (7), the lead's ruling over S25-14 — a BLOCK card (休憩 · 勤務不可 · 終業 / 開店前 · booth: no data-book) prints its
+   「HH:MM〜HH:MM」 line (.e-time) from WIDE only — 72 px of time never fits MID's content box; below WIDE the label
+   alone, and 勤務不可 ellipsises at NARROW (known limit, no new tier). S25-15 (9): the give-back above skips .micro, so
+   a micro block (18–30 px, padding 0 2px) keeps the base's 3 px inset. */
+@container (width < 77px) { .biz .page-today .event:not([data-book]) > .e-time { display: none; } }
 @container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
    詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer
@@ -513,6 +520,9 @@
    詰め込み / スキマ枠 (pointer-events: none, aria-hidden, and 価格を隠す must hold); only the pressable 確保 keeps its title. */
 .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) { container-type: inline-size; }
 @container (width < 10px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }
+/* S25-15 (7) — the offers CLIP: a kind word or a price never spills past its own box (33 px at the floor). 確保 keeps
+   its ellipsis (「確…」, S25-13) and the bar alone at SLIVER, as above. */
+.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill) { overflow: hidden; }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep

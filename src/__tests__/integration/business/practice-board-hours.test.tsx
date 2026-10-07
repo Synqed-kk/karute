@@ -40,7 +40,7 @@ import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { DRAG_EDGE_STEP_PX, guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
 import { familyNameOf, minPxPer30 } from '@/business/lib/today-board'
 
@@ -275,7 +275,8 @@ it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 2
     const other = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.yokohama }) })
     await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))
     expect(host.querySelector('.time-head .hours span:last-child')!.textContent).not.toBe('22') // the switch landed
-    expect(writes.length).toBe(1) // the same instance re-rendered for another store: never again
+    // S25-15 (5) flips this pin: the same instance re-rendered for another store applies the now-line rule to the new board.
+    expect(writes.length).toBe(2)
   } finally {
     act(() => root.unmount())
     host.remove()
@@ -310,5 +311,104 @@ it('⚖ S25 round 3 (D5) + round 4 — MOUNTED: the 07:00 card\'s name line per 
   } finally {
     act(() => root.unmount())
     host.remove()
+  }
+})
+
+// ⚖ S25-15 — Round B's mounted pins. jsdom lays nothing out: the scroll box is made to overflow and to keep its scrollLeft.
+function overflowingBox() {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = v } } })
+  return { box, restore: () => { for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k] } }
+}
+const todayCss = () => readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+
+it('⚖ S25-15 (1) + (7) + (10) — MOUNTED 07–24 (テスト恵比寿ジム + one row after close): the strip walks the ruler\'s day on the grid step (--board-cells cells per lane, 07:00 first, 23:30 last, 13:00 at the ruler\'s 13 slot); block cards carry the tier classes and no title', async () => {
+  const { host, done } = await mountGymOutOfHours()
+  try {
+    const STEP = 30 // the gym's bookingStepMin (its 07–22 day is 30 --board-cells above)
+    const cells = Number(host.querySelector<HTMLElement>('.timeline-scroll > .timeline')!.style.getPropertyValue('--board-cells'))
+    const lanes = Array.from(host.querySelectorAll('.guard-rail-track')).map((t) => Array.from(t.querySelectorAll('.guard-rail-cell')).map((c) => Number(c.getAttribute('data-start'))))
+    expect([cells, lanes.length > 0, [...new Set(lanes.map((l) => `${l.length} ${l[0]} ${l.at(-1)}`))]]).toEqual([34, true, ['34 420 1410']])
+    // the 13:00 x match in jsdom's terms: the strip's 13:00 cell and the ruler's 13 label sit at the same slot of the day
+    const ruler = Array.from(host.querySelectorAll('.time-head .hours span')).map((s) => s.textContent)
+    expect([ruler[0], ruler.indexOf('13') * (60 / STEP), lanes[0].indexOf(780)]).toEqual(['7', (780 - 420) / STEP, (780 - 420) / STEP])
+    // (10) flag 8: no card on the board carries a title (the base's block title went; 確保's is a .cell-held, not an .event)
+    expect(host.querySelectorAll('.event[title]').length).toBe(0)
+    // (7) a block card is the booking card's name line + .e-time; the CSS hides a block's .e-time below WIDE (Round C measures)
+    const blocks = Array.from(host.querySelectorAll('.lane .track .event:not([data-book]):not(.micro)'))
+    expect([blocks.length > 0, blocks.filter((b) => !(b.querySelector(':scope > strong') && b.querySelector(':scope > small.e-time'))).length]).toEqual([true, 0])
+    const css = todayCss()
+    expect(css).toContain('@container (width < 77px) { .biz .page-today .event:not([data-book]) > .e-time { display: none; } }')
+    expect(css).toContain('.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill) { overflow: hidden; }')
+    // (9) the give-back skips micro blocks, so they keep the base's 3 px inset
+    expect(css).toContain('  .biz .page-today .event:not(.micro) > strong, .biz .page-today .event:not(.micro) > small { margin-left: -6px; margin-right: -5px; }')
+  } finally {
+    done()
+  }
+})
+
+it('⚖ S25-15 (5) — MOUNTED: the now-line scroll keys on the shown day and the store — 明日 on mount writes nothing · the same instance on 今日 writes once · a store switch writes again', async () => {
+  const { box, restore } = overflowingBox()
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const page = (store: string, day?: string) => TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve(day ? { store, day } : { store }) })
+  try {
+    const tomorrow = await page(STORE.gym, '1')
+    await act(async () => root.render(<BusinessSessionEdits>{tomorrow}</BusinessSessionEdits>))
+    expect(box.writes).toEqual([])
+    const today = await page(STORE.gym)
+    await act(async () => root.render(<BusinessSessionEdits>{today}</BusinessSessionEdits>))
+    expect(box.writes.length).toBe(1)
+    const other = await page(STORE.yokohama)
+    await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))
+    expect(box.writes.length).toBe(2)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    restore()
+  }
+})
+
+it('⚖ S25-15 (4) — MOUNTED: a card held in the right edge zone of an overflowing board scrolls it DRAG_EDGE_STEP_PX a frame; the middle does not; the release stops the loop', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    return this.classList.contains('timeline-scroll') ? ({ left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect) : rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = 0
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointermove', 500, 1)) }) // the middle: the loop stops on its next frame
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(2 * DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
   }
 })

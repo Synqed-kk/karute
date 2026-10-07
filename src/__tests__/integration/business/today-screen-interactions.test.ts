@@ -1882,7 +1882,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
@@ -2149,13 +2149,13 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
       'open: business.open,',
       'close: business.close,',
-      'stepMin: 30,',
+      '...railDay,', // S25-15 (1): the strip's axis + grid step, one source with inputOn (the pin read the stepMin 30 literal)
       'dur: railDur,',
       'protectedDur: props.guard.protectedDurationMin,',
       'nowMinute: props.sell.nowMinute,',
@@ -2206,7 +2206,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
     // which is why the number is smaller than the array — both are measured.
     for (const [where, code, want] of [
-      ['rail', rail.code, 12],
+      ['rail', rail.code, 11], // S25-15 (1): the stepMin key became the ...railDay spread (pin flipped from 12)
       ['verdict', verdict.code, 10],
     ] as const) {
       expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
@@ -2415,6 +2415,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type LandingFloor,",
       "type LandingQuestion,",
       "type LandingVerdict,",
+      "DRAG_EDGE_STEP_PX,", // S25-15 (4): the edge auto-scroll's step and zone test (pin flipped: two names added)
+      "edgeScrollDir,",
       "type Move,",
       "type Moves,",
       "type OverrideLevel,",
@@ -12532,7 +12534,11 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     const code = codeOnly(SRC)
     // ONE `.e-time` author on this board, and it prints what it is handed.
     expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
-    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // S25-15 (7) — DISCLOSED PIN MOVE: the BLOCK card's time line now wears .e-time (its tier class). It prints a
+    // block's own time, never a booking's, so the booking card still has ONE .e-time author; that block site is the
+    // only `{item.time}` one.
+    expect(code.split('<small className="e-time">{item.time}</small>').length - 1).toBe(1)
+    expect(code).toContain('{!item.micro && <small className="e-time">{item.time}</small>}')
     // The proxy is the ONE caller that hands it anything else, and what it
     // hands is the live landing.
     // ⚖ D-53 (n) — DISCLOSED PIN MOVE: `cardFace` gained a `words` parameter

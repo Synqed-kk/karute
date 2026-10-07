@@ -187,6 +187,8 @@ import {
   type LandingFloor,
   type LandingQuestion,
   type LandingVerdict,
+  DRAG_EDGE_STEP_PX,
+  edgeScrollDir,
   type Move,
   type Moves,
   type OverrideLevel,
@@ -883,6 +885,16 @@ interface DragCtx {
    *  half right now". */
   home: PairLanes
   track: Element
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL. The scroll box and its two edge lines, taken ONCE at drag start
+   *  and only when the track overflows (null = a day that fits, never scrolls); the move handler compares clientX with
+   *  these two numbers and reads nothing else. `scrolled` is how far the box moved under the held card: it is added to
+   *  the pointer's travel, so the card stays under the pointer and the drop lands where it shows. `at` = the last
+   *  pointer position, re-applied each scrolled frame while the pointer rests in the zone. */
+  edge: { el: HTMLElement; left: number; right: number } | null
+  edgeDir: -1 | 0 | 1
+  edgeFrame: number | null
+  scrolled: number
+  at: { clientX: number; clientY: number } | null
   moved: boolean
   overShelf: boolean
   /** ⚖ Liam flag 61 / 63(a) — DID THE RESOLVER ANSWER THIS FRAME? `targetLane`
@@ -1164,13 +1176,22 @@ export function TodayScreen(props: TodayProps) {
   // Three guards (round 2 item 7 c): ON MOUNT ONLY — deps [], and a store or day switch re-renders this same instance
   // (page.tsx keys nothing), so it never fires again; only on TODAY (`sell.nowMinute` is null on any other day); only
   // when the track OVERFLOWS (scrollWidth > clientWidth — a day that fits never moves).
+  // Amended by the lead's ruling S25-15 (5): the scroll now keys on the SHOWN DAY and the STORE (deps [dayOffset,
+  // store]), not on mount — today brings the now-line in as above; another day goes back to the day's start
+  // (scrollLeft 0, written only when it is not 0 already); a store switch applies the same rule to the new board, so
+  // no stale offset rides over from the last day or store. Any other re-render still never re-scrolls.
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = scrollRef.current
-    if (!el || props.sell.nowMinute == null || props.nowFraction == null || el.scrollWidth <= el.clientWidth) return
+    if (!el) return
+    if (props.sell.nowMinute == null || props.nowFraction == null) {
+      if (el.scrollLeft !== 0) el.scrollLeft = 0
+      return
+    }
+    if (el.scrollWidth <= el.clientWidth) return
     const label = parseFloat(getComputedStyle(el.firstElementChild ?? el).getPropertyValue('--label')) || 0
     el.scrollLeft = (el.scrollWidth - label) * props.nowFraction - (el.clientWidth - label) / 2
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once per mount by design: a re-render must never re-scroll
+  }, [props.dayOffset, props.store]) // eslint-disable-line react-hooks/exhaustive-deps -- once per shown day and store by design: any other re-render must never re-scroll
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -2886,13 +2907,19 @@ export function TodayScreen(props: TodayProps) {
    *  named; the five constants are what make this the DAY question rather than a
    *  placement one — nothing is being placed, so there is no `excludeId`, no
    *  `placementFeasible`, and with two real boards there is nothing left to lift. */
+  /** ⚖ S25-15 (1) — THE STRIP'S DAY, ONE SOURCE: the ruler's axis (the day model's `hours`) on the board's own grid
+   *  unit (opsConfig.bookingStepMin). The rail input below and the strip's `rails` memo both spread THIS value, so the
+   *  strip can never walk the store hours while the ruler draws a widened day (the 52.8 px drift on 07–24). */
+  const railDay = useMemo(
+    () => ({ axis: { open: hours.open, close: hours.close }, stepMin: props.guard.bookingStepMin }),
+    [hours.open, hours.close, props.guard.bookingStepMin],
+  )
   const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
     open: business.open,
     close: business.close,
     // ⚖ 10/7 S25-2 (D4) — the cells walk the board's DAY (the ruler's axis) on the board's own grid unit
     // (opsConfig.bookingStepMin, the drag lattice's step); the store's hours above stay the rule.
-    axis: { open: hours.open, close: hours.close },
-    stepMin: props.guard.bookingStepMin,
+    ...railDay,
     // canon's 60分配置. NOT `railDur`, which follows the live aim and would put
     // both memos on the frame path.
     dur: props.guard.standardSessionMin,
@@ -2905,7 +2932,7 @@ export function TodayScreen(props: TodayProps) {
     protectedWindowFeasible: windowDoorOn(lanes),
     resting: null,
     restingWindowFeasible: undefined,
-  }), [business.open, business.close, hours.open, hours.close, props.guard.bookingStepMin, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+  }), [business.open, business.close, railDay, props.guard.standardSessionMin, props.guard.protectedDurationMin,
        props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
 
   const pendingId = pending?.id ?? null
@@ -3108,7 +3135,7 @@ export function TodayScreen(props: TodayProps) {
           guardRailsFor(handBoard, {
             open: business.open,
             close: business.close,
-            stepMin: 30,
+            ...railDay,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -3138,7 +3165,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
           }, laneWords)
         : [],
-    [guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -5594,7 +5621,7 @@ export function TodayScreen(props: TodayProps) {
    *  until the release (canon's `dragMove` only ever calls `evSet` on the card
    *  it started with), and the listeners hang off `window`, so no re-render,
    *  re-order or re-parent anywhere on the board can interrupt a drag. */
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame'>) {
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'edge' | 'edgeDir' | 'edgeFrame' | 'scrolled' | 'at'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5625,6 +5652,30 @@ export function TodayScreen(props: TodayProps) {
         rowStamp: () => rowStampRef.current,
       })
     }
+    // ⚖ S25-15 (4) — the edge lines, ONCE, here and only when the track overflows: the scroll box's rect, its left
+    // edge moved past the sticky name column (--label, read as the now-line effect reads it).
+    const box = ctx.track.closest<HTMLElement>('.timeline-scroll')
+    let edge: DragCtx['edge'] = null
+    if (box && box.scrollWidth > box.clientWidth) {
+      const r = box.getBoundingClientRect()
+      const label = parseFloat(getComputedStyle(box.firstElementChild ?? box).getPropertyValue('--label')) || 0
+      edge = { el: box, left: r.left + label, right: r.right }
+    }
+    // One step per animation frame while the pointer stays in a zone; it stops itself on leave, and clearDrag cancels
+    // it on up / cancel / blur.
+    const edgeFrame = () => {
+      const c = dragRef.current
+      if (!c?.edge || c.edgeDir === 0) {
+        if (c) c.edgeFrame = null
+        return
+      }
+      const before = c.edge.el.scrollLeft
+      c.edge.el.scrollLeft = before + c.edgeDir * DRAG_EDGE_STEP_PX
+      c.scrolled += c.edge.el.scrollLeft - before
+      c.pending = c.at
+      applyDragFrame()
+      c.edgeFrame = requestAnimationFrame(edgeFrame)
+    }
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c) return
@@ -5649,6 +5700,9 @@ export function TodayScreen(props: TodayProps) {
       // faster than it paints, and a derive-and-paint per raw event is the jank
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
       c.pending = { clientX: e.clientX, clientY: e.clientY }
+      c.at = c.pending
+      c.edgeDir = edgeScrollDir(e.clientX, c.edge)
+      if (c.edgeDir !== 0 && c.edgeFrame == null) c.edgeFrame = requestAnimationFrame(edgeFrame)
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyDragFrame() })
     }
@@ -5670,7 +5724,14 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
+      edge,
+      edgeDir: 0,
+      edgeFrame: null,
+      scrolled: 0,
+      at: null,
       detach: () => {
+        // ⚖ S25-15 (4) — every ending (up, cancel, blur, the self-heal, unmount) detaches: the edge loop stops here.
+        if (dragRef.current?.edgeFrame != null) cancelAnimationFrame(dragRef.current.edgeFrame)
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -5789,7 +5850,7 @@ export function TodayScreen(props: TodayProps) {
     if (!ctx || !ctx.pending) return
     const { clientX, clientY } = ctx.pending
     ctx.pending = null
-    const dx = clientX - ctx.startX
+    const dx = clientX - ctx.startX + ctx.scrolled // ⚖ S25-15 (4): plus what the edge scroll moved under the hand
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
     const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
@@ -5959,7 +6020,7 @@ export function TodayScreen(props: TodayProps) {
     openClickWindow(upAt, ctx.nodes[0] ?? null)
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
-    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
+    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX + ctx.scrolled, STEP)
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
       restoreSides(ctx.id, from)
@@ -8621,7 +8682,7 @@ export function TodayScreen(props: TodayProps) {
       const body = (
         <>
           <strong>{item.title}</strong>
-          {!item.micro && <small>{item.time}</small>}
+          {!item.micro && <small className="e-time">{item.time}</small>}
         </>
       )
       // A shift-derived wash is a STATEMENT, not a control — canon renders it as
@@ -8666,7 +8727,6 @@ export function TodayScreen(props: TodayProps) {
           key={item.key}
           style={style}
           role="note"
-          title={item.label}
           aria-label={item.label}
           onPointerDown={locked ? () => show(locked) : undefined}
         >
