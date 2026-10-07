@@ -2383,10 +2383,10 @@ describe('S84 — live-keyed inbox and register planes', () => {
   it('settles only ended bookings, balances every yen and the count sheet, rejects a refund mutant', async () => {
     const spy = serve([row('paid'), row('zero', { booked_price_amount: null }),
       row('scheduled', { status: 'SCHEDULED' }), row('cancelled', { status: 'CANCELLED' }), row('absent', { status: 'NO_SHOW' }),
-      row('future', { ends_at: '2026-09-14T05:00:00Z' }), row('now', { ends_at: '2026-09-14T04:24:00Z' }),
+      row('future', { status: 'SCHEDULED', ends_at: '2026-09-14T05:00:00Z' }), row('now', { status: 'SCHEDULED', ends_at: '2026-09-14T04:24:00Z' }),
       row('tomorrow', { starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' })])
     const plane = await door.readRegisterPlanes(STORE.tokyo)
-    expect(plane.transactions.map((t) => t.appointment_id).sort()).toEqual(['paid', 'scheduled', 'zero'])
+    expect(plane.transactions.map((t) => t.appointment_id).sort()).toEqual(['paid', 'scheduled'])
     const bookings = await data.listAppointments(STORE.tokyo)
     const assertMoney = (transactions: FixtureTransaction[]) => {
       expect(transactions.flatMap((t) => t.tenders).every((t) => t.flag === '')).toBe(true)
@@ -2406,12 +2406,59 @@ describe('S84 — live-keyed inbox and register planes', () => {
     await data.readInboxPlanes(STORE.tokyo, bookings, { threads: [] })
     expect(spy.appointmentsList).toHaveBeenCalledTimes(calls)
   })
+  const unsettledCheck = (props: unknown) => JSON.stringify(props).match(/\{"key":"unsettled".*?"done":(true|false)/)
+  it('T-f/T-g/T-h the register settles what the close calls finished, and nothing in the chair or unpriced', async () => {
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' }), row('chair', { status: 'IN_PROGRESS' }), row('unpriced', { booked_price_amount: null })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => t.appointment_id)).toEqual(['late'])
+    const check = unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)!
+    expect(check[1]).toBe('false')
+    expect(check[0]).toContain('¥0')
+    expect(check[0]).not.toContain('¥1,234')
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' })])
+    expect(unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)![1]).toBe('true')
+  })
+  it('T-i a twin with no tenders falls back to the single-tender rule', async () => {
+    const empty = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length === 0)!
+    serve([row(liveIdOf('appointments', empty.appointment_id!)!, { booked_price_amount: 0 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: 0, flag: '' }])
+  })
+  it('T-j over 30 mixed rows Σ tenders = Σ booked_price of the settled bookings, and only finished visits settle', async () => {
+    const statuses = ['COMPLETED', 'SCHEDULED', 'IN_PROGRESS', 'CANCELLED', 'NO_SHOW'] as const
+    serve(Array.from({ length: 30 }, (_, i) => row(`s85-m-${i}`, { status: statuses[i % 5],
+      booked_price_amount: i % 7 === 0 ? null : 1000 + i * 37, ends_at: i % 3 === 0 ? '2026-09-14T06:00:00Z' : '2026-09-14T02:00:00Z' })))
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    const byId = new Map((await data.listAppointments(STORE.tokyo)).map((a) => [a.id, a]))
+    const settled = plane.transactions.map((t) => byId.get(t.appointment_id!)!)
+    expect(settled.length).toBeGreaterThan(0)
+    expect(settled.every((a) => a.booked_price != null && a.board_state !== 'noshow' && (a.status === 'done' || a.status === 'booked'))).toBe(true)
+    expect(plane.transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(settled.reduce((n, a) => n + a.booked_price!, 0))
+  })
+  it('R4 a live booking without a display number reads as a booking; a fixture walk-in still reads as one', async () => {
+    const fact = (r: { facts: Array<{ label: string; value: string }> }) => r.facts.find((f) => f.label === '予約')?.value
+    serve([row('visit')])
+    const on = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(on.rows).toHaveLength(1)
+    expect(fact(on.rows[0])).not.toBe('予約なし・店頭販売')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect((await registerProps({ locale: 'ja', store: STORE_A })).props.rows.map(fact)).toContain('予約なし・店頭販売')
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+  })
+  it('R5 one id served twice → one thread, one transaction', async () => {
+    serve([row('dup'), row('dup')])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.filter((t) => t.appointment_id === 'dup')).toHaveLength(1)
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions).toHaveLength(1)
+  })
   it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
     const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
     const id = liveIdOf('appointments', twin.appointment_id!)!
     const price = twin.tenders.reduce((n, t) => n + t.amount, 0)
     serve([row(id, { booked_price_amount: price })])
-    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual(twin.tenders)
+    const kept = (await door.readRegisterPlanes(STORE.tokyo)).transactions[0]
+    expect(kept.tenders).toEqual(twin.tenders)
+    expect(kept.tenders).not.toBe(twin.tenders)
+    expect(kept.tenders[0]).not.toBe(twin.tenders[0])
+    expect(kept.audit).toEqual(twin.audit)
+    expect(kept.audit).not.toBe(twin.audit)
     serve([row(id, { booked_price_amount: price + 1 })])
     expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: price + 1, flag: '' }])
     withReads().appointmentsList.mockRejectedValue(new Error('S84 timeout'))

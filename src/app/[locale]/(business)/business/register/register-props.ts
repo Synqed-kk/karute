@@ -303,7 +303,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     tenderSummary: tenderSummary(m),
     // ── the inspector ──────────────────────────────────────────────────────
     facts: [
-      { label: '予約', value: m.bookingNo ? `${m.bookingNo} / ${m.what}` : '予約なし・店頭販売' },
+      { label: '予約', value: m.appointmentId !== null ? [m.bookingNo, m.what].filter(Boolean).join(' / ') : '予約なし・店頭販売' },
       { label: '受付元・確定', value: m.source ?? 'レジ（店頭販売）' },
       { label: '売上', value: yen(m.total) },
       {

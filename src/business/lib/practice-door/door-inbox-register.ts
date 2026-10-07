@@ -68,8 +68,9 @@ export function registerFor(bookings: FixtureAppointment[], storeId: string | nu
     const twin = transactions.find((t) => t.appointment_id === fixtureIdOf('appointments', booking.id) && t.appointment_id !== null)
     // A twin is canonical only while its settled tenders equal the LIVE price;
     // otherwise every store uses the same single-tender settlement rule.
-    const safe = twin && twin.tenders.every((t) => t.flag === '') && twin.tenders.reduce((n, t) => n + t.amount, 0) === (booking.booked_price ?? 0)
-    return safe ? { ...twin, id: `smp-tx-${booking.id}`, appointment_id: booking.id, customer_id: null, store_id: null, item: null, amount: null } : {
+    const safe = twin && twin.tenders.length > 0 && twin.tenders.every((t) => t.flag === '') && twin.tenders.reduce((n, t) => n + t.amount, 0) === (booking.booked_price ?? 0)
+    return safe ? { ...twin, id: `smp-tx-${booking.id}`, appointment_id: booking.id, customer_id: null, store_id: null, item: null, amount: null,
+      tenders: twin.tenders.map((t) => ({ ...t })), audit: twin.audit.map((r) => [...r] as typeof r) } : {
       id: `smp-tx-${booking.id}`, appointment_id: booking.id, customer_id: null, store_id: null, item: null, amount: null,
       at: jstMinuteOfDay(booking.ends_at), audit: [],
       tenders: [{ label: labels[hash(booking.id) % labels.length], amount: booking.booked_price ?? 0, flag: '' }],

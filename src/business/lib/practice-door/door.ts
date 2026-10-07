@@ -859,9 +859,12 @@ export async function readReservationPlanes(lens: StoreLens) {
 async function planeBookings(actor: PracticeActor, lens: StoreLens, reach: number, supplied?: FixtureAppointment[]) {
   const now = renderNow()
   const from = jstDayKey(now)
+  const fixtures = appointments(now)
   const rows = supplied ?? (await dayRows(actor, lens, { from, to: from + reach })).rows
-    .filter((r) => r.kind === 'BOOKING').map((r) => toAppointment(r, appointments(now), now))
-  return clamp(rows, lens).filter((r) => {
+    .filter((r) => r.kind === 'BOOKING').map((r) => toAppointment(r, fixtures, now))
+  // One row per id: a core page overlap must never seat a thread or count money twice.
+  const unique = [...new Map(rows.map((r) => [r.id, r])).values()]
+  return clamp(unique, lens).filter((r) => {
     const day = jstDayKey(r.starts_at)
     return day >= from && day <= from + reach
   })
@@ -877,9 +880,10 @@ export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointm
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const cutoff = Date.parse(jstSlot(0, 0, boardNow, renderNow()))
-  const ended = (await planeBookings(actor, lens, 0, rows)).filter((a) =>
-    a.status !== 'cancelled' && a.board_state !== 'noshow' && Date.parse(a.ends_at) < cutoff)
-  return registerFor(ended, lensStore(lens) ?? null)
+  // Settled = what the close calls finished: 'done', or a still-'booked' visit that ended before boardNow — never in the chair, cancelled, 無断 or of unknown price.
+  const settled = (await planeBookings(actor, lens, 0, rows)).filter((a) => a.board_state !== 'noshow' && a.booked_price != null &&
+    (a.status === 'done' || (a.status === 'booked' && Date.parse(a.ends_at) < cutoff)))
+  return registerFor(settled, lensStore(lens) ?? null)
 }
 
 export async function readAnalyticsPlanes(lens: StoreLens) {
