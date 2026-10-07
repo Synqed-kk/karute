@@ -436,6 +436,18 @@ export async function listResources(lens: StoreLens): Promise<FixtureResource[]>
  *  page.tsx holds up that end: a key this map has no entry for never becomes a
  *  `calendar` row at all (page.tsx :208-238), so nothing downstream can invent
  *  a count for it. */
+/** ⚖ S81 F1 — each day of the range's OWN closure (null = open; 'weekday' = 定休日, 'closed_date' = 臨時休業) — the
+ *  calendar's 定休 for a day it is not showing. OFF: the fixture 定休日, the same answer offWeek paints. */
+export async function listClosedByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, null | 'weekday' | 'closed_date'>> {
+  if (await doorOn()) return door.listClosedByDay(lens, range)
+  assertLens(lens)
+  const keys = Array.from({ length: range.to - range.from + 1 }, (_, i) => range.from + i)
+  return new Map(keys.map((k) => [k, weekdayOfKey(k) === closedWeekday ? ('weekday' as const) : null]))
+}
+
 export async function listShiftsByDay(
   lens: StoreLens,
   range: { from: number; to: number },

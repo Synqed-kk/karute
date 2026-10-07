@@ -57,8 +57,9 @@ function ymdOfKey(dayKey: number, now: Date): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
-/** ⚖ S81 R4 — the 臨時休業 read for ONE day: `to` is EXCLUSIVE (the SDK's own contract, as appointments-window.ts). */
-export const closedDaysRange = (dayKey: number, now: Date): { from: string; to: string } => ({ from: ymdOfKey(dayKey, now), to: ymdOfKey(dayKey + 1, now) })
+/** ⚖ S81 R4 — the 臨時休業 read for a day range (one day: `toKey` = `dayKey`): `to` is EXCLUSIVE (the SDK's own contract,
+ *  as appointments-window.ts) — the day after the range's last day. */
+export const closedDaysRange = (dayKey: number, now: Date, toKey: number = dayKey): { from: string; to: string } => ({ from: ymdOfKey(dayKey, now), to: ymdOfKey(toKey + 1, now) })
 
 /** The sample (and OFF) week: the one pair on every weekday but the closed ones — the week `weeklyHoursFrom` builds. */
 export const weekFromPair = (pair: Window, closed: number[]): Week => KEYS.map((_, wd) => (closed.includes(wd) ? null : { open: pair.open, close: pair.close }))
@@ -88,12 +89,24 @@ export function sampleHours(pair: Window, closedWeekday: number, dayKey: number)
 
 const windowOf = (f: DayHoursFact): Window | null => (f.closed ? null : { open: f.openMinute, close: f.closeMinute })
 
-/** ⚖ S81 R4–R8 — one store's hours for the shown day, through the ONE resolver.
- *  The shown day: every layer (臨時営業日 · 臨時休業 · week · org · default). The week strip (R5): each weekday of the
- *  shown day's JST week through the SAME resolver with the weekly layers only, so a 臨時休業 date never reads as 定休日.
- *  R6: a day the resolver answers 'default' is never painted as 10:00–24:00 — the shown day and the week take the
- *  store's usual pair over the days somebody set; when NO weekday was set, the week is the sample set ('sample'). */
-export function resolveStoreHours(reads: HoursReads, dayKey: number, now: Date, sample: StoreHours, storeId: string): StoreHours {
+/** ⚖ S81 F1 — what one request has already worked out for a store, so a render that asks several ranges parses its
+ *  臨時営業日 once and names a malformed weekday once (a plain slot object, kept by the door on the request's reads). */
+export type HoursMemo = { special?: ReturnType<typeof specialOpenDaysByDate>; warned?: true }
+
+/** ⚖ S81 R4–R8, F1 — one store's hours for EVERY day of a range, through the ONE resolver with THAT day's layers.
+ *  Each day: every layer (臨時営業日 · 臨時休業 · week · org · default), so each day answers for itself — its own
+ *  `shownDayKey` / `shownDayClosed` / window. The week strip (R5): each weekday through the SAME resolver with the
+ *  weekly layers only, so a 臨時休業 date never reads as 定休日. R6: a day the resolver answers 'default' is never painted
+ *  as 10:00–24:00 — it takes the store's usual pair over the days somebody set; when NO weekday was set, the week is the
+ *  sample set ('sample') and a day with nothing of its own is the sample day. Returns one entry per day, from → to. */
+export function resolveStoreHours(
+  reads: HoursReads,
+  range: { from: number; to: number },
+  now: Date,
+  sampleOf: (dayKey: number) => StoreHours,
+  storeId: string,
+  memo: HoursMemo = {},
+): StoreHours[] {
   const raw = reads.org === null ? null : ((reads.org.settings ?? {}) as { operating_hours?: unknown })
   // Mirrors appointments-window.ts + org-settings.ts normalizeOrgSettings: the blob normalised, its saved days from the RAW blob.
   const layers: Pick<DayHoursInput, 'weeklyHours' | 'orgHours' | 'orgSaved'> = {
@@ -101,32 +114,41 @@ export function resolveStoreHours(reads: HoursReads, dayKey: number, now: Date, 
     orgHours: raw === null ? undefined : normalizeOperatingHours(raw.operating_hours),
     orgSaved: new Set<WeekdayKey>(raw === null ? [] : savedWeekdays(raw.operating_hours)),
   }
-  const shown = resolveDayHours({
-    ...layers,
-    date: dateOfKey(dayKey, now),
-    closedDates: new Set(reads.closedDays.closed_days.map((d) => d.date)),
-    specialOpenDays: specialOpenDaysByDate(reads.policy?.special_open_days),
-  })
-  const first = dayKey - weekdayOfKey(dayKey)
+  const closedDates = new Set(reads.closedDays.closed_days.map((d) => d.date))
+  const specialOpenDays = (memo.special ??= specialOpenDaysByDate(reads.policy?.special_open_days))
+  // The weekly layers answer by weekday alone: the first day's JST week stands for every week of the range.
+  const first = range.from - weekdayOfKey(range.from)
   const facts = KEYS.map((_, wd) => resolveDayHours({ ...layers, date: dateOfKey(first + wd, now), closedDates: new Set() }))
 
   // ⚖ S81 R8 — a store weekday the resolver did not take (malformed) went on to the org blob / default: named, once.
   const weekly = layers.weeklyHours
   const malformed = weekly != null && Object.keys(weekly).length > 0 ? KEYS.flatMap((k, wd) => (weekly[k] != null && facts[wd].source !== 'store' ? [wd] : [])) : []
-  if (malformed.length > 0) console.error('[practice hours] malformed weekday sent on to the business hours / default:', storeId, malformed.join(','))
+  if (malformed.length > 0 && !memo.warned) {
+    memo.warned = true
+    console.error('[practice hours] malformed weekday sent on to the business hours / default:', storeId, malformed.join(','))
+  }
 
   const set = facts.some((f) => f.source !== 'default')
-  if (!set && shown.source === 'default') return sample // R6 — nobody set any hours: the sample set, as before
   const usual = usualPairOf(facts.map((f) => (f.source === 'default' ? null : windowOf(f))))
-  const fill = usual ?? sample.operatingHours
-  const week = set ? facts.map((f) => (f.source === 'default' && !f.closed ? fill : windowOf(f))) : sample.weeklyHours
-  return {
-    // A closed day draws the usual pair (as a closed weekday always has); a 'default' day the usual pair (R6).
-    operatingHours: shown.closed || shown.source === 'default' ? fill : (windowOf(shown) ?? fill),
-    weeklyHours: week,
-    closedWeekdays: closedWeekdaysOf(week),
-    hoursSource: set ? 'core' : 'sample',
-    shownDayKey: dayKey,
-    shownDayClosed: shown.closed ? (shown.kind ?? 'weekday') : null,
+  const days: StoreHours[] = []
+  for (let dayKey = range.from; dayKey <= range.to; dayKey += 1) {
+    const sample = sampleOf(dayKey)
+    const shown = resolveDayHours({ ...layers, date: dateOfKey(dayKey, now), closedDates, specialOpenDays })
+    if (!set && shown.source === 'default') {
+      days.push(sample) // R6 — nobody set any hours: the sample set, as before
+      continue
+    }
+    const fill = usual ?? sample.operatingHours
+    const week = set ? facts.map((f) => (f.source === 'default' && !f.closed ? fill : windowOf(f))) : sample.weeklyHours
+    days.push({
+      // A closed day draws the usual pair (as a closed weekday always has); a 'default' day the usual pair (R6).
+      operatingHours: shown.closed || shown.source === 'default' ? fill : (windowOf(shown) ?? fill),
+      weeklyHours: week,
+      closedWeekdays: closedWeekdaysOf(week),
+      hoursSource: set ? 'core' : 'sample',
+      shownDayKey: dayKey,
+      shownDayClosed: shown.closed ? (shown.kind ?? 'weekday') : null,
+    })
   }
+  return days
 }

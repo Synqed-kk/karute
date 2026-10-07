@@ -659,10 +659,21 @@ export async function listShiftsByDay(lens: StoreLens, range: DayRange): Promise
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
-  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()), s), liveRowsOf(actor, lens, range)])
+  // ⚖ S81 F1 — every day of the range its OWN hours (a 臨時営業日 seats staff on its window, a 臨時休業 seats nobody).
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursForRange(actor, lens, range, s), liveRowsOf(actor, lens, range)])
   const on: Record<number, CoreAppointment[]> = {}
   for (const r of day) for (let k = Math.max(range.from, jstDayKey(r.starts_at)); k <= Math.min(range.to, jstDayKey(untilOf(r))); k += 1) (on[k] ??= []).push(r)
-  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours, s.operatingHours, k).shifts]))
+  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours.get(k)!, s.operatingHours, k).shifts]))
+}
+
+/** ⚖ S81 F1 — each day of the range's OWN closure, as the ONE resolver names it (null = open): the calendar's 定休 for a
+ *  day it is not showing — a 臨時休業 date closes its cell, a 臨時営業日 on a 定休日 opens it. Same request-cached reads as
+ *  listShiftsByDay over the same range, so it asks core nothing new. */
+export async function listClosedByDay(lens: StoreLens, range: DayRange): Promise<Map<number, StoreHours['shownDayClosed']>> {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  const hours = await storeHoursForRange(actor, lens, range)
+  return new Map(dayKeys(range).map((k) => [k, hours.get(k)!.shownDayClosed]))
 }
 
 export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureAbsence | null>> {
@@ -675,29 +686,65 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
   return new Map([[todayKey, servedDay(seats, day, hours, s.operatingHours, todayKey).absence]])
 }
 
-/** ⚖ §v11 V11-1/V11-2/V11-7, ⚖ S81 R4–R9 — THE one place a plane's 営業時間 · 定休日 · 臨時休業 · 臨時営業日 come from.
- *  A single-store lens asks core THREE reads together — the store policy (weekly_hours + special_open_days), the
- *  shown day's 臨時休業 rows, the business's operating_hours — and Karute's ONE resolver answers (./store-hours).
- *  No hours set anywhere (R6), a failed read (R9, logged; a failed 臨時休業 read is never 「no closed days」) and the
- *  all-stores view keep the shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00.
+/** ⚖ S81 F3 — the bound on the three hours reads together: no answer within it = a failed read (R9: the sample set +
+ *  one log line), never a hung board. The SDK client sets no timeout of its own; 5 s = door-writes.ts's AUDIT_LOG_BOUND_MS,
+ *  this folder's one other bound on a core call. Kept here, beside the race, so store-hours.ts's imports stay sealed. */
+const HOURS_READ_BOUND_MS = 5000
+
+/** ⚖ S81 F1 (N1/N2) — the hours reads ONCE per request, as ROWS_ONCE / ORG_ONCE keep theirs (a keyed slot, never a Map):
+ *  the store policy once per store, its 臨時休業 rows once per store + range, and per store ONE memo, so a render that asks
+ *  several ranges parses its 臨時営業日 once and names a malformed weekday once. */
+const HOURS_ONCE = Symbol('hours reads, once per lens (+ range)')
+type HoursSlots = {
+  policy: Record<string, ReturnType<PracticeActor['reads']['storePolicyGet']>>
+  closed: Record<string, ReturnType<PracticeActor['reads']['storePolicyListClosedDays']>>
+  memo: Record<string, NonNullable<Parameters<typeof resolveStoreHours>[5]>>
+}
+function hoursSlots(actor: PracticeActor): HoursSlots {
+  const reads: PracticeActor['reads'] & { [HOURS_ONCE]?: HoursSlots } = actor.reads
+  return (reads[HOURS_ONCE] ??= { policy: {}, closed: {}, memo: {} })
+}
+
+/** ⚖ §v11 V11-1/V11-2/V11-7, ⚖ S81 R4–R9 + F1 — THE one place a plane's 営業時間 · 定休日 · 臨時休業 · 臨時営業日 come from, for
+ *  EVERY day of a range. A single-store lens asks core THREE reads together — the store policy (weekly_hours +
+ *  special_open_days), the range's 臨時休業 rows, the business's operating_hours — and Karute's ONE resolver answers each
+ *  day with THAT day's layers (./store-hours). No hours set anywhere (R6), a failed or unanswered read (R9 + F3, logged; a
+ *  failed 臨時休業 read is never 「no closed days」) and the all-stores view keep the shared sample set (§v9 V9-2) in the same
+ *  shape, marked 'sample' — never a silent 10:00.
  *  ⚖ S81 R12 — the hours plane still carries from the sample singletons: opsConfig (and the sample set when R6/R9 apply). */
-async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
-  const sample = sampleHours(s.operatingHours, s.closedWeekday, dayKey)
-  if (typeof lens !== 'string') return sample
+async function storeHoursForRange(actor: PracticeActor, lens: StoreLens, range: DayRange, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<Map<number, StoreHours>> {
+  const sampleOf = (dayKey: number) => sampleHours(s.operatingHours, s.closedWeekday, dayKey)
+  if (typeof lens !== 'string') return new Map(dayKeys(range).map((k) => [k, sampleOf(k)]))
   const now = renderNow()
+  const once = hoursSlots(actor)
+  const window = closedDaysRange(range.from, now, range.to)
+  let timer: ReturnType<typeof setTimeout> | undefined
   let reads: Parameters<typeof resolveStoreHours>[0]
   try {
-    const [policy, closedDays, org] = await Promise.all([
-      actor.reads.storePolicyGet(lens),
-      actor.reads.storePolicyListClosedDays(lens, closedDaysRange(dayKey, now)),
-      orgSettingsOf(actor),
+    const [policy, closedDays, org] = await Promise.race([
+      Promise.all([
+        (once.policy[lens] ??= actor.reads.storePolicyGet(lens)),
+        (once.closed[JSON.stringify([lens, window.from, window.to])] ??= actor.reads.storePolicyListClosedDays(lens, window)),
+        orgSettingsOf(actor),
+      ]),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer within ${HOURS_READ_BOUND_MS} ms`)), HOURS_READ_BOUND_MS)
+      }),
     ])
     reads = { policy: policy ?? null, closedDays, org: org ?? null }
   } catch (e) {
     console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
-    return sample
+    return new Map(dayKeys(range).map((k) => [k, sampleOf(k)]))
+  } finally {
+    clearTimeout(timer)
   }
-  return resolveStoreHours(reads, dayKey, now, sample, lens)
+  const days = resolveStoreHours(reads, range, now, sampleOf, lens, (once.memo[lens] ??= {}))
+  return new Map(days.map((h) => [h.shownDayKey, h]))
+}
+
+/** The one-day case of storeHoursForRange (from = to = dayKey). */
+async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
+  return (await storeHoursForRange(actor, lens, { from: dayKey, to: dayKey }, s)).get(dayKey)!
 }
 
 /** ⚖ §v11 V11-4 — 設定's light read: the store's 営業時間 · 定休日 for one day through the same resolver as the board. */

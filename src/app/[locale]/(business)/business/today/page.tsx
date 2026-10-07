@@ -44,6 +44,7 @@ import {
   listAbsenceByDay,
   listBlocksByDay,
   listShiftsByDay,
+  listClosedByDay,
   listStoreOptions,
   readBookingColors,
   readDayPlanes,
@@ -161,7 +162,7 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw] =
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw, closedByDay] =
     await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
@@ -183,6 +184,8 @@ export default async function TodayPage({
     listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
     // 予約の色分け — the business's raw colour keys (one per store + the legacy map); resolved below, beside `storeOfBooking`.
     readBookingColors(),
+    // ⚖ S81 F1 — each day's OWN closure (臨時休業 / 臨時営業日 included), from the same request-cached reads as the shifts.
+    listClosedByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -202,7 +205,9 @@ export default async function TodayPage({
   // own. Switch OFF every reader answers nothing and no prop is added.
   const doorOn = await practiceDoorOn() // R50 — this business's door, once
   const markStores = clamped ? [storeId!] : storeOptions.map((s) => s.id)
-  const boardMark = samplePart(doorOn, markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
+  // ⚖ S81 F5 — 営業時間 is named only when the hours the board paints ARE the sample set; a store whose hours come from
+  // core ('core') is not marked for them (the other three planes are still sample).
+  const boardMark = samplePart(doorOn, markStores, 'shifts', 'absence', 'sellSlots', ...('hoursSource' in planes && planes.hoursSource === 'core' ? [] : (['operatingHours'] as const)))
   const decisionsMark = sampleWhole(doorOn, markStores, 'decisions')
   const absenceMark = sampleWhole(doorOn, markStores, 'absence', 'recoverySteps')
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
@@ -326,7 +331,8 @@ export default async function TodayPage({
     // the impossible state, not a rounding question.
     // ⚖ S81 R7 — the SHOWN day answers for itself (a 臨時休業 date closes it, a 臨時営業日 opens it with its own window).
     const shown = dayKey === shownKey
-    const closed = shown ? planes.shownDayClosed !== null : planes.closedWeekdays.includes(p.wd)
+    // ⚖ S81 F1 — every other day answers through ITS OWN resolution (a 臨時休業 closes it like a 定休日; a 臨時営業日 opens it).
+    const closed = shown ? planes.shownDayClosed !== null : (closedByDay.get(dayKey) ?? null) !== null
     // ⚖ §v11 V11-7 — the day's OWN window (a closed day counts 0 below; the shown pair keeps the read total).
     const own = (shown && !closed ? planes.operatingHours : planes.weeklyHours[p.wd]) ?? planes.operatingHours
     // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
