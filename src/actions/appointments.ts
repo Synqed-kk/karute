@@ -215,7 +215,7 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

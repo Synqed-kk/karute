@@ -160,6 +160,8 @@ import { POST as assignPOST } from '@/app/api/app/v1/appointments/[id]/assign-st
 import { assignAppointmentStaff, createAppointment } from '@/actions/appointments'
 import { STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
 import ja from '../../../messages/ja.json'
+import { getStaffList } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 
 const FAILURE_LINE: string = ja.common.somethingWentWrong
 /** The PostgREST error the profiles read returns — its detail must never leave the server. */
@@ -328,6 +330,17 @@ describe('F3 — web createAppointment: roster gate, as the facade create', () =
     expect(apptCreate).not.toHaveBeenCalled()
     expect(staffCreate).not.toHaveBeenCalled()
     expect(profileReads).not.toHaveBeenCalled()
+  })
+
+  // Fix round 6 F6 — the create catch answers a typed core failure with the
+  // localized line, like every sibling write action in the file.
+  it('F6: the roster read failing upstream_unavailable → the localized failure line, nothing written', async () => {
+    ;(getStaffList as jest.Mock).mockRejectedValueOnce(
+      new AppApiError('upstream_unavailable', 'staff profiles read failed', undefined, new Error('db down')),
+    )
+    await expect(createAppointment(booking('core-only-1'))).resolves.toEqual({ error: FAILURE_LINE })
+    expect(apptCreate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 
   it('an active core-only card on the roster passes the gate and books under its own core id', async () => {
