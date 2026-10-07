@@ -4,7 +4,7 @@
 // with the live rows it already read for that day. Who received which sample pattern (the seating) is not this file's.
 
 import { jstDayKey, jstMinuteOfDay } from '../clock'
-import type { FixtureAbsence, FixtureShift, FixtureSellSlot } from '../fixtures-today'
+import type { FixtureAbsence, FixtureShift } from '../fixtures-today'
 import { usualPairOf, weekdayOfKey, type StoreHours, type Window } from './store-hours'
 
 type Span = { start: number; end: number }
@@ -74,39 +74,11 @@ export function ownHours(shift: FixtureShift, sample: Window, day: Window): Fixt
   return { ...shift, start: at(shift.start), end: at(shift.end) }
 }
 
-/** One generator for all practice trades. The type selects this data path; hours determine its shifts. */
-export function shiftDay(type: string, roster: readonly string[], pair: Window, absence: FixtureAbsence | null, slots: readonly FixtureSellSlot[]) {
-  const hash = (id: string) => [...id].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261)
-  const split = pair.close - pair.open > 10 * 60
-  const shifts: FixtureShift[] = roster.map((staff_id) => {
-    const late = split && hash(staff_id) % 2 === 1
-    const start = late ? pair.close - 9 * 60 : pair.open
-    const end = split && !late ? pair.open + 9 * 60 : pair.close
-    const lo = Math.max(start, 12 * 60), hi = Math.min(end - 60, 14 * 60)
-    const br = split || hi < lo ? Math.floor((start + end - 60) / 2) : lo + hash(staff_id) % (Math.floor((hi - lo) / 30) + 1) * 30
-    return { staff_id, start, end, breaks: end - start >= 60 ? [{ start: br, end: br + 60 }] : [] }
-  })
-  const early = shifts.find((s) => s.start === pair.open) ?? shifts[0]
-  const away = absence && early ? { ...absence, staff_id: early.staff_id, from: Math.floor((early.start + early.end) / 2) } : null
-  const sellSlots = [...new Set(shifts.map((s) => s.start))].flatMap((start) =>
-    shifts.filter((s) => s.start === start && s.end >= start + 60).slice(0, 2).flatMap((s, i) => {
-      const template = slots[i]
-      return template && typeof template.resource_id === 'string' ? [{ ...template, id: start === pair.open ? template.id : `${template.id}:${type}:${start}`, staff_id: s.staff_id, start, end: start + 60 }] : []
-    }),
-  )
-  return { shifts, absence: away, sellSlots }
-}
-
 /** ⚖ V11-8 + V11-9 — a store's seated sample day for `dayKey`, given way person by person. A 'core' store's shifts first
  *  cover its own day (a closed weekday serves none and no absence; a shift the day leaves empty is none); then every
  *  seated person, and every roster person with a row, gives way to their rows. 'sample' stores and the all-stores view
  *  keep the sample window (V9-2). */
 export function serveDay(input: {
-  type?: string
-  fixtureTwin?: boolean
-  sellSlots?: readonly FixtureSellSlot[]
-  slotTemplates?: readonly FixtureSellSlot[]
-  roomsBusy?: ReadonlyArray<Span & { room: string }>
   shifts: readonly FixtureShift[]
   absence: FixtureAbsence | null
   roster: readonly string[]
@@ -116,7 +88,7 @@ export function serveDay(input: {
   hours: StoreHours
   sample: Window
   dayKey: number
-}): { shifts: FixtureShift[]; absence: FixtureAbsence | null; sellSlots?: FixtureSellSlot[] } {
+}): { shifts: FixtureShift[]; absence: FixtureAbsence | null } {
   const wd = weekdayOfKey(input.dayKey)
   // ⚖ S81 R7 — the day the hours were READ for answers for itself: its 臨時休業 closes it, its 臨時営業日 opens it with its
   // own window; every other day of the range keeps its weekday's answer, exactly as before.
@@ -128,14 +100,8 @@ export function serveDay(input: {
   // set's own 定休日 stays fiction, as before (a 'weekday' closure on a 'sample' plane is the fixture's).
   const real = !core && shown && (input.hours.shownDayClosed === 'closed_date' || (input.hours.shownDayClosed === null && (pair.open !== input.sample.open || pair.close !== input.sample.close)))
   const closed = (core || real) && (shown ? input.hours.shownDayClosed !== null : input.hours.closedWeekdays.includes(wd))
-  // The 10–19 six-person twin, fixture world and all-store fallback keep their exact seated data.
-  const generate = input.type && (core || real) && !(pair.open === 600 && pair.close === 1140 && (input.roster.length === 6 || (input.fixtureTwin && input.shifts.length === 6)))
-  const generated = generate ? shiftDay(input.type!, input.roster, pair, input.absence, input.slotTemplates ?? input.sellSlots ?? []) : null
-  const seated = closed ? [] : generated?.shifts ?? (!core && !real ? input.shifts : input.shifts.map((s) => ownHours(s, input.sample, pair)).filter((s) => s.start < s.end))
-  const absence = closed ? null : generated ? generated.absence : input.absence
-  const sellSlots = (closed ? [] : generated?.sellSlots ?? input.sellSlots ?? []).filter((s) =>
-    !generated || (!input.rows.some((r) => r.staff === s.staff_id && meets(r, s)) && !(input.roomsBusy ?? []).some((r) => r.room === s.resource_id && meets(r, s))),
-  )
+  const seated = !core && !real ? input.shifts : closed ? [] : input.shifts.map((s) => ownHours(s, input.sample, pair)).filter((s) => s.start < s.end)
+  const absence = closed ? null : input.absence
   const people = [...new Set([...seated.map((s) => s.staff_id), ...input.roster.filter((id) => input.rows.some((r) => r.staff === id))])]
   const days = people.map((id) =>
     giveWay(
@@ -143,9 +109,9 @@ export function serveDay(input: {
       pair,
       input.rows.filter((r) => r.staff === id),
       input.carried,
-      (input.sellSlots ? sellSlots : input.taken).filter((t) => t.staff_id === id),
+      input.taken.filter((t) => t.staff_id === id),
     ),
   )
   const own = absence === null ? -1 : people.indexOf(absence.staff_id)
-  return { shifts: days.flatMap((d) => (d.shift ? [d.shift] : [])), absence: own < 0 ? absence : days[own].absence, ...(input.sellSlots ? { sellSlots } : {}) }
+  return { shifts: days.flatMap((d) => (d.shift ? [d.shift] : [])), absence: own < 0 ? absence : days[own].absence }
 }

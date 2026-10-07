@@ -675,9 +675,7 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     // jsdom has no native dialog methods; keep this shim on this mounted instance only.
     dialog.showModal = () => { dialog.open = true }
     dialog.close = () => { dialog.open = false }
-    // Kenta now has a late shift; exercise the same off-hour grid inside his free 16:00 hour.
-    const firstStart = 16 * 60 + 20
-    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: firstStart - hours.open + 5 })) })
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 25 })) })
     // Keep the real guard: this off-hour-grid start asks for acknowledgment before opening the form.
     const placeHere = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')!
     expect(placeHere).toBeDefined()
@@ -685,12 +683,12 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
     const duration = board.props.dialogs.create.menus[0]?.minutes ?? 60
     const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
-    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(firstStart)}–${time(firstStart + duration)}`)
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`07:20–${time(440 + duration)}`)
     const later = () => act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分遅く"]')!.click())
     for (let i = 0; i < 40; i += 1) later()
-    const afterForty = Math.min(hours.close - duration, firstStart + 40 * step)
+    const afterForty = Math.min(hours.close - duration, 440 + 40 * step)
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(afterForty)}–${time(afterForty + duration)}`)
-    // Finish any remaining distance, then click once past closing to retain the clamp assertion.
+    // Forty 20-minute advances do not reach close with this menu; finish the distance and click once past it.
     for (let i = 0; i <= Math.ceil((hours.close - duration - afterForty) / step); i += 1) later()
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration)}–22:00`)
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])

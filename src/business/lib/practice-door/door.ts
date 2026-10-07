@@ -658,16 +658,12 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const carried = new Set(served.flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
   const roster = seats.flatMap((s) => s.roster.map((p) => p.id))
   const seated = { shifts: rekeyRows(shifts, seats, 'identity'), absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null }
-  const policy = seats.length === 1 ? samplePolicyFor(seats[0].store) : null
-  const type = policy?.kind === 'twin' ? policy.type : undefined
-  const result = serveDay({ ...seated, type, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
-    sellSlots: slots, slotTemplates: rekeyRows(sellSlots, seats, 'attribute'), roomsBusy: busy })
-  const ids = new Set(result.sellSlots?.map((s) => s.id))
-  return { ...result, sellSlots: result.sellSlots ?? slots, decisions: served.filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id)) }
+  return { ...serveDay({ ...seated, roster, rows: live, carried, taken: slots, hours, sample, dayKey }), sellSlots: slots, decisions: served }
 }
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
+  const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
   // ⚖ PR-4a — per store, its OWN re-key of the open family: a borrower counts the rows it is served
   // (R10: today's busy rooms). ⚖ §v11 V11-11 — today's rows by ONE read, twins and borrowers alike, each store its own.
@@ -675,9 +671,7 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
   const [all, day] = await Promise.all([rosterOrderOf(actor, { viewAll: true }), liveRowsOf(actor, { viewAll: true }, { from: todayKey, to: todayKey })])
   for (const seats of all) {
     const rows = day.filter((r) => r.store_id === seats.store)
-    const sample = singletonsOf(samplePolicyFor(seats.store))
-    const hours = await storeHoursOf(actor, seats.store, todayKey, sample)
-    byStore[seats.store] = servedDay([seats], rows, hours, sample.operatingHours, todayKey).decisions.filter((d) => d.state === 'open').length
+    byStore[seats.store] = servedDecisions(open, [seats], roomsBusy(rows, todayKey), liveSpans(rows, todayKey)).length
   }
   // A store the actor cannot see never counts.
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }

@@ -14,26 +14,25 @@ import type { BusinessProfileKey } from '../fixtures-settings'
 import { PRACTICE_REGISTRY } from './registry.generated'
 
 export type StoreSamplePolicy =
-  | { kind: 'twin'; fixtureStoreId: string; type?: BusinessProfileKey; business_type?: BusinessProfileKey }
+  | { kind: 'twin'; fixtureStoreId: string; business_type?: BusinessProfileKey }
   /** REAL mode only (a real business, a plane core does not serve yet → 準備中):
    *  never answered for a practice store. No real-mode resolver is built yet. */
   | { kind: 'none' }
 
 // Full uuids: the practice business's seven stores (BASELINE-DEV-SALON.json,
 // 2026-09-24T14:59Z). STORE_C (テスト渋谷店) has no dials, so no store points at it.
-// Until CORE-26 lands, this registry is the home of each practice store's recipe type.
 export const STORE_SAMPLE_POLICY: Record<string, StoreSamplePolicy> = {
   // テスト東京店 · テスト横浜店 — the exact twins.
-  'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f': { kind: 'twin', type: 'beauty_chiropractic', fixtureStoreId: STORE_A },
-  '8ac43a4b-7763-4a10-9f73-a662085460af': { kind: 'twin', type: 'beauty_chiropractic', fixtureStoreId: STORE_B },
+  'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f': { kind: 'twin', fixtureStoreId: STORE_A },
+  '8ac43a4b-7763-4a10-9f73-a662085460af': { kind: 'twin', fixtureStoreId: STORE_B },
   // La Estro Test Store — keeps its 業種, borrows 東京's plane.
-  '8696b856-11ab-4879-9290-bef40b03ea66': { kind: 'twin', type: 'beauty_chiropractic', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' },
+  '8696b856-11ab-4879-9290-bef40b03ea66': { kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' },
   // Dev Salon · Dev 銀座.
-  '5a171878-4faa-4512-ba07-17ca4e20ab9e': { kind: 'twin', type: 'hair_salon', fixtureStoreId: STORE_A },
-  'a1a26517-33c0-4e73-9ea2-e56e98d99c6f': { kind: 'twin', type: 'hair_salon', fixtureStoreId: STORE_A },
+  '5a171878-4faa-4512-ba07-17ca4e20ab9e': { kind: 'twin', fixtureStoreId: STORE_A },
+  'a1a26517-33c0-4e73-9ea2-e56e98d99c6f': { kind: 'twin', fixtureStoreId: STORE_A },
   // テスト恵比寿ジム · テスト自由が丘店 — their own 業種 on 東京's plane.
-  'c33e4c43-bc3b-4470-ac22-aa60fecdabe3': { kind: 'twin', type: 'personal_gym', fixtureStoreId: STORE_A, business_type: 'personal_gym' },
-  '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c': { kind: 'twin', type: 'hair_salon', fixtureStoreId: STORE_A, business_type: 'hair_salon' },
+  'c33e4c43-bc3b-4470-ac22-aa60fecdabe3': { kind: 'twin', fixtureStoreId: STORE_A, business_type: 'personal_gym' },
+  '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c': { kind: 'twin', fixtureStoreId: STORE_A, business_type: 'hair_salon' },
 }
 
 /** The fallback plane for a practice store the table does not name (⚠2: never `none`). */
