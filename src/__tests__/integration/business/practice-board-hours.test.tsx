@@ -32,7 +32,8 @@ jest.mock('@/app/[locale]/(business)/business/today/today-interactions', () => {
 })
 
 import { readFileSync } from 'node:fs'
-import { act } from 'react'
+import { act, cloneElement, type ReactElement } from 'react'
+import type { TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { createRoot } from 'react-dom/client'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { BusinessSessionEdits, useSessionEdits } from '@/app/[locale]/(business)/BusinessSessionEdits'
@@ -219,7 +220,10 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     expect(block('const originHeld = heldCommittedFor({')).toContain('closeMin: business.close,')
     // ⚖ Q-25 — no fixed-30 lattice remains on the board; every rail/click lattice reads the store's booking step.
     expect(src).not.toMatch(/\/ 30\) \* 30/)
-    expect(src.split('props.guard.bookingStepMin').length - 1).toBeGreaterThanOrEqual(16)
+    expect(src).not.toMatch(/close - 30\b/)
+    expect(src).not.toMatch(/aria-label="30分/)
+    // exact count at this head; a removed read fails it, an added read updates it
+    expect(src.split('props.guard.bookingStepMin').length - 1).toBe(15)
     // TodayScreen.tsx:3030-3031 — guardRailsFor (the 60分配置 strip).
     expect(closes(argsOf(guardRailsFor), ([, o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
     // TodayScreen.tsx:3403-3404 — guardVerdictAt (one landing's verdict): asked by an empty-slot click on a staff track.
@@ -638,6 +642,74 @@ async function mountRigged(limit: number | null) {
   const done = () => { act(() => root.unmount()); host.remove(); r.restore() }
   return { ...r, host, card, ghostX, scrollTo, frame, done }
 }
+
+it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Greptile #1150 P2)", async () => {
+  const r = rig(0)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    // page.tsx returns <TodayScreen {...props} />; set the store's step and its pinned board clock before opening.
+    const board: ReactElement<TodayProps> = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    const step = 20
+    const { hours } = board.props
+    expect([hours.open, hours.close]).toEqual([420, 1320])
+    await act(async () => root.render(<BusinessSessionEdits>{cloneElement(board, { guard: { ...board.props.guard, bookingStepMin: step }, sell: { ...board.props.sell, nowMinute: 360 } })}</BusinessSessionEdits>))
+    r.box.at = 0
+    const rails = Array.from(host.querySelectorAll('.guard-placement-rail'))
+    expect(rails.length).toBeGreaterThan(0)
+    for (const rail of rails) {
+      const starts = Array.from(rail.querySelectorAll<HTMLElement>('.guard-rail-cell[data-start]')).map((cell) => Number(cell.dataset.start))
+      expect(starts).toEqual(Array.from({ length: 45 }, (_, k) => hours.open + k * step))
+      expect([...starts.slice(0, 3), starts.at(-1)]).toEqual([420, 440, 460, 1300])
+    }
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    const lane = card.closest<HTMLElement>('.lane')!
+    trackWide(900, lane) // one pixel per minute on the 07:00–22:00 axis
+    const track = host.querySelector<HTMLElement>(`.lane[data-lane="${GYM.kenta}"] .track`)!
+    const dialog = host.querySelector<HTMLDialogElement>('dialog[aria-labelledby="createTitle"]')!
+    // jsdom has no native dialog methods; keep this shim on this mounted instance only.
+    dialog.showModal = () => { dialog.open = true }
+    dialog.close = () => { dialog.open = false }
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 25 })) })
+    // Keep the real guard: this off-hour-grid start asks for acknowledgment before opening the form.
+    const placeHere = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')!
+    expect(placeHere).toBeDefined()
+    act(() => placeHere.click())
+    expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
+    const duration = board.props.dialogs.create.menus[0]?.minutes ?? 60
+    const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`07:20–${time(440 + duration)}`)
+    const later = () => act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分遅く"]')!.click())
+    for (let i = 0; i < 40; i += 1) later()
+    const afterForty = Math.min(hours.close - duration, 440 + 40 * step)
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(afterForty)}–${time(afterForty + duration)}`)
+    // Forty 20-minute advances do not reach close with this menu; finish the distance and click once past it.
+    for (let i = 0; i <= Math.ceil((hours.close - duration - afterForty) / step); i += 1) later()
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration)}–22:00`)
+    expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
+    act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分早く"]')!.click())
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration - step)}–21:40`)
+    act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="作成をやめる"]')!.click())
+    // A real drag supplies the landing; the hold selector and aimed chip must resolve to that same drawn cell.
+    act(() => { card.dispatchEvent(r.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(r.ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(host.querySelector('.drag-proxy.event')).not.toBeNull()
+    const ghost = host.querySelector<HTMLElement>('.drop-ghost')!
+    const landingMinute = hours.open + pct(ghost, '--x') / 100 * (hours.close - hours.open)
+    expect(landingMinute).toBeCloseTo(440, 8)
+    const start = Math.floor(landingMinute / step) * step
+    const selector = `.guard-placement-rail[data-lane="${lane.dataset.lane}"] .guard-rail-cell[data-start="${start}"]`
+    const cell = host.querySelector(selector)
+    expect(cell).not.toBeNull()
+    expect(host.querySelector('.guard-rail-cell.aimed')).toBe(cell)
+    act(() => { window.dispatchEvent(r.ev('pointercancel', 520, 0)) })
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    r.restore()
+  }
+})
 
 it('⚖ S26 Round F (Greptile P1) — MOUNTED: a MANUAL sideways scroll during a card drag (scrollLeft +60, one scroll event, one frame) moves the drag frame\'s span exactly as carrying the pointer 60 px further would', async () => {
   const m = await mountRigged(null)

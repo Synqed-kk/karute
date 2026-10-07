@@ -2110,6 +2110,7 @@ export function TodayScreen(props: TodayProps) {
     : live && !live.overShelf && !live.offLane
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  const step = props.guard.bookingStepMin
   /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
    *  with the landing preview. Canon's `updateAimedTarget` (:7599-7606) marks the
    *  hovered start's cell `.aimed` and its CSS gives it the hover treatment
@@ -2121,7 +2122,6 @@ export function TodayScreen(props: TodayProps) {
    *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
    *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
    */
-  const step = props.guard.bookingStepMin
   const aimed = landing && landing.w > 0
     ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / step) * step }
     : null
@@ -4852,10 +4852,9 @@ export function TodayScreen(props: TodayProps) {
     if (!pending || pendingOffBoard) return null
     const at = moves[pending.id]
     if (!at) return null
-    const step = props.guard.bookingStepMin
     const start = Math.floor(minuteOf(at.x, hours) / step) * step
     return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
-  }, [pending, pendingOffBoard, moves, hours, props.guard.bookingStepMin])
+  }, [pending, pendingOffBoard, moves, hours, step])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {
@@ -9987,6 +9986,7 @@ export function TodayScreen(props: TodayProps) {
         data={dialogs.create}
         hours={hours}
         business={business}
+        stepMin={props.guard.bookingStepMin}
         seed={seed}
         onCreate={(laneKey, item, message, priced) => {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
@@ -10708,6 +10708,7 @@ function CreateDialog({
   data,
   hours,
   business,
+  stepMin,
   seed,
   onCreate,
   turnoverWord,
@@ -10717,6 +10718,7 @@ function CreateDialog({
   hours: TodayProps['hours']
   /** ⚖ §v11 V11-15(b) — the store's own hours: every 営業時間 check below. `hours` only places the card. */
   business: { open: number; close: number }
+  stepMin: number
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
   /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
@@ -10746,9 +10748,10 @@ function CreateDialog({
   useEffect(() => {
     if (!seed) return
     setStaffId(seed.staffId)
-    setStart(Math.max(business.open, Math.min(business.close - 30, seed.start)))
+    // ⚖ Q-25 (2026-10-07) — the form's clamp and its ‹ › steppers move by the store's booking step, never a fixed 30 (Greptile #1150 P1).
+    setStart(Math.max(business.open, Math.min(business.close - stepMin, seed.start)))
     setTab('book')
-  }, [seed, business.open, business.close])
+  }, [seed, business.open, business.close, stepMin])
 
   const everyone = useMemo(() => [...localCustomers, ...data.customers], [localCustomers, data.customers])
   const customer = everyone.find((c) => c.id === customerId) ?? null
@@ -10855,9 +10858,9 @@ function CreateDialog({
             <div className="cc-field">
               開始・時間
               <span className="stepper">
-                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(business.open, s - 30))}>‹</button>
+                <button type="button" aria-label={`${stepMin}分早く`} onClick={() => setStart((s) => Math.max(business.open, s - stepMin))}>‹</button>
                 <b>{hhmm(start)}–{hhmm(end)}</b>
-                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(business.close - duration, s + 30))}>›</button>
+                <button type="button" aria-label={`${stepMin}分遅く`} onClick={() => setStart((s) => Math.min(business.close - duration, s + stepMin))}>›</button>
               </span>
             </div>
             <div className="cc-field">
