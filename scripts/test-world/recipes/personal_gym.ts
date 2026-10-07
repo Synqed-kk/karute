@@ -203,6 +203,7 @@ export const recipe: RecipeData = {
     { name: 'トレーニングルームA', room_class: 'standard', cleanup_minutes: 10, display_order: 0 },
     { name: 'トレーニングルームB', room_class: 'standard', cleanup_minutes: 10, display_order: 1 },
     { name: '個室スタジオ', room_class: 'private', cleanup_minutes: 10, display_order: 2 },
+    { name: 'トレーニングルームC', room_class: 'standard', cleanup_minutes: 10, display_order: 3 }, // ⚖ E3: rooms bound the day (30 sessions/day at 3)
   ],
   menus: [
     { name: TAIKEN, duration: 60, price: 5500, category: 'はじめての方', nomination: false, private: false },
@@ -214,7 +215,8 @@ export const recipe: RecipeData = {
     { name: SOKUTEI, duration: 30, price: 3300, category: '測定・カウンセリング', nomination: true, private: false },
     { name: SANGO, duration: 60, price: 11000, category: '産後ケア', nomination: true, private: true },
   ],
-  addedStaff: ['見本 ゆうと'], // the sixth trainer arrived with FILL 2; the thirty original members never draw them
+  addedStaff: ['見本 ゆうと'],
+  addedResources: ['トレーニングルームC'], // added with FILL 2 too; the thirty original members never draw it // the sixth trainer arrived with FILL 2; the thirty original members never draw them
   firstMenu: TAIKEN,
   customers,
   requests: REQUESTS,

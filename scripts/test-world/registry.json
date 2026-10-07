@@ -59,7 +59,7 @@
       ],
       "recipe": {
         "staff": 6,
-        "resources": 3,
+        "resources": 4,
         "menus": 8,
         "customers": 145,
         "packs": 0,

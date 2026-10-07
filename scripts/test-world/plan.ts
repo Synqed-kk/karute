@@ -91,6 +91,7 @@ export interface RecipeData {
   legacyMembers?: string[]
   legacyPastDays?: number
   addedStaff?: string[] // ⚖ R5: staff added after the store's first load — a legacy member never draws them
+  addedResources?: string[] // ⚖ E3: rooms added after the store's first load — a legacy member never draws them either
   policy: { weekly_hours: WeeklyHours }
   staff: { name: string; role: StaffRole }[]
   resources: { name: string; room_class: 'standard' | 'private'; cleanup_minutes: number; display_order: number }[]
@@ -302,7 +303,7 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable;
       // the 受付 (ASSISTANT) never takes an overflow visit; the customer's own 担当 may be anyone
       const others = (profiled ? recipe.staff : recipe.staff.filter((s) => !recipe.addedStaff?.includes(s.name))).filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => x.s.role !== 'ASSISTANT').sort((a, b) => a.w - b.w).map((x) => x.s.name)
-      const beds = recipe.resources.filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
+      const beds = (profiled ? recipe.resources : recipe.resources.filter((x) => !recipe.addedResources?.includes(x.name))).filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
       // From the cut: a 指名 visit (a nominating customer, a menu that takes 指名) waits for their 担当 — no one else;
       // a フリー visit goes to whoever the seeded order puts first, their 担当 included.
       const nominated = isNominated(recipe, c.member) && m.nomination
