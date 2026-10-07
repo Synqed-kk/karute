@@ -30,6 +30,12 @@ const EXTRACTION_CLAUSES = [
   // facet entries at the last step. The exception is stated inside the
   // 主題の厚み rule (a v3.4 line; the v3.2 canon block is untouched).
   '出力直前の見直し」でも、主題の側面エントリー同士は統合しない',
+  // Field bug 2026-07-15 (live regen, body-state-heavy 主題): the facet-split
+  // pasted the identical sentence into 気になる点 AND 部位, and a work-hours
+  // line into 気になる点 AND ライフスタイル — the split had no
+  // no-verbatim-repeat clause. Facets must differ in vantage, not repeat.
+  '同じ一文をそのまま複数の category に重複して書いてはならない',
+  'lifestyle に同じ文言を繰り返さない',
   '出所の明示',
   '医師にMRI検査を勧められた',
   '次回の確認事項',
