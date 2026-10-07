@@ -31,7 +31,11 @@ let runs: Run[] = []
 let extraRows: unknown[] = []
 // What the form's saves wrote: the next /configs read shows it (store id → row fields).
 let saved: Record<string, Record<string, unknown>> = {}
+// Set to [] to hold every /configs read until the test answers it (in order of the reads).
+let configsHold: ((r: Response) => void)[] | null = null
 const apiFetch = jest.fn((url: string, init?: RequestInit) => {
+  if (url === '/api/sync/quickreserve/configs' && configsHold)
+    return new Promise<Response>((resolve) => configsHold!.push(resolve))
   if (url === '/api/sync/quickreserve/configs')
     return Promise.resolve(reply({ stores: [...STORES, ...extraRows].map((s) => ({ ...(s as object), ...saved[(s as { storeId: string }).storeId] })) }))
   if (url === '/api/sync/quickreserve/config' && init?.method === 'POST') {
@@ -56,6 +60,7 @@ beforeEach(() => {
   runs = []
   extraRows = []
   saved = {}
+  configsHold = null
   apiFetch.mockClear()
   selectStore.mockClear()
   refresh.mockClear()
@@ -581,5 +586,27 @@ describe('viewAll caller', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  it.each([
+    ['older rows', reply({ stores: [{ ...STORES[0], storeName: '旧代官山' }] })],
+    ['a failed read', reply({}, 500)],
+  ])('latest answer wins: two overlapping list reads, the first answering last with %s → the rows show the SECOND answer', async (_label, stale) => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    configsHold = []
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    expect(configsHold).toHaveLength(1) // the mount read, still unanswered
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(2) // the form's run answered: a second read
+    await act(async () => { configsHold![1](reply({ stores: [{ ...STORES[0], storeName: '新代官山' }] })) })
+    await flush()
+    await act(async () => { configsHold![0](stale) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    expect(screen.queryByText('旧代官山')).toBeNull()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull() // the stale read's failure is ignored
   })
 })

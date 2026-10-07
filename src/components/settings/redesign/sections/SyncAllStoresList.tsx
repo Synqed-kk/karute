@@ -107,6 +107,10 @@ export function SyncAllStoresList({
   // is still going finishes the store in flight (it releases itself) and
   // starts no queued store.
   const alive = useRef(true)
+  // Which list read is the latest: every read that may set the rows (load, and
+  // sync-all's re-reads) takes a new number, and an answer whose number is no
+  // longer current is dropped, so an older read never lands over a newer one.
+  const readSeq = useRef(0)
   useEffect(() => {
     alive.current = true
     return () => {
@@ -115,7 +119,9 @@ export function SyncAllStoresList({
   }, [])
 
   const load = useCallback(async () => {
+    const seq = ++readSeq.current
     const fresh = await fetchStoreRows()
+    if (seq !== readSeq.current) return
     if (!fresh) {
       setReadFailed(true) // a failed reload never clears the rows; the form below still works
       return
@@ -178,6 +184,7 @@ export function SyncAllStoresList({
   async function runAllStores() {
     if (!rows || blocked) return
     setRunAll({ pending: true, results: null })
+    readSeq.current++
     const fresh = await fetchStoreRows()
     if (!fresh) {
       setRunAll({ pending: false, results: null })
@@ -192,7 +199,10 @@ export function SyncAllStoresList({
     for (const queued of fresh.filter(syncsInRunAll)) {
       // The rows right before this store starts (the first store uses the
       // re-read just made).
-      if (!latest) latest = await fetchStoreRows()
+      if (!latest) {
+        readSeq.current++
+        latest = await fetchStoreRows()
+      }
       // The screen was abandoned: no queued store starts.
       if (!alive.current) return
       const current = latest
