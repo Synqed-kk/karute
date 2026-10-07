@@ -61,7 +61,8 @@ describe('ownHours + serveDay — a \'core\' store\'s own day (V11-9)', () => {
     expect(ownHours(shift(hm(10), hm(17)), S, { open: hm(12), close: hm(15) })).toMatchObject({ start: hm(12), end: hm(15) })
   })
 
-  const core = (week = weekFromPair({ open: hm(7), close: hm(22) }, [2])) => ({ operatingHours: { open: hm(7), close: hm(22) }, weeklyHours: week, closedWeekdays: week.flatMap((d, i) => (d ? [] : [i])), hoursSource: 'core' as const })
+  const NO_DAY = -1 // ⚖ S81 R7 — hours read for no day of these tests: every day answers by its weekday, as before
+  const core = (week = weekFromPair({ open: hm(7), close: hm(22) }, [2])) => ({ operatingHours: { open: hm(7), close: hm(22) }, weeklyHours: week, closedWeekdays: week.flatMap((d, i) => (d ? [] : [i])), hoursSource: 'core' as const, shownDayKey: NO_DAY, shownDayClosed: null })
   const MON = jstDayKey(new Date('2026-09-14T04:24:00Z')), TUE = MON + 1 // the recorded today, a Monday
   const base = { absence: away(hm(13)), roster: ['s', 't'], rows: [], carried: new Set<string>(), taken: [], sample: S }
   it('an open day: the seated shifts cover the store\'s own window', () => {
@@ -80,6 +81,14 @@ describe('ownHours + serveDay — a \'core\' store\'s own day (V11-9)', () => {
     const sample = { ...core(weekFromPair(S, [1])), operatingHours: S, hoursSource: 'sample' as const }
     const seated = [shift(hm(10), hm(17), [{ start: hm(12, 30), end: hm(13, 30) }])]
     expect(serveDay({ ...base, shifts: seated, hours: sample, dayKey: MON }).shifts).toEqual(seated)
+  })
+  it('⚖ S81 R7 — the day the hours were read for answers for itself: a 臨時休業 closes it like a 定休日; a 臨時営業日 on a 定休日 opens it with its own window', () => {
+    const closedDate = { ...core(), shownDayKey: MON, shownDayClosed: 'closed_date' as const }
+    expect(serveDay({ ...base, shifts: [shift(hm(10), hm(19))], hours: closedDate, dayKey: MON })).toEqual({ shifts: [], absence: null })
+    const special = { ...core(), operatingHours: { open: hm(11), close: hm(15) }, shownDayKey: TUE, shownDayClosed: null }
+    expect(serveDay({ ...base, shifts: [shift(hm(10), hm(19))], hours: special, dayKey: TUE }).shifts).toEqual([shift(hm(11), hm(15))])
+    // every OTHER day of the range keeps its weekday's answer
+    expect(serveDay({ ...base, shifts: [shift(hm(10), hm(19))], hours: closedDate, dayKey: MON + 7 }).shifts).toEqual([shift(hm(7), hm(22))])
   })
   it('a roster person with no row and no shift gets no row; a row off the roster seats nobody', () => {
     const out = serveDay({ ...base, shifts: [], rows: [{ id: 'x', staff: 'nobody', start: hm(10), end: hm(11) }], hours: core(), dayKey: MON })

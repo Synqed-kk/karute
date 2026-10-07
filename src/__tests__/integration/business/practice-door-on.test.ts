@@ -1378,7 +1378,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
   })
 
-  it('§v11 V11-2a (final 17:5x) — a malformed weekday never takes the week with it and never borrows another world\'s day: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and is drawn with the store\'s OWN usual window, logged', async () => {
+  // ⚖ S81 R8 — V11-2a's own difference is RETIRED: the ONE resolver sends a malformed weekday on to the business hours /
+  // default; with no business hours set, R6 serves that default day the store's usual pair — the same window as before.
+  it('§v11 V11-2a → S81 R8 — a malformed weekday never takes the week with it: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and goes on through the resolver (no business hours here → the usual pair, R6), logged', async () => {
     const spy = withReads()
     // ⚖ §v11 V11-14 P9 (PR-B) — RE-PINNED at a usual pair (Tue + Fri 09:00–20:00) that is NOT the sample default 10:00–19:00:
     // the old pin's usual pair equalled the sample one, so it could not tell the usual-pair path from the sample path.
@@ -1392,10 +1394,50 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
       expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, W, W, null, T, W, null]) // Monday = the usual pair (Tue + Fri)
       expect(day.closedWeekdays).toEqual([3, 6]) // core's own closures only — never a closure the store did not set
-      expect(quiet).toHaveBeenCalledWith("[practice hours] malformed weekday served as the store's usual window:", STORE.yokohama, '1')
+      expect(quiet).toHaveBeenCalledWith('[practice hours] malformed weekday sent on to the business hours / default:', STORE.yokohama, '1')
     } finally {
       quiet.mockRestore()
     }
+  })
+
+  // ⚖ S81 R4/R7 — 臨時休業 and 臨時営業日 through Karute's ONE resolver: the shown day answers for itself, painted exactly as a
+  // closed (or open) weekday is painted today; the 定休日 legend and every other day keep the weekday's answer.
+  const boardOn = async (store: string, day: number) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, day: String(day) }) })
+    return (el as unknown as { props: { calendar: Array<{ m: number; d: number; closed?: boolean }>; closedWeekdayLabel: string | null } }).props
+  }
+  const cell = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => b.calendar.find((c) => c.m === 9 && c.d === d)!.closed
+  it('S81 R7 — a 臨時休業 date closes the shown day alone (shifts none, the cell 休), never a 定休日; a failed 臨時休業 read is never 「no closed days」', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY)
+    expect([day.shownDayClosed, day.closedWeekdays, day.operatingHours, day.hoursSource]).toEqual(['closed_date', [2], { open: 600, close: 1140 }, 'core'])
+    // as a closed weekday: nobody is seated off the sample roster — only a person with a live row that day keeps a lane
+    const live = new Set((await data.listAppointments(STORE.tokyo, {})).filter((a) => jstDayKey(a.starts_at) === TODAY).map((a) => a.staff_id))
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY, to: TODAY + 7 })).get(TODAY)!
+    expect(seated.filter((x) => !live.has(x.staff_id))).toEqual([])
+    expect((await data.listAbsenceByDay(STORE.tokyo, { from: TODAY, to: TODAY })).get(TODAY)).toBeNull()
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cell(b, 14), cell(b, 21), cell(b, 15), b.closedWeekdayLabel]).toEqual([true, false, true, '火曜'])
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockRejectedValue(new Error('closed days down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const failed = await data.readDayPlanes(STORE.tokyo, TODAY)
+      expect([failed.hoursSource, failed.operatingHours]).toEqual(['sample', operatingHours])
+      expect(quiet).toHaveBeenCalledWith('[practice hours] core did not answer:', 'closed days down')
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  it('S81 R7 — a 臨時営業日 on a 定休日 opens that day with its own window; the next Tuesday stays 定休日', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours, day.closedWeekdays]).toEqual([null, { open: 660, close: 900 }, [2]])
+    const b = await boardOn(STORE.tokyo, 1)
+    expect([cell(b, 15), cell(b, 22), b.closedWeekdayLabel]).toEqual([false, true, '火曜'])
   })
 
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
