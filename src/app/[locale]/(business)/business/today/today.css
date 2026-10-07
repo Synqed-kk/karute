@@ -501,6 +501,12 @@
 }
 @container (width < 61px) { .biz .page-today .event > .e-time { display: none; } }
 @container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
+/* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
+   詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer
+   has no time or menu line, so WIDE · MID · NARROW keep today's kind word + price (clipped as today); SLIVER (below
+   20 px drawn = content box below 20 − OFFER_PAD_PX 10) keeps only the coloured bar. */
+.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) { container-type: inline-size; }
+@container (width < 10px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep

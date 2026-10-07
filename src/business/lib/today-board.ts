@@ -161,6 +161,10 @@ export const LABEL_TIER_PX = {
   mid: FAMILY_NAME_PX + CARD_TIME_PX + CARD_TIGHT_PAD_PX,
   wide: FAMILY_NAME_PX + CARD_TIME_PX + CARD_PAD_PX,
 } as const
+/** The offers' own padding + border (`.cell-price` / `.cell-packed` / `.cell-gapfill` 5 + 5; `.cell-held` 4 + 4 +
+ *  border 1 + 1): today.css's offer @container rule measures the content box, so SLIVER there is below
+ *  LABEL_TIER_PX.sliver − OFFER_PAD_PX = 10 px. */
+export const OFFER_PAD_PX = 10
 export type LabelTier = 'wide' | 'mid' | 'narrow' | 'sliver'
 export function labelTier(px: number): LabelTier {
   return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.mid ? 'narrow' : px < LABEL_TIER_PX.wide ? 'mid' : 'wide'

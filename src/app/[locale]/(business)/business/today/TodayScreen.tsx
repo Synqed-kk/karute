@@ -1161,13 +1161,16 @@ export function TodayScreen(props: TodayProps) {
   const offAfter = band ? (hours.close - business.close) / (hours.close - hours.open) : 0
   // ⚖ 10/7 S25-1 — a day that cannot fit at the floor scrolls SIDEWAYS (the CSS min-width, today.css .timeline); on
   // load it is scrolled so the now-line sits mid-view. The floor's only JS: one scroll, on mount, only when it overflows.
+  // Three guards (round 2 item 7 c): ON MOUNT ONLY — deps [], and a store or day switch re-renders this same instance
+  // (page.tsx keys nothing), so it never fires again; only on TODAY (`sell.nowMinute` is null on any other day); only
+  // when the track OVERFLOWS (scrollWidth > clientWidth — a day that fits never moves).
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = scrollRef.current
-    if (!el || props.nowFraction == null || el.scrollWidth <= el.clientWidth) return
+    if (!el || props.sell.nowMinute == null || props.nowFraction == null || el.scrollWidth <= el.clientWidth) return
     const label = parseFloat(getComputedStyle(el.firstElementChild ?? el).getPropertyValue('--label')) || 0
     el.scrollLeft = (el.scrollWidth - label) * props.nowFraction - (el.clientWidth - label) / 2
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount: the now-line is brought into view, never chased
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once per mount by design: a re-render must never re-scroll
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -8172,6 +8175,8 @@ export function TodayScreen(props: TodayProps) {
                   // window, the store's own duration and the release rule. One
                   // composer with the rail chip's clause under it, so the board
                   // cannot word its own rule two ways.
+                  // ⚖ S25-2 (D5, round 2 item 7 a) — at SLIVER the box is its bar alone; its two lines stay in `title`.
+                  title={`新規用に確保 ${h.end - h.start}分・オンラインで新規のお客様に販売中`}
                   onClick={() => releaseAsk(lane.key, h)}
                 >
                   <span className="held-title">新規用に確保</span>
