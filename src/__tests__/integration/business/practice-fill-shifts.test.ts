@@ -41,7 +41,9 @@ it('T7 (R4): the gym — sides by NAME parity, nine-hour shifts, staggered break
   }
   for (const side of [420, 780]) expect(new Set(out.shifts.filter((s) => s.start === side).map((s) => s.breaks[0].start)).size).toBe(3)
   for (let t = GYM.open; t < GYM.close; t += 30) expect({ t, n: onFloor(out, t) > 0 }).toEqual({ t, n: true })
-  expect(out.absence?.from).toBe(690)
+  // ⚖ S87 Q4: the absence is a STYLIST's — the opening side's STYLISTs are けんた and なつみ (こはる opens too, but is the
+  // ASSISTANT); no rows, so none ends first and けんた leads by name; `from` is the middle of his 07:00–16:00 side
+  expect([out.absence?.staff_id, out.absence?.from]).toEqual([roster[NAMES.indexOf('見本 けんた')], 690])
   // R16: two slots after the pinned 13:24, at the gym's own prices
   expect(out.sellSlots!.map((s) => [s.start, s.price_low, s.price_high])).toEqual([[960, 11000, 13750], [1050, 11000, 13750]])
   expect(new Set(out.sellSlots!.map((s) => s.staff_id)).size).toBe(2)
@@ -64,6 +66,9 @@ it('T7 (R4): serveDay with today\'s plan-shaped rows — shifts stay ≤ 9 h, th
   const out = gym(rows)
   for (const s of out.shifts) expect(s.end - s.start).toBeLessThanOrEqual(540)
   expect(out.absence).not.toBeNull()
+  // ⚖ S87 Q4: carried by the opening-side STYLIST whose rows end first (derived by a run: 見本 けんた; never こはる, the ASSISTANT)
+  expect(ROLES[roster.indexOf(out.absence!.staff_id)]).toBe('STYLIST')
+  expect(NAMES[roster.indexOf(out.absence!.staff_id)]).toBe('見本 けんた')
   expect(out.shifts.find((s) => s.staff_id === out.absence!.staff_id)!.start).toBe(GYM.open)
   expect(onFloor(out, 690)).toBeGreaterThan(0)
   expect(onFloor(out, 1050)).toBeGreaterThan(0)

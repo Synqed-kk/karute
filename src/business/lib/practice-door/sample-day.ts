@@ -114,11 +114,14 @@ export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name:
     }
     return { staff_id: id, start, end, breaks: end - start >= 120 ? [{ start: br, end: br + 60 }] : [] }
   }).filter((s) => s.start < s.end) // ⚖ R19: the same filter as ownHours (an overnight or empty day serves no shift)
-  // the absence: the opening side's person whose live rows end first (so give-way keeps it); a lone person's absence would
-  // empty the store, so it needs two people on
+  // the absence (⚖ S87 Q4): chosen among STYLIST people only — the opening side's STYLIST whose live rows end first (so
+  // give-way keeps it); no STYLIST opens → the STYLIST whose rows end first; no STYLIST at all → none. ASSISTANT, OWNER and
+  // ADMIN never carry it. A lone person's absence would empty the store, so it needs two people on
   const lastEnd = (s: FixtureShift) => Math.max(0, ...rows.filter((r) => r.staff === s.staff_id).map((r) => r.end))
-  const opening = shifts.filter((s) => s.start === pair.open)
-  const early = [...(opening.length ? opening : shifts)].sort((a, b) => lastEnd(a) - lastEnd(b))[0]
+  const stylists = new Set(people.filter((p) => p.role === 'STYLIST').map((p) => p.id))
+  const pool = shifts.filter((s) => stylists.has(s.staff_id))
+  const opening = pool.filter((s) => s.start === pair.open)
+  const early = [...(opening.length ? opening : pool)].sort((a, b) => lastEnd(a) - lastEnd(b))[0]
   const away = absence && early && shifts.length >= 2 ? { ...absence, staff_id: early.staff_id, from: Math.max(Math.floor((early.start + early.end) / 2), lastEnd(early)) } : null
   const meetsBreak = (s: FixtureShift, t: number) => s.breaks.some((b) => b.start < t + 60 && t < b.end)
   const times = [960, 1050].map((t) => Math.min(t, pair.close - 60 - (1050 - t))).filter((t) => t > pin && t >= pair.open)

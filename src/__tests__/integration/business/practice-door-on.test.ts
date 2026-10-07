@@ -1799,11 +1799,13 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect([reads(first, TODAY - 46, TODAY + 46), reads(second, TODAY - 46, TODAY + 46)]).toEqual([1, 1])
   })
 
-  it('§v11 V11-12 — the readers agree on the generated early-shift absence (R4: it goes to the opening person whose rows end first, so it survives)', async () => {
+  it('§v11 V11-12 — the readers agree on the generated early-shift absence (R4 + S87 Q4: it goes to the opening-side STYLIST whose rows end first, so it survives): the gym\'s けんた, moved to 21:30', async () => {
     const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
     const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)
     const res = (await data.readReservationPlanes(STORE.gym)).absence
-    expect(day).not.toBeNull() // ⚖ R4 T7: the early trainer's 勤務不可 survives the day's bookings
+    // ⚖ S87 Q4: けんた carries it — the opening side's STYLISTs are だいち, けんた and なつみ (こはる opens too but is the ASSISTANT);
+    // けんた's and なつみ's rows end first (21:30), けんた first by name; give-way moved its `from` from 11:30 to his last row's end
+    expect([day?.staff_id, day?.from]).toEqual(['8dd49f39-7ae7-4464-b2f7-f2d0cf7f5461', 21 * 60 + 30]) // GYM.kenta, 21:30
     expect([cal, res]).toEqual([day, day])
   })
 
