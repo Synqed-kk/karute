@@ -793,8 +793,10 @@ describe('the fixture data door', () => {
         // ⚖ Liam 8/23 — the room's ? opens the family's guided tour, so it wires
         // its own trigger and overlay to the shared engine. Pure functions only:
         // this room reads no data on the client and that is unchanged.
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/inbox',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],
@@ -824,8 +826,10 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/register',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],
