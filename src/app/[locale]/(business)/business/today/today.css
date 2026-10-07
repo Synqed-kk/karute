@@ -3490,3 +3490,16 @@
 /* ⚖ 10/7 S25-2 (D2) — the closing EDGE TICK: the closing hour printed at the track's right edge (rulerLabels' `edge`),
    right-aligned against the edge instead of starting a column. */
 .biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
+
+/* ⚖ 10/7 S25-2 (D5) — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A container query
+   measures the CONTENT box (width − CARD_PAD_PX 18), so: MID < 66 → 48 · NARROW < 56 → 38 · SLIVER < 20 → 2.
+   NARROW drops the time line and gives back the padding down to CARD_TIGHT_PAD_PX (left 4, right 1: −6 / −5 px);
+   SLIVER keeps only the coloured bar (the full text is the card's title + the existing hover/tap detail).
+   CSS ellipsis stays as the last-resort overflow. */
+.biz .page-today .event { container-type: inline-size; }
+@container (width < 48px) { .biz .page-today .event > .e-tkt { display: none; } }
+@container (width < 38px) {
+  .biz .page-today .event > .e-time { display: none; }
+  .biz .page-today .event > * { margin-left: -6px; margin-right: -5px; }
+}
+@container (width < 2px) { .biz .page-today .event > * { visibility: hidden; } }

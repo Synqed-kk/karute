@@ -138,6 +138,23 @@ export const FAMILY_NAME_PX = 26
 export const CARD_TIGHT_PAD_PX = 7
 export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
 
+/** ⚖ 10/7 S25-2 (D5) — LABEL TIERS by a card's drawn width (duration × px per hour / 60), measured at the card's own
+ *  type: WIDE = name · HH:MM〜 · menu/price · MID = name · HH:MM〜 (below a one-hour card at the floor) · NARROW = the
+ *  family name, padding tightened to CARD_TIGHT_PAD_PX (below the width 「07:00〜」 needs: .e-time 11.5px measured
+ *  37.70 → 38 px + today's padding 10 + 6 + border 1 + 1 = 18 px) · SLIVER = the coloured bar, full text in `title`
+ *  (below one kanji + the tight padding). today.css mirrors these as @container rules (content-box px; pinned by test). */
+export const CARD_TIME_PX = 38
+export const CARD_PAD_PX = 18
+export const LABEL_TIER_PX = {
+  sliver: FAMILY_NAME_PX / 2 + CARD_TIGHT_PAD_PX,
+  narrow: CARD_TIME_PX + CARD_PAD_PX,
+  mid: 2 * minPxPer30,
+} as const
+export type LabelTier = 'wide' | 'mid' | 'narrow' | 'sliver'
+export function labelTier(px: number): LabelTier {
+  return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.narrow ? 'narrow' : px < LABEL_TIER_PX.mid ? 'mid' : 'wide'
+}
+
 /** The cells of the board's day on its grid unit — the strip's cell count and the CSS floor's multiplier. */
 export function boardCells(day: Hours, stepMin: number): number {
   return stepMin > 0 && day.close > day.open ? Math.ceil((day.close - day.open) / stepMin) : 0

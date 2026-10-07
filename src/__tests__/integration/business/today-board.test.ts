@@ -62,6 +62,11 @@ import {
   dayBookings,
   boardDay,
   boardRows,
+  boardCells,
+  labelTier,
+  LABEL_TIER_PX,
+  minPxPer30,
+  trackOverflows,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -1770,5 +1775,43 @@ describe('⚖ PR-3 — SOURCE_WORD / sourceLine / decisionTitle', () => {
     expect(tb.decisionTitle('担当変更', { customerName: '', startMinute: 600 }, null)).toBe('10:00 お客様へ担当変更案を送る')
     expect(tb.decisionTitle('Reserve販売', undefined, 780)).toBe('13:00の安全な1枠を販売する')
     for (const k of ['レジ', '担当不在', '担当変更']) expect(tb.decisionTitle(k, undefined, null)).not.toContain('様様')
+  })
+})
+
+// ⚖ 10/7 S25 D6 (a) — the day shapes, pure arithmetic (no DOM): start/end, the closing edge on the ruler, the strip's
+// cell count, the tier of a one-cell card at the floor, and whether the track overflows at the measured frames
+// (MOCK-REPORT-AXIS-S24 § MEASUREMENTS: 840 = 1280 sidebar open · 740 = 1180 sidebar open · 1028 = 1280 sidebar collapsed).
+describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
+  const step = opsConfig.bookingStepMin
+  const FRAMES = [840, 740, 1028]
+  const salon = { open: 600, close: 1140 }
+  const gym = { open: 420, close: 1320 }
+  const noLaneBlock = boardRows({ staff: [], resources: [], shifts: [], absence: null, blocks: [{ staff_id: null, resource_id: null, start: 1140, end: 1200 }], sellSlots: [] } as unknown as BuildInput, [])
+  const shapes: Array<[string, { open: number; close: number }, Array<{ start: number; end: number }>, { open: number; close: number }, string, number, boolean[]]> = [
+    ['salon 10–19', salon, [], salon, '19', 18, [false, false, false]],
+    ['gym 07–22', gym, [], gym, '22', 30, [true, true, false]],
+    ['24 h 00–24', { open: 0, close: 1440 }, [], { open: 0, close: 1440 }, '翌0', 48, [true, true, true]],
+    ['bar 18–26 (model + ruler only)', { open: 1080, close: 1560 }, [], { open: 1080, close: 1560 }, '翌2', 16, [false, false, false]],
+    ['split 10–14 + 17–22: one span', { open: 600, close: 1320 }, [{ start: 840, end: 1020 }], { open: 600, close: 1320 }, '22', 24, [false, true, false]],
+    ['a shift ending after close (23:20)', gym, [{ start: 660, end: 1400 }], { open: 420, close: 1440 }, '翌0', 34, [true, true, true]],
+    ['a 06:30 booking before open', gym, [{ start: 390, end: 420 }], { open: 360, close: 1320 }, '22', 32, [true, true, true]],
+    ['勤務不可 13:00〜閉店', gym, [{ start: 780, end: 780 }], gym, '22', 30, [true, true, false]],
+    ['a closed day with no rows (the served pair, no rows)', salon, [], salon, '19', 18, [false, false, false]],
+    ['a store-less row (on no lane: widens nothing)', salon, noLaneBlock, salon, '19', 18, [false, false, false]],
+  ]
+  it.each(shapes)('%s', (_name, hours, rows, day, edge, cells, overflow) => {
+    const got = boardDay({ hours, rows })
+    expect(got).toEqual(day)
+    expect(rulerLabels(got).filter((l) => l.edge).map((l) => l.text)).toEqual([edge])
+    expect(boardCells(got, step)).toBe(cells)
+    expect(labelTier(minPxPer30)).toBe('narrow') // a one-cell card at the floor shows its family name
+    expect(FRAMES.map((px) => trackOverflows(got, step, px))).toEqual(overflow)
+  })
+  it('the floor and the tiers: 33 px = 「山本」 26 + tight padding 7; the CSS @container rules mirror LABEL_TIER_PX in content-box px', () => {
+    expect(minPxPer30).toBe(33)
+    expect(LABEL_TIER_PX).toEqual({ sliver: 20, narrow: 56, mid: 66 })
+    expect([19, 20, 55, 56, 65, 66].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    for (const px of [LABEL_TIER_PX.mid, LABEL_TIER_PX.narrow, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - 18}px)`)
   })
 })
