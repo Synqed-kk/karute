@@ -111,18 +111,18 @@ describe('fetchAppointmentWindow — paging', () => {
   })
 })
 
-describe('fetchAppointmentWindow — the staff filter rides the fetch', () => {
-  it('forwards staff_id when given', async () => {
+describe('fetchAppointmentWindow — core is never asked for a staff filter', () => {
+  it('sends no staff_id under a staff filter (shownUnder keeps the rows)', async () => {
     const { client, list } = fakeClient(1)
-    await fetchAppointmentWindow(client, FROM, TO, { staffId: 'staff-core-1' })
+    await fetchAppointmentWindow(client, FROM, TO, { shownUnder: 'staff-core-1' })
     expect(list).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'staff-core-1' }),
+      expect.objectContaining({ staff_id: undefined }),
     )
   })
 
   it('sends no staff_id when the filter is off', async () => {
     const { client, list } = fakeClient(1)
-    await fetchAppointmentWindow(client, FROM, TO, { staffId: null })
+    await fetchAppointmentWindow(client, FROM, TO, { shownUnder: null })
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({ staff_id: undefined }),
     )

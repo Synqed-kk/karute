@@ -67,7 +67,8 @@ jest.mock('@/lib/staff', () => ({
   // loadKaruteWindow's fan-out (round 4): without these the action died on an
   // undefined import before ever reaching the read, which made the leap-date
   // test below pass VACUOUSLY.
-  getStaffList: jest.fn(async () => []),
+  // Self only: createAppointment's roster gate (fix round 6 F3) books staff-self.
+  getStaffList: jest.fn(async () => [{ id: SELF_STAFF_ID, full_name: null }]),
 }))
 
 // Same fan-out. Mutations in this suite never touch the customer list, so a
@@ -133,7 +134,8 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
   // loadKaruteWindow's row projection translates synqed staff ids (round 4).
-  const staff = { list: jest.fn(async () => ({ staff: [] })) }
+  // createAppointmentCore's live active + business check (fix round 7).
+  const staff = { list: jest.fn(async () => ({ staff: [] })), get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'biz-1' })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
   // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
   // delete — this suite never exercises a burned booking, so [] every time.

@@ -134,7 +134,7 @@ describe('getCachedDayAgenda', () => {
   })
 
   it('pins the invalidation envelope: 60s TTL + dashboard/staff-list tags', () => {
-    expect(cacheKeyParts).toEqual(['appointments-day-agenda-v2'])
+    expect(cacheKeyParts).toEqual(['appointments-day-agenda-v3'])
     expect(cacheOpts).toEqual({
       revalidate: 60,
       tags: ['dashboard', 'staff-list'],

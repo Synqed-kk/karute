@@ -22,7 +22,7 @@ import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
 } from '@/lib/customers/identity'
-import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
+import { getAppointmentsByDateWithClient, isRecordingTarget } from '@/lib/appointments/by-date'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { listAllPackUsageWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
@@ -131,7 +131,11 @@ export async function buildRecoveryDayFacts(
   const staffNameById = new Map(staffList.map((s) => [s.id, s.name]))
   const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
-  const bookings: RecordTargetBooking[] = [...appts]
+  // The 保存先 picker re-points a take AT a booking, so it is a recording-target
+  // list: a 担当未定 booking (no staff) is never offered — the one predicate the
+  // record screen's list uses (isRecordingTarget).
+  const bookings: RecordTargetBooking[] = appts
+    .filter(isRecordingTarget)
     .sort((a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0))
     .map((a) => {
       const start = new Date(a.start_time)

@@ -241,6 +241,8 @@ describe('the create core reads — and refuses on — every day the booking tou
       listClosedDays,
       synqed: {
         appointments: { create },
+        // createAppointmentCore's live active + business check (fix round 7).
+        staff: { get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'business-1' })) },
         packs: {},
         staffStores: { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) },
         stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) },

@@ -84,6 +84,8 @@ const listClosedDays = jest.fn(async (_store: string, range: { from: string; to:
 }))
 const fakeClient = {
   appointments: { create: apptCreate },
+  // createAppointmentCore's live active + business check (fix round 7).
+  staff: { get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'business-1' })) },
   packs: {},
   staffStores: { get: jest.fn(async () => ({ store_ids: ['store-A'] })) },
   storePolicies: {

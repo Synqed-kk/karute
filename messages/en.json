@@ -3709,5 +3709,14 @@
     "title": "Removed from the staff list",
     "body": "Your manager has removed this account from the staff list, so customer and karute details are not shown. Please log out. If you think this is a mistake, contact your manager.",
     "logout": "Log out"
+  },
+  "unassignedStaff": {
+    "mark": "Unassigned",
+    "pickerTitle": "Choose staff",
+    "pickerLead": "The person you pick takes this booking.",
+    "assigned": "Assigned to {staff}",
+    "recordBlockedReadOnly": "Recording opens once staff is assigned",
+    "sheetSubtitle": "No staff assigned yet. Choose who takes this booking.",
+    "sheetSubtitleReadOnly": "No staff assigned yet."
   }
 }

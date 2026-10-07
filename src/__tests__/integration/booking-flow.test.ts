@@ -36,6 +36,8 @@ jest.mock('@/lib/auth/store-scope', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'staff-1' }, { id: 'staff-2' }]),
   // Audit identity seam (resolveWebAuditContext, @/lib/audit-web) — booking
   // mutations now emit through the shared cores.
   resolveUserId: jest.fn(async () => 'auth-user-1'),
@@ -141,6 +143,11 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     appointments,
     packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
+    // updateAppointmentCore's staff check (PR-B Q1) reads the staff it writes:
+    // an ACTIVE row of this business (the booking rows here carry no store).
+    staff: {
+      get: async (id: string) => ({ id, business_id: '00000000-0000-0000-0000-000000000001', is_active: true }),
+    },
   })),
 }))
 
@@ -418,6 +425,8 @@ describe('updateAppointment — audit', () => {
       customer_id: 'cust-9',
       store_id: 'store-1',
       changed: 'staff',
+      // R6 (fix round 4): a staff change names the assigned core staff id.
+      staff_id: 'staff-2',
     })
   })
 

@@ -110,6 +110,11 @@ interface AppointmentsViewProps {
   soloMode: boolean
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
+  /** bookings.manage, resolved server-side: the 担当未定 sheet offers the
+   *  staff picker (`staff` above, the booking dialog's own store list). */
+  canAssign?: boolean
+  /** 担当未定 picker: booking id → the staff ids its own store may offer. */
+  assignStaffIdsByBooking?: Readonly<Record<string, readonly string[]>>
   /** The ACTIVE STORE's staff ids — the grid's color palette source (a
    *  経営メンバー dropping out of the lanes must not repaint anyone). */
   colorRosterIds?: readonly string[]
@@ -395,8 +400,9 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
     // ⚖ spec §1/§6: 自分 / 全スタッフ / 担当 feeds EVERY number on every
-    // surface — it is applied at the FETCH (`staff_id` on appointments.list),
-    // not at render. A move that dropped it would not look broken: the page
+    // surface — the server builds every number from it (the window's
+    // `shownUnder` keep and the worked-minutes scope), never this render. A
+    // move that dropped it would not look broken: the page
     // would simply show the whole salon's numbers under a 担当 pill that still
     // reads as selected, with nothing on screen saying the scope changed.
     // 'all' is left out on purpose — `parseStaffParam(undefined)` already
@@ -1111,6 +1117,9 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <BookingActionSheetWrapper
         selected={selected}
         onClose={() => setSelected(null)}
+        canAssign={props.canAssign ?? false}
+        assignStaff={props.staff}
+        assignStaffIdsByBooking={props.assignStaffIdsByBooking}
       />
 
       <CancelBookingSheet

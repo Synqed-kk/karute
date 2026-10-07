@@ -5,6 +5,10 @@ import { useTranslations } from 'next-intl'
 import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import {
+  UnassignedBookingSheet,
+  type AssignableStaff,
+} from '@/components/appointments/UnassignedBookingSheet'
 
 interface BookingActionSheetWrapperProps {
   /** Currently selected booking — `null` keeps the sheet closed. */
@@ -12,6 +16,13 @@ interface BookingActionSheetWrapperProps {
   onClose: () => void
   /** Force the mobile bottom-sheet variant. Defaults to media-query detection. */
   forceMobile?: boolean
+  /** bookings.manage — a 担当未定 booking offers the staff picker. */
+  canAssign?: boolean
+  /** The picker's list: the booking dialog's own store-scoped staff. */
+  assignStaff?: readonly AssignableStaff[]
+  /** booking id → the staff ids the booking's own store may offer; a booking
+   *  missing here offers nobody (fail closed → the read-only lines). */
+  assignStaffIdsByBooking?: Readonly<Record<string, readonly string[]>>
 }
 
 // `deriveKaruteNumber` removed — the hex slice produced an
@@ -38,6 +49,9 @@ export function BookingActionSheetWrapper({
   selected,
   onClose,
   forceMobile,
+  canAssign = false,
+  assignStaff = [],
+  assignStaffIdsByBooking = {},
 }: BookingActionSheetWrapperProps) {
   const isMobile = useIsMobile()
   const router = useRouter()
@@ -96,38 +110,54 @@ export function BookingActionSheetWrapper({
     firstTimeNote: ta('firstTimeNote'),
   }
 
-  if (!selected) {
-    // Render the sheet closed so transitions don't snap.
-    return (
-      <BookingActionSheet
-        open={false}
-        onOpenChange={(o) => {
-          if (!o) onClose()
-        }}
-        customerName=""
-        hasExistingKarute={false}
-        isFirstTimeVisit={false}
-        isMobile={forceMobile ?? isMobile}
-        copy={copy}
-      />
-    )
-  }
+  // 担当未定 (PR-B Q2): a booking with no staff opens Karute's own sheet —
+  // the staff picker for bookings.manage, a read-only note otherwise. The ui
+  // sheet below only ever sees a booking that has a staff. Falsy, not
+  // `=== null`: an undefined or '' staffId routes here too, never to 録音開始.
+  const unassigned = selected != null && !selected.staffId
+  const sheetSelected = unassigned ? null : selected
+  const offered = unassigned && selected ? (assignStaffIdsByBooking[selected.id] ?? []) : []
+  const pickerStaff = assignStaff.filter((m) => offered.includes(m.id))
 
   return (
-    <BookingActionSheet
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
-      customerName={selected.customerName}
-      karuteNumber={undefined}
-      hasExistingKarute={canViewKarute}
-      isFirstTimeVisit={selected.isFirstTimeVisit}
-      isMobile={forceMobile ?? isMobile}
-      onViewKarute={onViewKarute}
-      onNewKarute={goToRecord}
-      onStartRecording={goToRecord}
-      copy={copy}
-    />
+    <>
+      <UnassignedBookingSheet
+        booking={unassigned ? selected : null}
+        canAssign={canAssign}
+        staff={pickerStaff}
+        isMobile={forceMobile ?? isMobile}
+        onClose={onClose}
+      />
+      {sheetSelected ? (
+        <BookingActionSheet
+          open={open}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName={sheetSelected.customerName}
+          karuteNumber={undefined}
+          hasExistingKarute={canViewKarute}
+          isFirstTimeVisit={sheetSelected.isFirstTimeVisit}
+          isMobile={forceMobile ?? isMobile}
+          onViewKarute={onViewKarute}
+          onNewKarute={goToRecord}
+          onStartRecording={goToRecord}
+          copy={copy}
+        />
+      ) : (
+        // Rendered closed so transitions don't snap.
+        <BookingActionSheet
+          open={false}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName=""
+          hasExistingKarute={false}
+          isFirstTimeVisit={false}
+          isMobile={forceMobile ?? isMobile}
+          copy={copy}
+        />
+      )}
+    </>
   )
 }

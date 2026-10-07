@@ -375,7 +375,7 @@ describe('the WEEK branch renders WeekRows (W-A)', () => {
 
 describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
   // The 自分 / 全スタッフ / 担当 filter feeds every number on every surface —
-  // it is applied AT THE FETCH (staff_id on appointments.list). Dropping it on
+  // the window keeps the filter's rows (fetchAppointmentWindow `shownUnder`). Dropping it on
   // a ‹ press does not look broken: the week simply shows the whole salon's
   // numbers under a 担当 pill that still reads as selected. Nothing on screen
   // says the scope changed.

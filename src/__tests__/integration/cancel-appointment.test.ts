@@ -182,6 +182,34 @@ describe('cancelAppointment', () => {
     expect(res).toEqual({ success: true })
   })
 
+  // Fix round 3 (reader S4): the long-press 取消 on a 担当未定 booking (the
+  // CancelBookingSheet calls this same action) writes the status patch only —
+  // the actor stamped as acting_staff_id, never a staff_id assignment.
+  it('a staff-less booking: the cancel patch is status / status_reason / acting_staff_id only, no staff_id', async () => {
+    apptGet.mockImplementation(async () => ({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      staff_id: null,
+      status: 'SCHEDULED',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
+    }) as never)
+    const res = await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact' })
+    expect(res).toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledTimes(1)
+    const [id, patch] = apptUpdate.mock.calls[0] as unknown as [string, Record<string, unknown>]
+    expect(id).toBe('appt-1')
+    expect(patch).toEqual({
+      status: 'CANCELLED',
+      status_reason: 'cancel-same-day-contact',
+      acting_staff_id: 'staff-1',
+    })
+    expect(patch).not.toHaveProperty('staff_id')
+  })
+
   it('omits acting_staff_id entirely when there is no resolvable staff identity', async () => {
     liveBooking()
     getCurrentUserStaffId.mockResolvedValueOnce(null)
