@@ -2949,7 +2949,7 @@
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
       "saveFailed": "保存に失敗しました",
-      "result": "同期完了：新規 {created} 件、更新 {updated} 件、スキップ {skipped} 件",
+      "result": "同期完了：新規{created}件、更新{updated}件、スキップ{skipped}件",
       "failedPrefix": "失敗：{msg}",
       "unknownError": "不明"
     },
@@ -3713,7 +3713,7 @@
   "syncAllStores": {
     "blockTitle": "店舗ごとの同期",
     "scopeLine": "対象：すべての店舗（{n}店舗）",
-    "blockNote": "店舗ごとに、その店舗のQuick Reserveのログイン情報で予約を取り込みます。左上で選んでいる店舗にかかわらず、編集できる店舗をすべて表示しています。",
+    "blockNote": "店舗ごとに、その店舗のQuick Reserveのログイン情報で予約を取り込みます。選択中の店舗にかかわらず、編集できる店舗をすべて表示しています。",
     "colStore": "店舗",
     "colQrStore": "Quick Reserveの店舗",
     "colState": "状態",
@@ -3742,15 +3742,15 @@
     "reasonLogin": "Quick Reserveにログインできませんでした",
     "reasonStore": "Quick Reserveの店舗が登録されていません",
     "reasonLoginFix": "Quick Reserveにログインできませんでした。ログインIDとパスワードをご確認ください。",
-    "reasonStoreFix": "Quick Reserveの店舗が登録されていません。店舗IDと店舗番号をご確認ください。",
+    "reasonStoreFix": "Quick Reserveの店舗が登録されていません。アカウント名と店舗番号をご確認ください。",
     "runFailed": "同期に失敗しました",
     "resultFailed": "同期に失敗しました（{reason}）",
-    "runResult": "同期完了：新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件、スキップ {skipped} 件",
+    "runResult": "同期完了：新規{created}件、更新{updated}件、キャンセル{cancelled}件、スキップ{skipped}件",
     "notSetFact": "Quick Reserveのログイン情報が未登録です",
     "neverRun": "まだ同期していません",
     "lastRunToday": "今日 {time}",
     "lastRunFailed": "失敗",
-    "lastRunCounts": "新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件",
+    "lastRunCounts": "新規{created}件、更新{updated}件、キャンセル{cancelled}件",
     "windowEmpty": "稼働時間帯の開始と終了が同じため、自動では同期されません"
   },
   "unassignedStaff": {
