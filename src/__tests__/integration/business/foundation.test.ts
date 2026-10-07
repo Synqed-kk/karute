@@ -937,6 +937,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/reserve-policy',
         '@/business/lib/practice-door/sample-facade',
         // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
         '@/business/lib/practice-door/store-hours',
@@ -992,6 +993,7 @@ describe('the fixture data door', () => {
         // clock.ts imports nothing but React's cache(), so no path to data or the practice door.
         '@/business/lib/clock',
         '@/business/lib/guide',
+        '@/business/lib/practice-door/reserve-policy',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
         // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the

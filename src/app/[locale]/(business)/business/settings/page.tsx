@@ -59,7 +59,7 @@ export default async function SettingsPage({
   // the props file resolves the lens store's four (the clamp's one home). OFF: nothing is read.
   const doorOn = await practiceDoorOn() // R50 — this business's answer, once
   const live = doorOn ? { raw: await readBookingColors() } : undefined
-  const { props, storePolicy, storeKey, bookingColors } = await settingsProps({ locale, store: query.store, section: query.section, ...(live ? { bookingColors: live } : {}) })
+  const { props, storePolicy, storeKey, bookingColors, reservePolicy } = await settingsProps({ locale, store: query.store, section: query.section, ...(live ? { bookingColors: live } : {}) })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen
   // instance, so the open section AND every control's value would survive a lens
@@ -80,5 +80,10 @@ export default async function SettingsPage({
   const saveStoreDays = doorOn && storeKey !== 'all-stores'
     ? { businessId: admitted.businessId, storeId: storeKey, lockedNote: storeDaysLockedNote(await readCanWriteStoreDays(storeKey)) }
     : undefined
-  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} />
+  // Reserve S66 §9 R10 — 受付's six rules save for the lens store while they read live; may-save is store days'
+  // own answer (the same three checks the writer asks), so no second sheet read.
+  const saveReservePolicy = saveStoreDays && reservePolicy
+    ? { businessId: admitted.businessId, storeId: storeKey, canSave: saveStoreDays.lockedNote === null, basedOn: reservePolicy.basedOn }
+    : undefined
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} saveReservePolicy={saveReservePolicy} />
 }

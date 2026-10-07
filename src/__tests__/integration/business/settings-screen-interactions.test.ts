@@ -936,7 +936,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are お店ページ (カードの見た目)
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : section.id === RESERVE_SECTION_ID && props.saveReservePolicy ? void saveReserveSection(section, props.saveReservePolicy) : commitSection(section, false))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")

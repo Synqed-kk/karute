@@ -74,6 +74,8 @@ import {
 import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { jstClock } from '@/business/lib/clock'
+// Types only: a 'use client' file never value-imports the practice door (foundation.test.ts, TRANSITIVE).
+import type { ReserveGrid, ReservePolicy } from '@/business/lib/practice-door/reserve-policy'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
@@ -390,7 +392,7 @@ export function jumpAnchorsOf(sectionId: string | undefined, blocks: ReadonlyArr
  *  of truth is settings.css's `html:has(.biz .page.pg-settings) { --st-topbar: 62px }`; a suite pins the two equal. */
 const TOPBAR_FALLBACK_PX = 62
 
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave; saveReservePolicy?: ReservePolicySave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
@@ -483,6 +485,58 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
   tenant: 'ここからはこの事業の設定を保存できないため、ボードの色はこれまでのままです。',
   invalid: '選んだ色が色の一覧にないため保存できず、ボードの色はこれまでのままです。',
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
+}
+
+// ── Reserve S66 §9 R10 — Reserve 受付's six booking rules, saved per store (予約の色分け's twin) ──────────
+// page.tsx hands this over ONLY while the door is ON, a store is in the lens and its rules read live. `basedOn`
+// is the fingerprint of the six as read; every save sends it and takes the next one from core's answer.
+export type ReservePolicySave = { businessId: string; storeId: string; canSave: boolean; basedOn: string }
+const RESERVE_POLICY_URL = '/api/business/reserve-policy'
+const RESERVE_SECTION_ID = 'reserve-acceptance'
+const RESERVE_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', reserve_start_grid_min: 'reserve.grid', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
+/** The six dials → the route's `policy`; the grid's 'default' is core's unset (null). */
+export const reservePolicyOf = (values: Record<string, RowValue>): ReservePolicy => ({
+  booking_open_days: Number(values[RESERVE_IDS.booking_open_days]),
+  cutoff_minutes: Number(values[RESERVE_IDS.cutoff_minutes]),
+  reserve_start_grid_min: values[RESERVE_IDS.reserve_start_grid_min] === 'default' ? null : (Number(values[RESERVE_IDS.reserve_start_grid_min]) as ReserveGrid),
+  cancel_free_until_hours: Number(values[RESERVE_IDS.cancel_free_until_hours]),
+  cancel_late_pct: Number(values[RESERVE_IDS.cancel_late_pct]),
+  no_show_pct: Number(values[RESERVE_IDS.no_show_pct]),
+})
+const RESERVE_FIELDS = Object.keys(RESERVE_IDS) as Array<keyof ReservePolicy>
+/** Core's six → the dials' values (the linked 直前の空きは売らない follows 直前締切). */
+const reserveValuesOf = (p: ReservePolicy): Record<string, RowValue> => ({
+  ...Object.fromEntries(RESERVE_FIELDS.map((k) => [RESERVE_IDS[k], k === 'reserve_start_grid_min' && p[k] === null ? 'default' : String(p[k])])),
+  'reserve.lead': String(p.cutoff_minutes),
+})
+/** The writer's line is printed verbatim; these are ONLY for a refusal the route sends without one (its own
+ *  same-origin 403, X-Expected-Business 409, body-shape 400) or no answer at all — 予約の色分け's register. */
+const RESERVE_SAVE_FAIL = {
+  forbidden: READ_ONLY_NOTE,
+  tenant: 'ここからはこの事業の設定を保存できないため、受付ルールはこれまでのままです。',
+  invalid: '設定できる範囲を超えた値があるため保存できず、受付ルールはこれまでのままです。',
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（受付ルールはこれまでのままです）。',
+} as const
+const reserveFallback = (reason: string): string => (reason === 'forbidden' || reason === 'tenant' || reason === 'invalid' ? RESERVE_SAVE_FAIL[reason] : RESERVE_SAVE_FAIL.core)
+export type ReservePolicyAnswer = { ok: true; row: ReservePolicy; basedOn: string } | { ok: false; reason: string; message: string }
+/** The route's answer → the room's: core's six and the next `basedOn` on 200, else the door's own line. */
+export async function putReservePolicy(save: ReservePolicySave, policy: ReservePolicy, basedOn: string): Promise<ReservePolicyAnswer> {
+  try {
+    const res = await fetch(RESERVE_POLICY_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, policy, basedOn }),
+    })
+    const answer = ((await res.json().catch(() => null)) ?? {}) as { ok?: unknown; row?: unknown; basedOn?: unknown; reason?: unknown; message?: unknown }
+    if (res.ok && answer.ok === true && typeof answer.basedOn === 'string' && answer.row !== null && typeof answer.row === 'object') {
+      const row = answer.row as Record<string, unknown>
+      return { ok: true, row: Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy, basedOn: answer.basedOn }
+    }
+    const reason = typeof answer.reason === 'string' ? answer.reason : 'core'
+    return { ok: false, reason, message: typeof answer.message === 'string' && answer.message !== '' ? answer.message : reserveFallback(reason) }
+  } catch {
+    return { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
+  }
 }
 
 // ── ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE (Liam 9/28 20:0x) ──────────────
@@ -646,6 +700,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
   const bookingSaving = useRef(false)
+  const [reserveFail, setReserveFail] = useState<string | null>(null)
+  const reserveSaving = useRef(false)
+  const reserveBasedOn = useRef(props.saveReservePolicy?.basedOn ?? '')
+  const freshBasedOn = props.saveReservePolicy?.basedOn
+  useEffect(() => { if (freshBasedOn !== undefined) reserveBasedOn.current = freshBasedOn }, [freshBasedOn]) // a re-read's row
   /** ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while `props.saveStoreDays` is set: each
    *  own state (never `listRows`/`savedRows` — R8, the save bar never counts them),
    *  seeded once from the payload, updated only from core's OWN returned array/row.
@@ -1018,6 +1077,32 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
   }, [values, saved, commitSection])
 
+  /** Reserve S66 — 受付's six rules with the door ON: core first (the route), the page commits ONLY on core's
+   *  yes and the baseline takes core's six; a refusal is ONE line under 保存する, never a modal. Six unchanged →
+   *  no request, the section commits locally (its sample rows are page-only), exactly like 予約の色分け. */
+  const saveReserveSection = useCallback(async (target: SettingsSection, save: ReservePolicySave) => {
+    if (reserveSaving.current) return
+    const policy = reservePolicyOf(values)
+    if (RESERVE_FIELDS.every((k) => policy[k] === reservePolicyOf(saved)[k])) {
+      commitSection(target, false)
+      return
+    }
+    reserveSaving.current = true
+    setReserveFail(null)
+    const result = await putReservePolicy(save, policy, reserveBasedOn.current)
+    reserveSaving.current = false
+    if (!result.ok) {
+      setReserveFail(result.message)
+      // stale: the line asks for a look at the latest rules; the draft stays, like お店ページ's stale (s5) — a reload re-reads.
+      return
+    }
+    reserveBasedOn.current = result.basedOn
+    const next = reserveValuesOf(result.row)
+    setValues((prev) => ({ ...prev, ...next }))
+    commitSection(target, true)
+    setSaved((prev) => ({ ...prev, ...next }))
+  }, [values, saved, commitSection])
+
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
   const openSection = useCallback((id: string, fromRail: boolean) => {
@@ -1025,6 +1110,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
     setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null) // …and an old 予約の色分け refusal
+    setReserveFail(null) // …and an old 受付ルール refusal
     setPicked(id)
     setJumpPin(null)
     setInView(null)
@@ -1035,6 +1121,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setCardFail(null) // G7 — leaving the section clears an old card refusal
     setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null)
+    setReserveFail(null)
     setPicked(null)
     if (!id) return
     // The rail is only mounted again once `picked` is null, so the focus move
@@ -1452,6 +1539,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
   const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
+  /** Reserve S66 — Reserve 受付 while page.tsx has said its six rules save for real. */
+  const liveReserve = section?.id === RESERVE_SECTION_ID ? props.saveReservePolicy : undefined
   /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
    *  GATE IS SHUT. The server no longer assembles it (`settings-props.ts`): the
    *  roster, the named restrictions, the pricing frame and every policy value
@@ -1593,7 +1682,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : section.id === RESERVE_SECTION_ID && props.saveReservePolicy ? void saveReserveSection(section, props.saveReservePolicy) : commitSection(section, false))}
         >
           保存する
         </button>
@@ -1956,6 +2045,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
+                    : liveReserve && !liveReserve.canSave
+                      ? <p className="st-foot">{READ_ONLY_NOTE}</p>
                     : storeDaysLive
                       ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
                       : <p className="st-foot">{props.demoSaveLine}</p>}
@@ -1967,6 +2058,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   <>
                     {liveColors.canSave === false ? null : roomSave(section)}
                     {bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}
+                  </>
+                ) : liveReserve ? (
+                  <>
+                    {liveReserve.canSave ? roomSave(section) : null}
+                    {reserveFail && <p className="st-act-error" role="alert">{reserveFail}</p>}
                   </>
                 ) : roomSave(section),
                 (id) => {
