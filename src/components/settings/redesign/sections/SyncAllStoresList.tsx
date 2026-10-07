@@ -126,26 +126,40 @@ export function SyncAllStoresList({
     }
   }, [])
 
-  const load = useCallback(async () => {
+  // The one list read: it takes a new sequence number and writes the screen
+  // only while that number is still the latest (an older answer never lands
+  // over a newer one). The rows are returned either way, with whether they
+  // were current, so sync-all decides on them even when the screen is not
+  // written. clearManual: a successful read also clears the rows' manual
+  // results; a failed read keeps them.
+  const readRows = useCallback(async (opts?: { clearManual?: boolean }) => {
     const seq = ++readSeq.current
-    const fresh = await fetchStoreRows()
-    if (seq !== readSeq.current) return
-    if (!fresh) {
-      setReadFailed(true) // a failed reload never clears the rows; the form below still works
-      return
+    const rows = await fetchStoreRows()
+    const current = seq === readSeq.current
+    if (current) {
+      if (!rows) {
+        setReadFailed(true) // a failed reload never clears the rows; the form below still works
+      } else {
+        setReadFailed(false)
+        setRows(rows)
+        setNow(Date.now())
+        if (opts?.clearManual) setRowResult({})
+      }
     }
-    setReadFailed(false)
-    setRows(fresh)
-    setNow(Date.now())
+    return { rows, current }
   }, [])
 
+  const load = useCallback(async () => {
+    await readRows()
+  }, [readRows])
+
   // On mount, and again whenever the form below changed a store's sync. A
-  // row's manual result is cleared then, so each row shows the server's
-  // latest status, not an outcome from before the form's change.
+  // row's manual result is cleared once that reload succeeds, so each row
+  // shows the server's latest status, not an outcome from before the form's
+  // change; a failed reload keeps the manual result on screen.
   useEffect(() => {
-    setRowResult({})
-    void load()
-  }, [load, listGeneration])
+    void readRows({ clearManual: true })
+  }, [readRows, listGeneration])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), RETICK_MS)
@@ -195,32 +209,24 @@ export function SyncAllStoresList({
   async function runAllStores() {
     if (!rows || blocked) return
     setRunAll({ pending: true, results: null })
-    readSeq.current++
-    const fresh = await fetchStoreRows()
+    // The screen write is the read helper's (only while that read is current);
+    // the run decides on the returned rows either way.
+    const { rows: fresh } = await readRows()
     if (!fresh) {
       setRunAll({ pending: false, results: null })
-      setReadFailed(true)
       return
     }
-    setRows(fresh)
-    setReadFailed(false)
-    setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
     let latest: SyncStoreRow[] | null = fresh
     for (const queued of fresh.filter(syncsInRunAll)) {
       // The rows right before this store starts (the first store uses the
       // re-read just made).
-      if (!latest) {
-        readSeq.current++
-        latest = await fetchStoreRows()
-      }
+      if (!latest) latest = (await readRows()).rows
       // The screen was abandoned: no queued store starts.
       if (!alive.current) return
       const current = latest
       latest = null
       if (!current) continue
-      setRows(current)
-      setNow(Date.now())
       const row = current.find((r) => r.storeId === queued.storeId)
       if (!row || !syncsInRunAll(row)) continue
       // The route's default store is unclaimed while a request names no store, so no list store starts until it answers.
