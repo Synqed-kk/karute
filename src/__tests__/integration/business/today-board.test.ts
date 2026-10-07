@@ -468,6 +468,8 @@ describe('board derivations', () => {
     expect(rulerLabels({ open: 570, close: 1350 }).at(-1)!.text).toBe('22:30')
     // ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — a close at exactly 24:00 reads 「24」; 翌N starts past it.
     expect([1380, 1440, 1500, 1560].map(edgeText)).toEqual(['23', '24', '翌1', '翌2'])
+    // S25-15 (10) — a fractional close past 24:00 prints the 翌 form always (never 「24:30」); a whole hour and 24:00 as before.
+    expect([1470, 1530, 1500, 1440, 1350].map(edgeText)).toEqual(['翌0:30', '翌1:30', '翌1', '24', '22:30'])
     expect([1380, 1440, 1500, 1560].map((close) => rulerLabels({ open: 1080, close }).at(-1)!.text)).toEqual(['23', '24', '翌1', '翌2'])
     expect(rulerLabels({ open: 1080, close: 1560 }).find((l) => l.hour === 24)!.text).toBe('翌0') // a COLUMN at 24 inside a day that runs on
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
@@ -489,6 +491,19 @@ describe('board derivations', () => {
     // ONE SOURCE: the store's hours never enter a width/position formula in the board's three files — only boardDay's day does.
     for (const f of ['src/business/lib/today-board.ts', 'src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'src/app/[locale]/(business)/business/today/today-interactions.ts']) {
       expect(readFileSync(join(process.cwd(), f), 'utf8').split('\n').filter((l) => /operatingHours/.test(l) && /place\(|Pct|--x|--w|\/ \(|scroll/.test(l))).toEqual([])
+    }
+    // S25-15 (10) — the scan reads each file WHOLE (comments stripped, so a statement split over lines is still one
+    // string) and matches ANY arithmetic on the store's hours: an operator before `…operatingHours` / `drawnWindow`, or
+    // one after it (with or without `.open` / `.close`). page.tsx is scanned too; its one read (boardDay's input) passes.
+    const HOURS = String.raw`(?:operatingHours|drawnWindow)`
+    const arithmeticOnHours = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').match(new RegExp(String.raw`[-+*/%]\s*(?:[\w$]+\??\.)*${HOURS}\b|${HOURS}(?:\??\.(?:open|close))?\s*[-+*/%]`, 'g')) ?? []
+    expect(arithmeticOnHours('const w = (operatingHours.close-operatingHours.open)*2')).toEqual(['operatingHours.close-']) // the planted evader FAILS the scan (matches never overlap: the `-` is taken once)
+    expect(arithmeticOnHours('const w = (\n  planes.operatingHours.close\n  - planes.operatingHours.open\n) * 2').length).toBeGreaterThan(0) // multi-line
+    expect(arithmeticOnHours('const span = 60 * drawnWindow')).toEqual(['* drawnWindow'])
+    expect(arithmeticOnHours('const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })')).toEqual([])
+    for (const f of ['src/business/lib/today-board.ts', 'src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'src/app/[locale]/(business)/business/today/today-interactions.ts', 'src/app/[locale]/(business)/business/today/page.tsx']) {
+      expect([f, arithmeticOnHours(readFileSync(join(process.cwd(), f), 'utf8'))]).toEqual([f, []])
     }
     const gym = { open: 420, close: 1320 }
     const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
@@ -1870,6 +1885,8 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
   })
   it('round 3 (D5: NARROW = the family name ONLY) — familyNameOf: the text before the first half- or full-width space, trimmed; no space = the whole name (it ellipsises at the floor as the last resort)', () => {
     expect(['山本 大輔', '山本\u3000大輔', 'ブラウン ジョン', '山本', ' 山本 大輔 ', '\u3000山本\u3000大輔\u3000'].map(familyNameOf)).toEqual(['山本', '山本', 'ブラウン', '山本', '山本', '山本'])
+    // S25-15 (10) — 「・」 splits too; a Latin given-name-first name keeps its first token (the given name, the known limit S25-5).
+    expect(['ジョン・スミス', 'John Smith'].map(familyNameOf)).toEqual(['ジョン', 'John'])
   })
   it('round 2 item 8 — the strip has one cell per grid unit of the ruler span (gym 07–22 · the 06:30-widened day · 24 h), and the overflow arithmetic at the floor', () => {
     const perHour = 60 / step

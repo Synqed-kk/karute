@@ -162,13 +162,16 @@ export interface RulerLabel { hour: number; text: string; leftPct: number; width
  *  browser's tooltip fired mid-drag), so the full name is in the card's tap/hover detail and its aria-label. */
 export const FAMILY_NAME_PX = 26
 /** ⚖ 10/7 S25 round 3 (D5: NARROW = the family name ONLY) — the family name of a card's display name: the text before
- *  the first whitespace (a half-width space or the full-width 「　」; JS `\s` covers U+3000), trimmed. The card's name
+ *  the first whitespace (a half-width space or the full-width 「　」; JS `\s` covers U+3000) or 「・」 (U+30FB, S25-15 (10):
+ *  「ジョン・スミス」 → 「ジョン」), trimmed. The card's name
  *  line splits on it so the MID and NARROW tiers can print the family name alone (round 2B measured the whole line, full name +
  *  room tag, ellipsising to one kanji at the floor). A name with no space returns the whole name; at the floor it
- *  ellipsises as the last resort, like any 3+-kanji family name. */
+ *  ellipsises as the last resort, like any 3+-kanji family name. A Latin name written given-name first (「John Smith」)
+ *  keeps its FIRST token, which is the given name — the accepted known limit (S25-5); the full name stays in the card's
+ *  tap/hover detail and its aria-label. */
 export function familyNameOf(displayName: string): string {
   const name = displayName.trim()
-  const cut = name.search(/\s/)
+  const cut = name.search(/[\s\u30FB]/)
   return cut < 0 ? name : name.slice(0, cut)
 }
 export const CARD_TIGHT_PAD_PX = 7
@@ -238,10 +241,11 @@ export const hourText = (h: number): string => (h >= HOURS_PER_DAY ? `翌${h - H
 /** ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — A MIDNIGHT CLOSE READS 「24」: the closing EDGE of a day that closes
  *  at exactly 24:00 is labelled 24, the way the settings room prints a midnight close (特別営業日's 「24:00閉店」 and its
  *  read-only 24:00 box, SettingsScreen.tsx:2778; store-days-state.ts:92); 翌N starts only PAST it (25:00 → 翌1), for a
- *  day that truly crosses midnight. A fractional close prints its HH:MM. The edge tick's word only — an hour COLUMN at
+ *  day that truly crosses midnight. A fractional close prints its HH:MM up to 24:00 and the 翌 form past it, always
+ *  (S25-15 (10): 1470 → 翌0:30, never 24:30). The edge tick's word only — an hour COLUMN at
  *  24 inside a day that runs on (a bar 18–26) is still 翌0 (`hourText`). */
 export function edgeText(closeMin: number): string {
-  if (closeMin % HOUR_MIN !== 0) return hhmm(closeMin)
+  if (closeMin % HOUR_MIN !== 0) return closeMin > DAY_MIN ? `${hourText(Math.floor(closeMin / HOUR_MIN))}:${String(closeMin % HOUR_MIN).padStart(2, '0')}` : hhmm(closeMin)
   const h = closeMin / HOUR_MIN
   return h === HOURS_PER_DAY ? String(h) : hourText(h)
 }
