@@ -1,4 +1,4 @@
-// close-out.ts — D7: fill.ts only ADDS rows, so a booking it made as SCHEDULED stays 予約済み after its day; plan()
+// close-out.ts — D7: fill.ts adds rows (and, on every apply, moves today's still-予約済み ones to the plan's status), so a booking it made as SCHEDULED stays 予約済み after its day; plan()
 // already knows each key's status, and this script writes it onto those rows. Karutes and 回数券 burns for the newly
 // COMPLETED ones ride the NEXT `fill.ts apply` (it writes them for COMPLETED bookings only) — not built here.
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.ts <store-id> --manifest <path> [--apply]
@@ -19,17 +19,17 @@ import { addDays, isLegacyMember, jstIso, loaderSet, plan, type PlannedAppointme
 /** The status_reason every loader status write carries (loaderSet() reads its prefix: the row stays the loader's). */
 export const CLOSE_OUT_REASON = 'テストデータ close-out'
 
-/** The ONE status write of the test world: the planned status, acted by the booking's own staff, close-out's reason. */
+/** The ONE status write shared by fill.ts and close-out.ts (realism.ts has its own, with a ledger): the planned status, acted by the booking's own staff, close-out's reason. */
 export const setPlannedStatus = (core: Pick<FillCore, 'appointments'>, r: Pick<Appointment, 'id' | 'staff_id'>, status: PlannedAppointment['status']) =>
   core.appointments.update(r.id, { status, acting_staff_id: r.staff_id, status_reason: CLOSE_OUT_REASON })
 
 /** ⚖ G1 (S87): apply's today reconcile. Of the rows apply already owns (its own ownership rule), the ones dated TODAY that
  *  are still SCHEDULED take the status the plan gives them (across the 13:24 pin → IN_PROGRESS, earlier → as planned) —
- *  never a legacy member's row (isLegacyMember), never one a person set (loaderSet), never another day (future rows stay
- *  SCHEDULED, past rows are closeOut's). Only SCHEDULED moves, so realism's future cancels are never undone. */
-export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' | 'status' | 'status_set_by' | 'status_reason'>>(
+ *  never a legacy member's row (isLegacyMember), never one a person set (loaderSet), never another day (the plan's date AND the row's own
+ *  start: a booking staff moved off today is left alone; future rows stay SCHEDULED, past rows are closeOut's). Only SCHEDULED moves, so realism's future cancels are never undone. */
+export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' | 'status' | 'status_set_by' | 'status_reason' | 'starts_at'>>(
   owned: readonly { row: R; planned: PlannedAppointment }[], recipe: Pick<Recipe, 'legacyMembers'>, today: string,
-) => owned.filter(({ row, planned: p }) => p.date === today && row.status === 'SCHEDULED' && p.status !== 'SCHEDULED' && !isLegacyMember(recipe, p.member) && loaderSet(row))
+) => owned.filter(({ row, planned: p }) => p.date === today && jstToday(new Date(row.starts_at)) === today && row.status === 'SCHEDULED' && p.status !== 'SCHEDULED' && !isLegacyMember(recipe, p.member) && loaderSet(row))
 
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
   if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')

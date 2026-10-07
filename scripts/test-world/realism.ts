@@ -1,5 +1,5 @@
 // realism.ts — THE REALISM PASS on the loader's own bookings (Liam 9/25: 「make them look real … think in the business
-// shoes」). fill.ts only ADDS (its static test forbids an update call); this script CHANGES existing rows, so it lives
+// shoes」). fill.ts adds rows (its only status write goes through close-out.ts); this script CHANGES existing rows, so it lives
 // apart, like close-out.ts. Per managed store (registry.json), on loader-owned bookings only:
 //   · notes — the tag stays first (every reader: /\[(tw:[^\]]+)\]/ or '[tw:'), the booking's ご要望 line follows on the
 //     next line (plan.ts requestFor: a function of the key, so fill.ts writes the same line on the rows it makes later)

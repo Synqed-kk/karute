@@ -1,6 +1,6 @@
 // names.ts — the practice world's name pools (data). ⚖ R8/R9 (S86): customer names are a seeded shuffle of SURNAMES ×
 // the type's own given names (given names are disjoint across types, so two types never share a full name); a generated
-// store's staff take a slice of STAFF_NAMES by their store's registry position. Plain names only: no 見本, no hex.
+// store's staff take a slice of STAFF_NAMES by their store's identityIndex. Plain names only: no 見本, no hex.
 import { rng } from './plan'
 import { recipe as chiro } from './recipes/beauty_chiropractic'
 import { recipe as hair } from './recipes/hair_salon'
@@ -56,7 +56,7 @@ export function namePoolFor(type: string, taken: ReadonlySet<string> = TAKEN): [
   return pool
 }
 
-/** A generated store's staff, six per store by registry position (the originals keep their recipe names). */
+/** A generated store's staff, six per store by identityIndex (the originals keep their recipe names). */
 export const STAFF_NAMES: string[] = `藤崎 涼子 三上 祐介 北川 真帆 岸本 健司 早川 香織 矢野 修 堀内 茜 片山 純一 永井 瞳 松岡 大和 辻 有紗 望月 達也
 白石 綾 関口 拓真 宮田 静香 服部 晃 須藤 遥香 戸田 祐樹 本田 美穂 大川 俊 川口 萌 中西 康平 今村 千尋 篠原 涼 黒田 朋美 成田 啓太
 小松 夏美 吉岡 翼 野田 由佳 安田 圭 浅野 杏 平田 将 大島 紗希 桑原 航 坂口 楓 長田 蓮 西川 志保 須田 恭平 福井 梓 岩田 颯 横田 咲 内藤 光`

@@ -8,9 +8,10 @@
 //   adds the days that appeared since (the top-up). Rows are matched by stable keys, so a re-run of
 //   an unchanged window creates 0.
 //
-// It ADDS and never takes away: no delete call, and no update of an existing row's fields — Liam's own
-// changes in Business survive every top-up. The one exception is staffStores.set, used only to ADD this
-// store to a staff member's list (the list already there is kept).
+// It ADDS and never takes away: no delete call, and no edit of an existing row's fields — Liam's own changes in
+// Business survive every top-up. Two exceptions: staffStores.set, used only to ADD this store to a staff member's
+// list (the list already there is kept); and the status of today's still-予約済み loader bookings (non-legacy, no
+// person set it), written through close-out.ts's setPlannedStatus — this file itself has no update call.
 //
 // Why it does NOT import scripts/lib/core-target-guard.ts: that guard refuses every non-local core
 // because it protects a DELETING seeder (seed-booking-data.ts). This loader targets the shared core on
@@ -67,8 +68,8 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   // ⚖ G3 (S87): identities derive from the store's fixed identityIndex (registry.json), never from its position in the map —
   // reordering or inserting stores never changes a saved member number, staff name or phone
   const storeIndex = entry.identityIndex
-  if (!Number.isInteger(storeIndex) || Object.entries(registry.stores).some(([sid, s]) => sid !== storeId && s.identityIndex === storeIndex))
-    throw new Error(`store ${storeId}: registry.json identityIndex must be an integer no other store carries`)
+  if (!Number.isInteger(storeIndex) || storeIndex < 0 || (storeIndex + 1) * data.staff.length > STAFF_NAMES.length || Object.entries(registry.stores).some(([sid, s]) => sid !== storeId && s.identityIndex === storeIndex))
+    throw new Error(`store ${storeId}: registry.json identityIndex must be a non-negative integer no other store carries, inside the staff-name pool`)
   // ⚖ R6/Q2: an applied store sizes its window AND its 新規 first visits by the pastDays its manifest recorded; registry.json only for a new store
   const pastDays = recordedPastDays ?? registry.pastDays ?? 105
   const legacyCount = original ? data.customers.length : 0

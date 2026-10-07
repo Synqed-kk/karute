@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
+import { todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
@@ -196,7 +197,12 @@ async function main() {
       const after = await Promise.all(Object.keys(saved).map(async (sid) => JSON.stringify(await loadRecipe(saved[sid].type, sid))))
       assert.deepEqual(after, before, 'reordered + a store inserted first: every existing store\'s identities are byte-identical')
       registry.stores = { ...registry.stores, clash: { type: 'hair_salon', keyPrefix: 'hair_salon@clash', namePool: 4, identityIndex: 0 } }
-      await assert.rejects(loadRecipe('hair_salon', 'clash'), /identityIndex must be an integer no other store carries/, 'a duplicate identityIndex is refused')
+      await assert.rejects(loadRecipe('hair_salon', 'clash'), /identityIndex must be a non-negative integer no other store carries, inside the staff-name pool/, 'a duplicate identityIndex is refused')
+      // the staff-name pool holds 7 stores × 6 names: an index past it, or a negative one, is refused (never undefined names)
+      for (const bad of [7, -1]) {
+        registry.stores = { ...saved, outside: { type: 'hair_salon', keyPrefix: 'hair_salon@outside', namePool: 4, identityIndex: bad } }
+        await assert.rejects(loadRecipe('hair_salon', 'outside'), /inside the staff-name pool/, `identityIndex ${bad} is refused`)
+      }
     } finally { registry.stores = saved }
     console.log(`✓ G3: ${ids.length} stores' recipes byte-identical after reorder + insert-first`)
   }
@@ -234,6 +240,18 @@ async function main() {
     assert.equal(gm.runs[1].created.todayStatus, want.length)
     assert.equal(await apply(g.core, opts(gm, day)), 0)
     assert.equal(g.stats.updates.length, want.length, 'a third run the same day: no further status write')
+    // the picker itself, row by row: a pin session planned IN_PROGRESS today, still SCHEDULED, no person set it → picked;
+    // the same row moved by staff to another day → never picked (the row's own start, not just the plan's date);
+    // the same row for a legacy member → never picked (the legacy guard, pinned directly)
+    {
+      const pin = moving.find((r) => byKey.get(tagOf(r))!.status === 'IN_PROGRESS')!
+      const pinP = byKey.get(tagOf(pin))!
+      const fresh = { id: pin.id as string, staff_id: pin.staff_id as string, starts_at: pin.starts_at as string, status: 'SCHEDULED' as const, status_set_by: null, status_reason: null }
+      assert.equal(todayStatusFixes([{ row: fresh, planned: pinP }], recipe, day).length, 1, 'the untouched pin session is picked')
+      const moved = { ...fresh, starts_at: new Date(Date.parse(fresh.starts_at) + 86_400_000).toISOString() }
+      assert.deepEqual(todayStatusFixes([{ row: moved, planned: pinP }], recipe, day), [], 'a booking staff moved to another day is never picked')
+      assert.deepEqual(todayStatusFixes([{ row: fresh, planned: { ...pinP, member: recipe.legacyMembers![0] } }], recipe, day), [], 'a legacy member\'s booking is never picked')
+    }
     console.log(`✓ G1: today's reconcile updated ${want.length} rows (${want.filter((w) => w.status === 'IN_PROGRESS').length} IN_PROGRESS); legacy + staff-edited untouched`)
   }
 
