@@ -885,7 +885,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     const second = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 50 }, first.ok ? first.basedOn : 'x')
     expect(second.ok).toBe(true)
     const third = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 0 }, first.ok ? first.basedOn : 'x')
-    expect(third).toEqual({ ok: false, reason: 'stale', message: expect.stringContaining('ほかの画面や端末で保存された') })
+    expect(third).toEqual({ ok: false, reason: 'stale', message: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。' })
     expectWrites({ set: 2 })
   })
 
@@ -928,8 +928,8 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
   })
 
   it.each([
-    ['cutoff longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 1441, cancel_free_until_hours: 0 }, '直前締切が受付期間より長いため、予約できる枠がなくなります'],
-    ['free deadline longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 0, cancel_free_until_hours: 25 }, '無料キャンセル期限が受付期間より長いため、すべての予約が期限後になります'],
+    ['cutoff longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 1441, cancel_free_until_hours: 0 }, '直前締切が受け付ける日数より長く、予約できる枠がなくなるため、保存できませんでした。'],
+    ['free deadline longer than the open days', { ...PROOF, booking_open_days: 1, cutoff_minutes: 0, cancel_free_until_hours: 25 }, '無料キャンセル期限が受け付ける日数より長く、すべての予約が期限後になるため、保存できませんでした。'],
   ])('invalid (%s): the §4 line, no core call', async (_name, draft, line) => {
     const reads = withReads()
     expect(await data.setReservePolicy(STORE_ID, draft, BASED)).toEqual({ ok: false, reason: 'invalid', message: line })
@@ -963,6 +963,6 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     expect(lateFromBooking({ ...PROOF, cancel_late_pct: 0 })).toBe(false) // R5b: no fee, nothing late that costs
     expect(lateFromBooking({ ...PROOF, cancel_late_pct: 1 })).toBe(true)
     expect(lateFromBooking(RESERVE_POLICY_DEFAULTS)).toBe(false) // core's defaults: 0 < 24 h, but 0 % → no note
-    expect(data.LATE_FROM_BOOKING_NOTE).toContain('最初からキャンセル料の対象')
+    expect(data.LATE_FROM_BOOKING_NOTE).toBe('直前締切が無料キャンセル期限より短いため、無料キャンセル期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。')
   })
 })

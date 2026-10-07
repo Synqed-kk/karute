@@ -25,15 +25,15 @@ export type SetReservePolicyResult =
 // DESIGN-BUILD2 §4 + §9 R5/R9 — native JP, listed for the blind pass. The stale line follows お店ページ's
 // (store-page/copy.ts); the failure line is the store-days line without its schedule-list clause.
 const MSG = {
-  stale: 'この店舗の受付ルールが、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。',
+  stale: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。',
   range: '設定できる範囲を超えた値があるため、保存できませんでした。',
-  cutoffOverOpen: '直前締切が受付期間より長いため、予約できる枠がなくなります',
-  freeOverOpen: '無料キャンセル期限が受付期間より長いため、すべての予約が期限後になります',
-  lateFromBooking: '直前締切が無料キャンセル期限より短いため、期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。',
+  cutoffOverOpen: '直前締切が受け付ける日数より長く、予約できる枠がなくなるため、保存できませんでした。',
+  freeOverOpen: '無料キャンセル期限が受け付ける日数より長く、すべての予約が期限後になるため、保存できませんでした。',
+  lateFromBooking: '直前締切が無料キャンセル期限より短いため、無料キャンセル期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。',
   readOnly: READ_ONLY_NOTE,
   fail: 'いまは保存できないため、時間をおいてもう一度保存してください。',
 } as const
-/** §9 R5 — shown (never refused) when the cutoff is shorter than the free-cancel deadline. */
+/** §9 R5 + R5b — shown (never refused) when the cutoff is shorter than the free-cancel deadline and a late fee is set. */
 export const LATE_FROM_BOOKING_NOTE = MSG.lateFromBooking
 
 const refuse = (reason: Reason, message: string): { ok: false; reason: Reason; message: string } => ({ ok: false, reason, message })
