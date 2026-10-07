@@ -39,13 +39,12 @@ export function inboxFor(bookings: FixtureAppointment[]): { threads: FixtureThre
   const templateOf = (b: FixtureAppointment): FixtureThread | undefined =>
     canonical(b.id) ?? (b.board_state === 'noshow' ? noshowTemplate
       : hash(b.id) % THREAD_SLOTS < THREAD_SHARE ? bookingTemplates[(hash(b.id) >>> 8) % bookingTemplates.length] : undefined)
-  const chosen = new Map(eligible.flatMap((b) => { const t = templateOf(b); return t ? [[b.id, t] as const] : [] }))
-  if (eligible.length > 0 && chosen.size === 0) {
-    const floor = eligible.reduce((lo, b) => hash(b.id) < hash(lo.id) ? b : lo)
-    chosen.set(floor.id, firstChange)
-  }
-  const seated = eligible.flatMap((booking): FixtureThread[] => {
-    const template = chosen.get(booking.id)
+  const chosen = eligible.map((booking) => ({ booking, picked: templateOf(booking) }))
+  // The floor: a lens with an eligible booking never shows an empty inbox.
+  const floor = chosen.length > 0 && chosen.every((c) => !c.picked)
+    ? eligible.reduce((lo, b) => hash(b.id) < hash(lo.id) ? b : lo) : null
+  const seated = chosen.flatMap(({ booking, picked }): FixtureThread[] => {
+    const template = picked ?? (booking === floor ? firstChange : undefined)
     if (!template) return []
     const own = template === canonical(booking.id)
     const twin = fixtureIdOf('appointments', booking.id)
@@ -73,7 +72,7 @@ export function registerFor(bookings: FixtureAppointment[], storeId: string | nu
     // otherwise every store uses the same single-tender settlement rule.
     const safe = twin && twin.tenders.length > 0 && twin.tenders.every((t) => t.flag === '') && twin.tenders.reduce((n, t) => n + t.amount, 0) === (booking.booked_price ?? 0)
     return safe ? { ...twin, id: `smp-tx-${booking.id}`, appointment_id: booking.id, customer_id: null, store_id: null, item: null, amount: null,
-      tenders: twin.tenders.map((t) => ({ ...t })), audit: twin.audit.map((r) => [...r] as typeof r) } : {
+      tenders: twin.tenders.map((t) => ({ ...t })), audit: twin.audit.map(([at, what, detail]) => [at, what, detail]) } : {
       id: `smp-tx-${booking.id}`, appointment_id: booking.id, customer_id: null, store_id: null, item: null, amount: null,
       at: jstMinuteOfDay(booking.ends_at), audit: [],
       tenders: [{ label: labels[hash(booking.id) % labels.length], amount: booking.booked_price ?? 0, flag: '' }],
