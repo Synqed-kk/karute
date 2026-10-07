@@ -88,6 +88,7 @@ export function sampleKeys<V>(kind: TwinKind, record: Record<string, V>): Record
 
 type SeatRole = 'OWNER' | 'ADMIN' | 'STYLIST' | 'ASSISTANT' // mirrors core StaffRole (client/dist/types.d.ts)
 /** ⚖ S87 ruling (a) — a person's seat carries its core role (the side rule and the absence read it); a room's seat carries none. */
+// role is set for every staff seat (rosterOrderOf); rooms have none
 type Seat = { id: string; name: string; role?: SeatRole }
 /** A store in view: its live uuid, its active people and (⚖ R8') its active rooms — id + live name, in `rosterOrderOf`'s order. */
 export type RosterSeats = { store: string; roster: ReadonlyArray<Seat>; rooms: ReadonlyArray<Seat> }

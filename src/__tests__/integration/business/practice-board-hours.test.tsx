@@ -697,8 +697,10 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分早く"]')!.click())
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration - step)}–21:40`)
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="作成をやめる"]')!.click())
-    // 21:45 floors to 21:40 on the 20-minute grid; Kenta's last fixture booking ends at 21:30.
-    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
+    // S87 Q4: today's gym absence is けんた's from 21:30, so this click uses だいち's lane
+    // 21:45 floors to 21:40 on the 20-minute grid.
+    const daichiTrack = host.querySelector<HTMLElement>(`.lane[data-lane="${GYM.daichi}"] .track`)!
+    act(() => { daichiTrack.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
     const placeNearClose = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')
     if (placeNearClose) act(() => placeNearClose.click())
     expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
@@ -719,6 +721,37 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     expect(cell).not.toBeNull()
     expect(host.querySelector('.guard-rail-cell.aimed')).toBe(cell)
     act(() => { window.dispatchEvent(r.ev('pointercancel', 520, 0)) })
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    r.restore()
+  }
+})
+
+it("S87 Q4 — the board sees today's gym absence: the same 21:40 click on けんた's lane refuses with 勤務不可 (readers agree)", async () => {
+  const r = rig(0)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board: ReactElement<TodayProps> = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    const step = 20
+    const { hours } = board.props
+    // Same setup as Q-25: けんた's shift runs to closing and his 「終業」 is gone, so only the absence can refuse.
+    const lanes = board.props.lanes.map((lane) => lane.group === 'staff' && lane.key === GYM.kenta
+      ? { ...lane, window: { from: lane.window!.from, until: hours.close }, untilLabel: '22:00', items: lane.items.filter((item) => !(item.kind === 'absence' && item.title === '終業')) }
+      : lane)
+    await act(async () => root.render(<BusinessSessionEdits>{cloneElement(board, { lanes, guard: { ...board.props.guard, bookingStepMin: step, standardSessionMin: step }, sell: { ...board.props.sell, nowMinute: 360 } })}</BusinessSessionEdits>))
+    r.box.at = 0
+    const track = host.querySelector<HTMLElement>(`.lane[data-lane="${GYM.kenta}"] .track`)!
+    trackWide(900, track.closest('.lane')!) // one pixel per minute on the 07:00–22:00 axis
+    const dialog = host.querySelector<HTMLDialogElement>('dialog[aria-labelledby="createTitle"]')!
+    dialog.showModal = () => { dialog.open = true }
+    dialog.close = () => { dialog.open = false }
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
+    const placeNearClose = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')
+    if (placeNearClose) act(() => placeNearClose.click())
+    const advice = host.querySelector('.guard-pop')?.textContent ?? ''
+    expect({ open: dialog.open, absence: advice.includes('勤務不可') }).toEqual({ open: false, absence: true })
   } finally {
     act(() => root.unmount())
     host.remove()
