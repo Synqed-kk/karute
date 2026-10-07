@@ -341,8 +341,10 @@ describe('the fixture data door', () => {
       // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
       // ⚖ §v11 V11-8 (PR-B) — `./sample-day`: the give-way, door.ts's pure sibling (a NAMED allowance, never a widening).
       'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
-      // ⚖ §v11 — the store's own 営業時間 · 定休日 reading: pure, the read's TYPE only.
-      'src/business/lib/practice-door/store-hours.ts': ['./core-reach'],
+      // ⚖ §v11 — the store's own 営業時間 · 定休日 reading; ⚖ S81 (Liam-applied) — through Karute's ONE hours resolver
+      // `@/lib/operating-hours` (pure: jst · calendar-range · a type-only capacity import) and `../clock` (the shown day's
+      // JST key); `./core-reach` stays the read's TYPE only.
+      'src/business/lib/practice-door/store-hours.ts': ['../clock', './core-reach', '@/lib/operating-hours'],
       // ⚖ §v11 V11-8 — the sample day gives way to the live day: pure; the clock (a row's JST day), the fixture day's
       // TYPES, and the week the plane carries. Never today-board.ts (its status list is restated and pinned equal).
       'src/business/lib/practice-door/sample-day.ts': ['../clock', '../fixtures-today', './store-hours'],
