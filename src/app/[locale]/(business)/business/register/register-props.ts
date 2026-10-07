@@ -361,7 +361,10 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     // page because both read `closingReadiness` (⚖ A8).
     closingImpact: closingImpact(m, verdict?.checks ?? []),
     history: m.history,
-    bookingHref: m.bookingNo ? `/${locale}/business/reservations${storeQuery}` : null,
+    // Keyed on the booking's PRESENCE (bookingNo is null only when the row
+    // names no booking): a door-seated booking with no fixture twin has
+    // display_no '' and is still a real booking to confirm.
+    bookingHref: m.bookingNo !== null ? `/${locale}/business/reservations${storeQuery}` : null,
     refundRefusal: REFUSAL.refund,
     // ⚖ THE GATE'S LANDING POINT HAS TO OFFER THE DECISION. 未収の扱い is the one
     // check a clinic or a salon with an account customer meets EVERY evening, and

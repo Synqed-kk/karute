@@ -2514,6 +2514,19 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(thread(twinId).bookingNo).toBeTruthy()
     expect(thread(twinId).bookingHref).toBe(href)
   })
+  it('S86 P1 register sibling: a live booking with no fixture twin gets a 予約一覧 link on its register row; a twin row keeps its href exactly', async () => {
+    const [liveId] = pick('s86-r', false)
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const twinId = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(liveId, { customer_id: seed.customer_id }), row(twinId, { customer_id: seed.customer_id, booked_price_amount: twin.tenders.reduce((n, t) => n + t.amount, 0) })])
+    const txOf = new Map((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => [t.appointment_id, t.id]))
+    const { props } = await registerProps({ locale: 'ja', store: STORE.tokyo })
+    const rowOf = (id: string) => props.rows.find((r) => r.id === txOf.get(id))!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(rowOf(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(rowOf(twinId).bookingNo).toBeTruthy()
+    expect(rowOf(twinId).bookingHref).toBe(href)
+  })
   it('R5 one id served twice → one thread, one transaction', async () => {
     // The id CARRIES a thread (hash % 23 < 5), so the floor alone cannot make the inbox half pass.
     const [dup] = pick('s85-dup', true)
