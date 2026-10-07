@@ -40,8 +40,9 @@ import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
+import { DRAG_EDGE_STEP_PX, guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { GYM, LOGIN, POLICIES, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
+import { familyNameOf, minPxPer30 } from '@/business/lib/today-board'
 
 let mockOptions: RecordedOptions = {}
 const mockReads = () => recordedReads(mockOptions)
@@ -135,8 +136,9 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     const card = host.querySelector(`.lane[data-lane="${GYM.rina}"] .track .event[data-book="00000000-0000-4000-8000-00000000c399"]`)!
     expect([pct(card, '--w') > 0, pct(card, '--x') + pct(card, '--w') <= 100 + 1e-9]).toEqual([true, true])
     const ruler = Array.from(host.querySelectorAll('.time-head .hours span'))
-    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.length]).toEqual(['7', '23', 17]) // 07:00–24:00: ceil60 of 23:15
-    expect(ruler.filter((r) => r.classList.contains('off')).map((r) => r.textContent)).toEqual(['22', '23'])
+    // ⚖ 10/7 S25-2: the closing edge is printed — 17 hour columns + the closing edge tick 「24」 (a 24:00 close reads 24), muted after close.
+    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.length]).toEqual(['7', '24', 18]) // 07:00–24:00: ceil60 of 23:15
+    expect(ruler.filter((r) => r.classList.contains('off')).map((r) => r.textContent)).toEqual(['22', '23', '24'])
     // The band is a LAYER of every track (A5): the timeline carries each side's share; the ruler says it once, after close only.
     const timeline = host.querySelector<HTMLElement>('.timeline.off-hours')!
     expect([timeline.style.getPropertyValue('--off-before'), Math.abs(parseFloat(timeline.style.getPropertyValue('--off-after')) - 120 / 1020) < 1e-12]).toEqual(['0', true])
@@ -181,7 +183,8 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     const { host } = yokohama
     const card = host.querySelector('.lane .track .event[data-book="00000000-0000-4000-8000-00000000c398"]')!
     expect([pct(card, '--w') > 0, pct(card, '--x') + pct(card, '--w') <= 100 + 1e-9]).toEqual([true, true])
-    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('20') // 10:00–21:00
+    // ⚖ 10/7 S25-2: the closing edge is printed
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('21') // 10:00–21:00
     expect([host.querySelectorAll('.timeline.off-hours').length, host.querySelectorAll('.off-caption').length, host.querySelectorAll('.hours span.off').length]).toEqual([0, 0, 0])
   } finally {
     yokohama.done()
@@ -192,7 +195,8 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
   jest.clearAllMocks()
   const { host, done } = await mountGymOutOfHours()
   try {
-    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('23') // the axis DID grow (the precondition)
+    // ⚖ 10/7 S25-2: the closing edge is printed
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('24') // the axis DID grow (the precondition)
     type Call = unknown[]
     const argsOf = (fn: unknown) => (fn as jest.Mock).mock.calls as Call[]
     const closes = <C,>(calls: C[], read: (c: C) => unknown) => [calls.length > 0, [...new Set(calls.map(read))]]
@@ -237,5 +241,489 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
   } finally {
     done()
+  }
+})
+
+it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 22 edge label, 30 strip cells per lane, the track floor from the day model, and ONE now-line scroll that a store switch never repeats', async () => {
+  // jsdom lays nothing out: the scroll box is made to overflow (the floor's 990 + the 112 label > 952) and its scrollLeft writes are counted.
+  const writes: number[] = []
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get: () => 0, set(this: Element, v: number) { if (isBox(this)) writes.push(v) } })
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const ruler = Array.from(host.querySelectorAll('.time-head .hours span'))
+    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.at(-1)!.classList.contains('edge'), ruler.length]).toEqual(['7', '22', true, 16])
+    const strips = Array.from(host.querySelectorAll('.guard-rail-track')).map((t) => t.querySelectorAll('.guard-rail-cell').length)
+    expect([strips.length > 0, [...new Set(strips)]]).toEqual([true, [30]])
+    // The floor is CSS: the day model's cells × the floor ride the timeline's style; the rule turns them into its min-width
+    // (here calc(112px + 30 × 33px) = 1102 px) and the scroll box, not the page, takes the overflow.
+    const timeline = host.querySelector<HTMLElement>('.timeline-scroll > .timeline')!
+    expect([timeline.style.getPropertyValue('--board-cells'), timeline.style.getPropertyValue('--floor-slots'), timeline.style.getPropertyValue('--cell-floor')]).toEqual(['30', '30', `${minPxPer30}px`]) // S25-15 (2): the floor is per 30 minutes (--floor-slots), the strip per step
+    const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+    expect(css).toContain('.biz .timeline-scroll { overflow-x: auto;')
+    expect(css).toContain('.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px)); }')
+    const held = Array.from(host.querySelectorAll('.cell-held'))
+    expect(held.length).toBeGreaterThan(0) // the gym's recorded day draws 確保 boxes, else the next line tests nothing
+    expect(held.filter((h) => !h.getAttribute('title')).length).toBe(0)
+    expect(writes.length).toBe(1) // today, overflowing, on mount: once
+    const other = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.yokohama }) })
+    await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).not.toBe('22') // the switch landed
+    // S25-15 (5) flips this pin: the same instance re-rendered for another store applies the now-line rule to the new board.
+    expect(writes.length).toBe(2)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]
+  }
+})
+
+it('⚖ S25 round 3 (D5) + round 4 — MOUNTED: the 07:00 card\'s name line per tier — WIDE the full name + the room tag · MID the family name + the time line (no given name, no tag) · NARROW the family name only (familyNameOf) · SLIVER the bar', async () => {
+  // jsdom runs no container queries, so the tiers are read from today.css as written (content-box px, today-board.ts
+  // LABEL_TIER_PX − CARD_PAD_PX) and applied to the rendered name line: what each tier hides is removed, the rest is the line.
+  const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+  expect(css).toContain('@container (width < 77px) {\n  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .e-given, .biz .page-today .event > strong > .tg { display: none; }')
+  expect(css).toContain('@container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }')
+  expect(css).toContain('@container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }')
+  const HIDDEN = { wide: [], mid: ['.e-tkt', '.e-given', '.tg'], narrow: ['.e-tkt', '.e-given', '.tg', '.e-time'] } as const
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const card = Array.from(host.querySelectorAll<HTMLElement>('.lane .track .event[data-book]:not(.cleanup)')).find((el) => el.querySelector('.e-time')?.textContent?.startsWith('07:00') && el.querySelector('.tg')?.textContent)!
+    expect(card).toBeTruthy()
+    const strong = card.querySelector<HTMLElement>(':scope > strong')!
+    // a tier's face = [the name line, the time line] as printed (null = hidden)
+    const face = (hide: ReadonlyArray<string>) => {
+      const copy = card.cloneNode(true) as HTMLElement
+      for (const sel of hide) copy.querySelectorAll(sel).forEach((n) => n.remove())
+      return [copy.querySelector(':scope > strong')!.textContent, copy.querySelector(':scope > .e-time')?.textContent ?? null]
+    }
+    expect([face(HIDDEN.wide)[0], face(HIDDEN.mid), face(HIDDEN.narrow)]).toEqual(['松田 亜希子【未定】', ['松田', '07:00〜'], ['松田', null]])
+    expect(face(HIDDEN.mid)[0]).toBe(familyNameOf(face(HIDDEN.wide)[0]!.replace(strong.querySelector('.tg')!.textContent!, '')))
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+// ⚖ S25-15 — Round B's mounted pins. jsdom lays nothing out: the scroll box is made to overflow and to keep its scrollLeft.
+function overflowingBox() {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = v } } })
+  return { box, restore: () => { for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k] } }
+}
+const todayCss = () => readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+
+it('⚖ S25-15 (1) + (7) + (10) — MOUNTED 07–24 (テスト恵比寿ジム + one row after close): the strip walks the ruler\'s day on the grid step (--board-cells cells per lane, 07:00 first, 23:30 last, 13:00 at the ruler\'s 13 slot); block cards carry the tier classes and no title', async () => {
+  const { host, done } = await mountGymOutOfHours()
+  try {
+    const STEP = 30 // the gym's bookingStepMin (its 07–22 day is 30 --board-cells above)
+    const cells = Number(host.querySelector<HTMLElement>('.timeline-scroll > .timeline')!.style.getPropertyValue('--board-cells'))
+    const lanes = Array.from(host.querySelectorAll('.guard-rail-track')).map((t) => Array.from(t.querySelectorAll('.guard-rail-cell')).map((c) => Number(c.getAttribute('data-start'))))
+    expect([cells, lanes.length > 0, [...new Set(lanes.map((l) => `${l.length} ${l[0]} ${l.at(-1)}`))]]).toEqual([34, true, ['34 420 1410']])
+    // the 13:00 x match in jsdom's terms: the strip's 13:00 cell and the ruler's 13 label sit at the same slot of the day
+    const ruler = Array.from(host.querySelectorAll('.time-head .hours span')).map((s) => s.textContent)
+    expect([ruler[0], ruler.indexOf('13') * (60 / STEP), lanes[0].indexOf(780)]).toEqual(['7', (780 - 420) / STEP, (780 - 420) / STEP])
+    // (10) flag 8: no card on the board carries a title (the base's block title went; 確保's is a .cell-held, not an .event)
+    expect(host.querySelectorAll('.event[title]').length).toBe(0)
+    // (7) a block card is the booking card's name line + .e-time; the CSS hides a block's .e-time below WIDE (Round C measures)
+    const blocks = Array.from(host.querySelectorAll('.lane .track .event:not([data-book]):not(.micro)'))
+    expect([blocks.length > 0, blocks.filter((b) => !(b.querySelector(':scope > strong') && b.querySelector(':scope > small.e-time'))).length]).toEqual([true, 0])
+    const css = todayCss()
+    expect(css).toContain('@container (width < 77px) { .biz .page-today .event:is(.block, .absence, .cleanup) > .e-time { display: none; } }') // S26 E2: positive
+    expect(css).toContain('.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill) { overflow: hidden; }')
+    // (9) the give-back skips micro blocks, so they keep the base's 3 px inset
+    expect(css).toContain('  .biz .page-today .event:not(.micro) > strong, .biz .page-today .event:not(.micro) > small { margin-left: -6px; margin-right: -5px; }')
+  } finally {
+    done()
+  }
+})
+
+it('⚖ S25-15 (5) — MOUNTED: the now-line scroll keys on the shown day and the store — 明日 on mount writes nothing · the same instance on 今日 writes once · a store switch writes again', async () => {
+  const { box, restore } = overflowingBox()
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const page = (store: string, day?: string) => TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve(day ? { store, day } : { store }) })
+  try {
+    const tomorrow = await page(STORE.gym, '1')
+    await act(async () => root.render(<BusinessSessionEdits>{tomorrow}</BusinessSessionEdits>))
+    expect(box.writes).toEqual([])
+    const today = await page(STORE.gym)
+    await act(async () => root.render(<BusinessSessionEdits>{today}</BusinessSessionEdits>))
+    expect(box.writes.length).toBe(1)
+    const other = await page(STORE.yokohama)
+    await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))
+    expect(box.writes.length).toBe(2)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    restore()
+  }
+})
+
+it('⚖ S25-15 (5) — MOUNTED: today → another day on the same instance puts the scrolled board back to the day\'s start (scrollLeft 0); back to today brings the now-line in again', async () => {
+  // A box wide enough that today's now-line scroll is a real, positive offset; the setter clamps like a browser does.
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 2400 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = Math.max(0, Math.min(v, 2400 - 952)) } } })
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const page = (day?: string) => TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve(day ? { store: STORE.gym, day } : { store: STORE.gym }) })
+  try {
+    await act(async () => root.render(<BusinessSessionEdits>{await page()}</BusinessSessionEdits>))
+    const todayAt = box.at
+    expect([box.writes.length, todayAt > 0]).toEqual([1, true]) // today, overflowing: the now-line is brought in
+    await act(async () => root.render(<BusinessSessionEdits>{await page('1')}</BusinessSessionEdits>)) // 明日: dayOffset 1, sell.nowMinute null, nowFraction null
+    expect([box.writes.length, box.writes.at(-1), box.at]).toEqual([2, 0, 0]) // the reset write, nothing else
+    await act(async () => root.render(<BusinessSessionEdits>{await page()}</BusinessSessionEdits>))
+    expect([box.writes.length, box.at]).toEqual([3, todayAt]) // back on today: the now-line write happens again
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]
+  }
+})
+
+it('⚖ S25-15 (4) — MOUNTED: a card held in the right edge zone of an overflowing board scrolls it DRAG_EDGE_STEP_PX a frame; the middle does not; the release stops the loop', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    return this.classList.contains('timeline-scroll') ? ({ left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect) : rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = 0
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointermove', 500, 1)) }) // the middle: the loop stops on its next frame
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(2 * DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
+
+it('⚖ Liam S25-17 (2) — MOUNTED: a BLOCK (button.event, onBlockPointerDown) held in the right edge zone of an overflowing board scrolls it DRAG_EDGE_STEP_PX a frame; the release stops the loop', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    return this.classList.contains('timeline-scroll') ? ({ left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect) : rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = 0
+    // the draggable block: a <button> (the washes are <span role="note">), pressed in its middle — a MOVE, not a resize
+    const block = host.querySelector<HTMLElement>('.lane .track button.event[data-block]')!
+    expect(block).not.toBeNull()
+    act(() => { block.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
+
+it('⚖ Liam S25-17 (2) — MOUNTED: a SHELF CHIP held in the right edge zone of an overflowing board rides the same loop (DRAG_EDGE_STEP_PX a frame); the release stops it', async () => {
+  const { box, restore } = overflowingBox()
+  const rect = Element.prototype.getBoundingClientRect
+  // jsdom lays nothing out: every other rect is 0×0 at the origin, so clientY 0 is "over the shelf" for the card's
+  // release (isOverShelf) and "over the first lane" for the chip (laneKeyAtY); a card rect makes the press a MOVE.
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('timeline-scroll')) return { left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect
+    if (this.hasAttribute('data-book')) return { left: 400, right: 600, top: 0, bottom: 0, width: 200, height: 0, x: 400, y: 0 } as DOMRect
+    return rect.call(this)
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 0, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    // park one card: carry it in the middle (no edge) and release it over the shelf
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const chip = host.querySelector<HTMLElement>('.park-chip')!
+    expect(chip).not.toBeNull()
+    box.at = 0
+    act(() => { chip.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { chip.dispatchEvent(ev('pointermove', 940, 1)) }) // over a lane, inside the right zone (952 − 40 < 940 ≤ 952)
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(DRAG_EDGE_STEP_PX)
+    act(() => { chip.dispatchEvent(ev('pointerup', 940, 0)) })
+    const up = box.at
+    act(() => { jest.advanceTimersByTime(64) })
+    expect(box.at).toBe(up)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    Element.prototype.getBoundingClientRect = rect
+    restore()
+  }
+})
+
+// ⚖ S26 Round E — the drag proxy's identity (E2) and the edge loop's pause at the scroll limit (E4).
+function rig(limit: number | null) {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  const box = { at: 0, writes: [] as number[] }
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get(this: Element) { return isBox(this) ? box.at : 0 }, set(this: Element, v: number) { if (isBox(this)) { box.writes.push(v); box.at = limit == null ? v : Math.max(0, Math.min(v, limit)) } } })
+  const rect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('timeline-scroll')) return { left: 0, right: 952, top: 0, bottom: 600, width: 952, height: 600, x: 0, y: 0 } as DOMRect
+    if (this.hasAttribute('data-book') || this.hasAttribute('data-block')) return { left: 400, right: 600, top: 0, bottom: 0, width: 200, height: 0, x: 400, y: 0 } as DOMRect
+    return rect.call(this)
+  }
+  const ev = (type: string, clientX: number, buttons: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 10, button: 0, buttons })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    return e
+  }
+  const restore = () => { for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]; Element.prototype.getBoundingClientRect = rect }
+  return { box, ev, restore }
+}
+
+it('⚖ S26 Round E (E2) — MOUNTED: a booking\'s drag proxy carries data-book (empty: no card lookup finds it); a block\'s carries the resting block\'s class and an .e-time line', async () => {
+  const { ev, restore } = rig(null)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    const id = card.getAttribute('data-book')!
+    const drawn = host.querySelectorAll(`.event[data-book="${id}"]`).length
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    const cardProxy = host.querySelector<HTMLElement>('.drag-proxy.event')!
+    expect([cardProxy !== null, cardProxy?.getAttribute('data-book'), host.querySelectorAll(`.event[data-book="${id}"]`).length]).toEqual([true, '', drawn])
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const block = host.querySelector<HTMLElement>('.lane .track button.event[data-block]:not(.micro)')!
+    const cls = ['block', 'absence', 'cleanup'].filter((c) => block.classList.contains(c))
+    act(() => { block.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    const blockProxy = host.querySelector<HTMLElement>('.drag-proxy.event')!
+    expect([cls.length, blockProxy !== null, cls.every((c) => blockProxy?.classList.contains(c)), blockProxy?.hasAttribute('data-book'), blockProxy?.querySelector(':scope > small.e-time') != null]).toEqual([1, true, true, false, true])
+    act(() => { window.dispatchEvent(ev('pointerup', 520, 0)) })
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    restore()
+  }
+})
+
+it('⚖ S26 Round E (E4) — MOUNTED: at the scroll limit one zero-move frame ends the edge loop (no further frame); a later move in the zone restarts it', async () => {
+  const LIMIT = 1102 - 952
+  const { box, ev, restore } = rig(LIMIT)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const raf = jest.spyOn(window, 'requestAnimationFrame')
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    box.at = LIMIT
+    const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+    act(() => { card.dispatchEvent(ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(ev('pointermove', 940, 1)) }) // inside the right zone, the box already at its limit
+    box.writes.length = 0
+    act(() => { jest.advanceTimersByTime(16) }) // the one zero-move frame
+    const after = box.writes.length
+    raf.mockClear()
+    act(() => { jest.advanceTimersByTime(160) }) // ten frames' time: nothing scheduled, nothing written
+    expect([after, box.writes.length, box.at, raf.mock.calls.length]).toEqual([1, 1, LIMIT, 0])
+    box.at = LIMIT - 2 * DRAG_EDGE_STEP_PX // room again (as if the box were scrolled back)
+    act(() => { window.dispatchEvent(ev('pointermove', 941, 1)) }) // a later move in the zone restarts the loop
+    act(() => { jest.advanceTimersByTime(16) })
+    expect(box.at).toBe(LIMIT - DRAG_EDGE_STEP_PX)
+    act(() => { window.dispatchEvent(ev('pointerup', 941, 0)) })
+  } finally {
+    raf.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    restore()
+  }
+})
+
+/** ⚖ S26 Round F — the track gets a width (jsdom's is 0, which `deltaPctIn` reads as "no travel") and the card's own
+ *  lane a height (so the lane hunt answers at clientY 10 and the ghost draws); the drop ghost's --x is the span the
+ *  drag frame computed. */
+function trackWide(width: number, lane: Element) {
+  const inner = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('track')) return { left: 0, right: width, top: 0, bottom: 0, width, height: 0, x: 0, y: 0 } as DOMRect
+    if (this === lane) return { left: 0, right: 952, top: 0, bottom: 72, width: 952, height: 72, x: 0, y: 0 } as DOMRect
+    return inner.call(this)
+  }
+}
+async function mountRigged(limit: number | null) {
+  const r = rig(limit)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+  await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+  r.box.at = 0
+  const el = host.querySelector<HTMLElement>('.timeline-scroll')!
+  const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+  trackWide(600, card.closest('.lane')!)
+  const ghostX = () => { const g = host.querySelector<HTMLElement>('.drop-ghost'); return g ? parseFloat(g.style.getPropertyValue('--x')) : NaN }
+  const scrollTo = (v: number) => { r.box.at = v; act(() => { el.dispatchEvent(new Event('scroll')) }) }
+  const frame = () => act(() => { jest.advanceTimersByTime(16) })
+  const done = () => { act(() => root.unmount()); host.remove(); r.restore() }
+  return { ...r, host, card, ghostX, scrollTo, frame, done }
+}
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: a MANUAL sideways scroll during a card drag (scrollLeft +60, one scroll event, one frame) moves the drag frame\'s span exactly as carrying the pointer 60 px further would', async () => {
+  const m = await mountRigged(null)
+  try {
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 520, 1)) })
+    m.frame()
+    const before = m.ghostX()
+    m.scrollTo(60) // trackpad / shift-wheel / scrollbar: no pointer move, no edge loop
+    m.frame()
+    const scrolled = m.ghostX()
+    m.scrollTo(0) // the control, same gesture: no scroll, the pointer carried the same 60 px instead
+    act(() => { window.dispatchEvent(m.ev('pointermove', 580, 1)) })
+    m.frame()
+    const carried = m.ghostX()
+    expect([Number.isFinite(before), scrolled !== before, scrolled]).toEqual([true, true, carried])
+    act(() => { window.dispatchEvent(m.ev('pointercancel', 580, 0)) })
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: the RELEASE after a manual scroll lands where the frame showed (the drop span includes the +60)', async () => {
+  const m = await mountRigged(null)
+  try {
+    const id = m.card.getAttribute('data-book')!
+    const at = () => parseFloat(m.host.querySelector<HTMLElement>(`.lane .track .event[data-book="${id}"]:not(.drag-proxy)`)!.style.getPropertyValue('--x'))
+    const home = at()
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 520, 1)) })
+    m.frame()
+    const unscrolled = m.ghostX()
+    m.scrollTo(60)
+    m.frame()
+    const shown = m.ghostX()
+    act(() => { window.dispatchEvent(m.ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    expect([shown !== unscrolled, at() !== home, at()]).toEqual([true, true, shown])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: the edge loop and the scroll listener do not double-count — after 3 edge frames (each followed by the browser\'s scroll event) the span equals a plain 3 × DRAG_EDGE_STEP_PX carry, not 2×', async () => {
+  const m = await mountRigged(null)
+  try {
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 940, 1)) }) // the right edge zone
+    for (let i = 0; i < 3; i++) {
+      m.frame()
+      act(() => { m.host.querySelector('.timeline-scroll')!.dispatchEvent(new Event('scroll')) }) // what the browser fires after each step
+    }
+    const edged = m.box.at
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500, 1)) }) // back where it started: dx is the scrolled distance alone
+    m.frame()
+    const viaEdge = m.ghostX()
+    m.scrollTo(0)
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500 + 3 * DRAG_EDGE_STEP_PX, 1)) })
+    m.frame()
+    const once = m.ghostX()
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500 + 6 * DRAG_EDGE_STEP_PX, 1)) })
+    m.frame()
+    const twice = m.ghostX()
+    expect([edged, viaEdge, viaEdge !== twice]).toEqual([3 * DRAG_EDGE_STEP_PX, once, true])
+    act(() => { window.dispatchEvent(m.ev('pointercancel', 500, 0)) })
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ S26 Round E3b — MOUNTED 10:00–21:30 (テスト自由が丘店, its recorded policy widened to 21:30 for this test only): ruler 「10」…「20」 + the edge 「21:30」, no 「21」 column, gridlines on the whole 11.5-hour span', async () => {
+  const saved = POLICIES[STORE.jiyugaoka].weekly_hours
+  const day = { open: '10:00', close: '21:30' }
+  POLICIES[STORE.jiyugaoka].weekly_hours = { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: day }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.jiyugaoka }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const ruler = Array.from(host.querySelectorAll<HTMLElement>('.time-head .hours span'))
+    expect(ruler.map((s) => s.textContent)).toEqual(['10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21:30'])
+    expect(ruler.map((s) => s.className)).toEqual([...Array(11).fill(''), 'edge']) // nothing 'off' inside the day; the close is the edge tick
+    const last = ruler.at(-2)!
+    expect(parseFloat(last.style.left) + parseFloat(last.style.width)).toBeCloseTo((660 / 690) * 100, 3) // 「20」 ends at 21:00 (660 of the 690 minutes)
+    const timeline = host.querySelector<HTMLElement>('[style*="--hours"]')!
+    expect([timeline.style.getPropertyValue('--hours'), timeline.style.getPropertyValue('--hour-lead')]).toEqual(['11.5', '']) // gridlines unchanged
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    POLICIES[STORE.jiyugaoka].weekly_hours = saved
   }
 })

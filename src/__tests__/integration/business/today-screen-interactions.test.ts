@@ -1882,7 +1882,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
@@ -2149,13 +2149,13 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
       'open: business.open,',
       'close: business.close,',
-      'stepMin: 30,',
+      '...railDay,', // S25-15 (1): the strip's axis + grid step, one source with inputOn (the pin read the stepMin 30 literal)
       'dur: railDur,',
       'protectedDur: props.guard.protectedDurationMin,',
       'nowMinute: props.sell.nowMinute,',
@@ -2206,7 +2206,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
     // which is why the number is smaller than the array — both are measured.
     for (const [where, code, want] of [
-      ['rail', rail.code, 12],
+      ['rail', rail.code, 11], // S25-15 (1): the stepMin key became the ...railDay spread (pin flipped from 12)
       ['verdict', verdict.code, 10],
     ] as const) {
       expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
@@ -2415,6 +2415,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type LandingFloor,",
       "type LandingQuestion,",
       "type LandingVerdict,",
+      "DRAG_EDGE_STEP_PX,", // S25-15 (4): the edge auto-scroll's step and zone test (pin flipped: two names added)
+      "edgeScrollDir,",
       "type Move,",
       "type Moves,",
       "type OverrideLevel,",
@@ -11785,7 +11787,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FRAME-SEAM (2026-09-12) — `type Hours` joins it: `handBoardFor` is a
     // module-level exported pure function now (the re-landing rule, spelled once
     // so the strip can ask it too) and its signature names the day's hours.
-    "import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
+    "import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, stripColumns, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
     // `from '…'` across every file in its own territory, this test file
@@ -12532,7 +12534,11 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     const code = codeOnly(SRC)
     // ONE `.e-time` author on this board, and it prints what it is handed.
     expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
-    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // S25-15 (7) — DISCLOSED PIN MOVE: the BLOCK card's time line now wears .e-time (its tier class). It prints a
+    // block's own time, never a booking's, so the booking card still has ONE .e-time author; that block site is the
+    // only `{item.time}` one.
+    expect(code.split('<small className="e-time">{item.time}</small>').length - 1).toBe(1)
+    expect(code).toContain('{!item.micro && <small className="e-time">{item.time}</small>}')
     // The proxy is the ONE caller that hands it anything else, and what it
     // hands is the live landing.
     // ⚖ D-53 (n) — DISCLOSED PIN MOVE: `cardFace` gained a `words` parameter
@@ -12569,7 +12575,7 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
     // The branch reads the BLOCK's own landing — the one its dashed ghost is
     // drawn from — and the pre-fix spelling is gone from the file.
-    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small className="e-time">{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
     expect(code).not.toContain('<small>{proxy.item.time}</small>')
     expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
     // The two ways a decoy could make the block's label stand still.
@@ -15415,9 +15421,9 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
 
   // Fix round 4 — P20, the render half: no suite renders TodayScreen here (the renderer fence, header :5-9), so the ruler's
   // JSX and CSS are pinned as TEXT; the arithmetic is P20 in today-board.test.ts, the render is the byte-id harness's.
-  it('§v11 V11-15 P20 — the ruler spans sit at rulerLabels() minute positions, the off rule unchanged, the labels out of flow', () => {
+  it('§v11 V11-15 P20 + ⚖ S25-2 — the ruler spans sit at rulerLabels() minute positions, the closing edge tick has no column, the off rule unchanged, the labels out of flow', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}")
+    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={l.edge ? undefined : { left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={`${band && ((l.hour + 1) * 60 <= business.open || (l.edge ? l.hour * 60 > business.close : l.hour * 60 >= business.close)) ? 'off' : ''}${l.edge ? ' edge' : ''}`.trim() || undefined}>{l.text}</span>)}")
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')).toContain('const hourLabels = rulerLabels(drawn)')
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     expect(css).toContain('.biz .hours { position: relative; }\n.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box;')

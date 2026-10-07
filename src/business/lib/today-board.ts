@@ -48,7 +48,7 @@ export interface Hours {
 }
 
 /** Percent placement on the timeline. The window is the board's DRAWN window
- *  (`drawnWindow`), so the hour ruler and the cards are the same axis by
+ *  (`boardDay`), so the hour ruler and the cards are the same axis by
  *  construction — canon's own sheet drew a 15-column ruler under 11 hours of
  *  cards, and the lines and the cards did not line up.
  *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: the INPUTS are clamped
@@ -69,33 +69,204 @@ export function place(start: number, end: number, hours: Hours): { x: number; w:
   }
 }
 
-/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE DRAWN WINDOW, the axis every
- *  card is placed on: the store's own hours, grown in whole hours FROM its own
- *  edges until every card fits, clamped to [0, 1440]. Only bookings grow it
- *  (never a shift, wash, break, absence, block or sell slot); one inside the
- *  hours or touching an edge grows nothing. A row whose end wrapped past
- *  midnight (end < start) grows it to its START. Anchored at the business edges,
- *  so a whole-hour pair gives whole hours and a fractional pair keeps today's
- *  left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
-export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
-  const earliest = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
-  const latest = Math.max(hours.close, ...bookings.map((b) => Math.max(b.startMinute, b.endMinute)))
+/** Minutes in one hour: the ruler's unit and the day's rounding unit (a clock fact, not a duration setting). */
+const HOUR_MIN = 60
+/** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */
+const HOURS_PER_DAY = 24
+/** Minutes in one day (a clock fact): a split piece that covers 0 → DAY_MIN is a whole-day piece, and the board's day
+ *  is bounded to one day either side of the store's hours (`boardDay`). */
+const DAY_MIN = HOURS_PER_DAY * HOUR_MIN
+
+/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE BOARD'S DAY, the one axis the ruler, every card, the now-line, the
+ *  60分配置 strip and the booth rows are placed on: the store's own hours, grown in whole hours FROM its own edges
+ *  until every row fits. ⚖ 10/7 S25-2 (Liam) — EVERY DRAWN ROW widens the day (`boardRows`: bookings, shifts and
+ *  their 休憩, 勤務不可, blocks, offers; the washes and turnovers end at the store's edges or a shift's by
+ *  construction), never only bookings (V11-15(a)'s 「only bookings grow it」 was the lead's rule, DECISIONS S24-2).
+ *  It never opens before 0 and MAY close past 1440 (whether settings accept such a day is Q-20), within one day.
+ *  THE EXCEPTION, the lead's ruling S25-15 (3), confirmed by Liam S25-17 (1) (a whole-day block does not widen the day):
+ *  a WHOLE-DAY split piece (start ≤ 0 and end ≥ DAY_MIN; door.ts:187–195 cuts a multi-day block into 0–1440 middle
+ *  days) and a row lying wholly more than a day outside the hours (end ≤ open − DAY_MIN or start ≥ close + DAY_MIN)
+ *  widen nothing; they still DRAW, clamped to the shown day by place() (buildLanes). Every other row widens, but the
+ *  day is BOUNDED to [open − DAY_MIN, close + DAY_MIN], so bad data (a row ending at 99999) cannot draw thousands of
+ *  cells. S25-15 (6): a row whose start or end is not finite is dropped from the widening, with one development
+ *  warning per call (the count and the first bad row's index) — one bad row never blanks the board.
+ *  One inside the hours or touching an edge grows nothing. A row whose end wrapped past midnight (end < start)
+ *  grows it to its START. Anchored at the business edges, so a whole-hour pair gives whole hours and a fractional
+ *  pair keeps today's left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
+export function boardDay({ hours, rows }: { hours: Hours; rows: ReadonlyArray<{ start: number; end: number }> }): Hours {
+  const finite = rows.filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end))
+  if (finite.length < rows.length && process.env.NODE_ENV !== 'production') {
+    const first = rows.findIndex((r) => !(Number.isFinite(r.start) && Number.isFinite(r.end)))
+    console.warn(`boardDay: ${rows.length - finite.length} row(s) with non-finite minutes left out of the day; first: rows[${first}] { start: ${rows[first].start}, end: ${rows[first].end} }`)
+  }
+  const floor = hours.open - DAY_MIN
+  const ceiling = hours.close + DAY_MIN
+  const widening = finite.filter((r) => !(r.start <= 0 && r.end >= DAY_MIN) && Math.max(r.start, r.end) > floor && r.start < ceiling)
+  const earliest = Math.max(floor, Math.min(hours.open, ...widening.map((r) => r.start)))
+  const latest = Math.min(ceiling, Math.max(hours.close, ...widening.map((r) => Math.max(r.start, r.end))))
   return {
-    open: Math.max(0, hours.open - 60 * Math.ceil((hours.open - earliest) / 60)),
-    close: Math.min(1440, hours.close + 60 * Math.ceil((latest - hours.close) / 60)),
+    open: Math.max(0, hours.open - HOUR_MIN * Math.ceil((hours.open - earliest) / HOUR_MIN)),
+    close: hours.close + HOUR_MIN * Math.ceil((latest - hours.close) / HOUR_MIN),
   }
 }
 
+/** Every row the board DRAWS, in minutes — `boardDay`'s rows, from the same inputs `buildLanes` draws from: the
+ *  shown bookings, each drawn staff member's effective shift and its 休憩, the 勤務不可 start, and the blocks and
+ *  offers that sit on a drawn lane. A row on no drawn lane is not drawn, so it widens nothing. */
+export function boardRows(
+  input: Pick<BuildInput, 'staff' | 'resources' | 'shifts' | 'absence' | 'blocks' | 'sellSlots'>,
+  bookings: ReadonlyArray<Pick<BoardBooking, 'onBoard' | 'startMinute' | 'endMinute'>>,
+): Array<{ start: number; end: number }> {
+  const staff = new Set(input.staff.map((s) => s.id))
+  const rooms = new Set(input.resources.map((r) => r.id))
+  const onLane = (x: { staff_id: string | null; resource_id: string | null }) =>
+    (x.staff_id != null && staff.has(x.staff_id)) || (x.resource_id != null && rooms.has(x.resource_id))
+  return [
+    ...bookings.filter((b) => b.onBoard).map((b) => ({ start: b.startMinute, end: b.endMinute })),
+    ...input.shifts.filter((s) => staff.has(s.staff_id)).flatMap((s) => [effectiveShift(s, input.absence), ...s.breaks]),
+    ...(input.absence && staff.has(input.absence.staff_id) ? [{ start: input.absence.from, end: input.absence.from }] : []),
+    ...input.blocks.filter(onLane),
+    ...input.sellSlots.filter(onLane),
+  ].map((r) => ({ start: r.start, end: r.end }))
+}
+
 /** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
- *  positions — one label per whole hour h with open ≤ h·60 < close, placed exactly as place() places a card
- *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
- *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %). */
-export function rulerLabels(axis: Hours): ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> {
+ *  positions — one label per FULL whole hour h with open ≤ h·60 and h·60 + 60 ≤ close (S26 E3b), placed exactly as place() places a card
+ *  (left = (h·60 − open)/span, width = 60/span). A whole-hour axis gives today's label set at
+ *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %).
+ *  ⚖ 10/7 S25-2 (Liam; P20's 「never the closing hour」 was the lead's rule) — the closing edge is printed as an EDGE
+ *  TICK (`edge`, at 100 %, no column) labelled with the closing hour, so 「is 21:30 inside the day?」 is on the screen.
+ *  An hour past midnight reads 翌0, 翌1 … (`hourText`); the edge tick's word is `edgeText` (a 24:00 close reads 「24」). */
+export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
   const span = axis.close - axis.open
   if (!(span > 0)) return []
-  const out: { hour: number; leftPct: number; widthPct: number }[] = []
-  for (let h = Math.ceil(axis.open / 60); h * 60 < axis.close; h++) out.push({ hour: h, leftPct: ((h * 60 - axis.open) / span) * 100, widthPct: (Math.min(60, axis.close - h * 60) / span) * 100 })
+  const out: RulerLabel[] = []
+  const fullHour = (h: number) => axis.close - h * HOUR_MIN >= HOUR_MIN // ⚖ S26 E3b — a partial last hour gets no column label (note below)
+  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) if (fullHour(h)) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (HOUR_MIN / span) * 100 })
+  out.push({ hour: axis.close / HOUR_MIN, text: edgeText(axis.close), leftPct: 100, widthPct: 0, edge: true })
   return out
+}
+
+/* ⚖ S26 Round E3b (the lead's ruling on Greptile's 「closing labels overlap」, #1145) — a whole-hour column label prints
+ *  only for a FULL hour; a partial last hour is named by the edge tick (21:30 → … 「20」 · edge 「21:30」), because at
+ *  the floor a partial column cannot hold both labels (a 30–45 minute last column is 33–50 px there; 「21」 ≈ 17 px with
+ *  padding + the right-aligned 「21:30」 ≈ 37 px). No pixel dependence: the rule is `fullHour` in rulerLabels,
+ *  close − h·60 ≥ HOUR_MIN (it replaces S26 E's RULER_MIN_COLUMN_MIN = 30). A partial FIRST hour is already never labelled: the loop starts at ⌈open/60⌉ (07:30 → 「8」),
+ *  and the gridlines take that lead from rulerLead(). The gridlines (`--hours` = span/60) are unchanged. */
+
+export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
+
+/** ⚖ 10/7 S25-1 (Liam: 「we do compress it as far as we can, but when it just becomes impossible, we introduce
+ *  scrolling」) — THE READABLE FLOOR, px per 30 minutes of the day (S25-15 (2): a time density whatever the grid
+ *  step, `floorSlots`; it was per grid cell, one opsConfig.bookingStepMin, until then): the width at which a one-cell
+ *  card still shows a two-kanji family name whole at the card's OWN type. RE-MEASURED 10/7 (the lead's ruling, round 2
+ *  item 3) in Playwright's own headless Chromium 148: a blank page, no app code, `font-family` = today.css's stack byte
+ *  for byte ("Hiragino Sans", "Hiragino Kaku Gothic ProN", … sans-serif; the computed family read back), at the card
+ *  name's type `.biz .page-today .event[data-book] > strong` (13px / 700): 「山本」 26.00 px · 「山」 13.00 · 「佐々木」
+ *  39.00 · 「ブラウン」 52.00 · 「ジョーンズ」 64.09 (a CJK ideograph is 1 em; round 1's 26 holds, so FAMILY_NAME_PX = 26);
+ *  + the tightest padding + border the card allows (S0 「tight」: left 4 = the 3 px category stripe + 1, right 1,
+ *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. A 3+-kanji family name (「佐々木」 39 px)
+ *  ellipsises at the floor — a known limit, not a bug: the card carries NO `title` (flag 8, Liam 2026-08-20: the
+ *  browser's tooltip fired mid-drag), so the full name is in the card's tap/hover detail and its aria-label. */
+export const FAMILY_NAME_PX = 26
+/** ⚖ 10/7 S25 round 3 (D5: NARROW = the family name ONLY) — the family name of a card's display name: the text before
+ *  the first whitespace (a half-width space or the full-width 「　」; JS `\s` covers U+3000) or 「・」 (U+30FB, S25-15 (10):
+ *  「ジョン・スミス」 → 「ジョン」), trimmed. The card's name
+ *  line splits on it so the MID and NARROW tiers can print the family name alone (round 2B measured the whole line, full name +
+ *  room tag, ellipsising to one kanji at the floor). A name with no space returns the whole name; at the floor it
+ *  ellipsises as the last resort, like any 3+-kanji family name. A Latin name written given-name first (「John Smith」)
+ *  keeps its FIRST token, which is the given name — the accepted known limit (S25-5); the full name stays in the card's
+ *  tap/hover detail and its aria-label. */
+export function familyNameOf(displayName: string): string {
+  const name = displayName.trim()
+  const cut = name.search(/[\s\u30FB]/)
+  return cut < 0 ? name : name.slice(0, cut)
+}
+export const CARD_TIGHT_PAD_PX = 7
+export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
+
+/** ⚖ 10/7 S25-2 (D5) + the lead's ruling, round 2 item 4 — LABEL TIERS by a card's drawn width (duration × px per
+ *  hour / 60), at the card's own type. The four boundaries, low to high:
+ *  · SLIVER below LABEL_TIER_PX.sliver = one character (FAMILY_NAME_PX / 2 = 13, 1 em) + CARD_TIGHT_PAD_PX 7 = 20 px:
+ *    the coloured bar only; the full text stays in the card's hover/tap detail.
+ *  · NARROW from 20 px: the family name only, tight padding; from the floor (minPxPer30 33) a two-kanji name is whole.
+ *  THE LINES STACK (`.biz .event strong` / `small` are display: block, one line each), so a tier needs the WIDEST
+ *  of its lines, not the sum of them (round 2B, the lead's D-3 ruling).
+ *  · MID from LABEL_TIER_PX.mid = the width that fits the wider of the name and time lines = max(FAMILY_NAME_PX 26,
+ *    CARD_TIME_PX 46) + CARD_TIGHT_PAD_PX 7 = 53 px: the FAMILY NAME · HH:MM〜 (no given name, no room tag), tight
+ *    padding, the menu/price line dropped (a 60-minute card at the floor, 66 px, keeps its time line). MID prints the
+ *    family name because any fixed boundary would chop some full names (⚖ round 4: a chopped name never beats a whole
+ *    shorter one; round 3's full name 「渡辺 さやか」 67 px ellipsised in the 66 px card's 59 px), so 53 is true for what
+ *    MID prints. CARD_TIME_PX = 「07:00〜」
+ *    at `.e-time` (11.5px; no rule sets a weight on `.biz .event small`, so the inherited 400) measured 45.34 px in the
+ *    same run (500: 46.22 · 600: 47.36 · 700: 48.89) → 46. Round 1's 37.70 was Chromium's default font, not the stack.
+ *  · WIDE from LABEL_TIER_PX.wide = the WIDEST of the three lines at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 +
+ *    border 1 + 1). Measured on the real page (round 2B, the practice gym, headless Chromium 148, `.e-tkt` 11.5px /
+ *    400): the menu/price line is the widest — 「単発 ¥11,000」 / 「単発 ¥13,750」 76.63 px (「単発 ¥6,600」 68.89),
+ *    wider than the time line (45.34) and the longest sample full name (「木村 沙也加」 69.34 at 13px / 700) — so
+ *    CARD_MENU_PX = 77 and WIDE = max(26, 46, 77) + 18 = 95 px: today's full card (the full name + the room tag + the
+ *    menu/price line; the given name joins at WIDE only), the widest measured line whole. A longer menu
+ *    line still ellipsises (the last resort).
+ *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 77 · 35 · 2), pinned by test. */
+export const CARD_TIME_PX = 46
+export const CARD_PAD_PX = 18
+export const CARD_MENU_PX = 77
+export const LABEL_TIER_PX = {
+  sliver: FAMILY_NAME_PX / 2 + CARD_TIGHT_PAD_PX,
+  mid: Math.max(FAMILY_NAME_PX, CARD_TIME_PX) + CARD_TIGHT_PAD_PX,
+  wide: Math.max(FAMILY_NAME_PX, CARD_TIME_PX, CARD_MENU_PX) + CARD_PAD_PX,
+} as const
+/** The offers' own padding + border (`.cell-price` / `.cell-packed` / `.cell-gapfill` 5 + 5; `.cell-held` 4 + 4 +
+ *  border 1 + 1): today.css's offer @container rule measures the content box, so SLIVER there is below
+ *  LABEL_TIER_PX.sliver − OFFER_PAD_PX = 10 px. */
+export const OFFER_PAD_PX = 10
+export type LabelTier = 'wide' | 'mid' | 'narrow' | 'sliver'
+export function labelTier(px: number): LabelTier {
+  return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.mid ? 'narrow' : px < LABEL_TIER_PX.wide ? 'mid' : 'wide'
+}
+
+/** The cells of the board's day on its grid unit — the strip's cell count (the CSS floor multiplies `floorSlots`). */
+export function boardCells(day: Hours, stepMin: number): number {
+  return stepMin > 0 && day.close > day.open ? Math.ceil((day.close - day.open) / stepMin) : 0
+}
+
+/** ⚖ S26 Round E (E1, Greptile P2 on #1145) — THE STRIP'S COLUMNS, one source with `place()`: each cell's width is
+ *  its real share of the day, min(step, close − start) / (close − open), so a step that does not divide the day (45
+ *  minutes on 07–24) keeps every cell under its own minute on the ruler and the last cell is the partial remainder.
+ *  The value is the strip track's `grid-template-columns` (today.css `--strip-cols`); equal `1fr` columns drifted. */
+export function stripColumns(day: Hours, stepMin: number, starts: ReadonlyArray<number>): string {
+  return starts.map((s) => `${place(s, s + stepMin, day).w}%`).join(' ')
+}
+
+/** The minutes one `minPxPer30` floor covers (its name's 30): the floor's time unit, never the store's grid step. */
+const FLOOR_SLOT_MIN = 30
+/** S25-15 (2) — the floor is a time density — 33 px per 30 minutes of the day whatever the grid step; the strip's
+ *  cells stay `boardCells` on the step. The CSS floor's multiplier (`--floor-slots`, today.css) and `trackOverflows`. */
+export function floorSlots(day: Hours): number {
+  return day.close > day.open ? Math.ceil((day.close - day.open) / FLOOR_SLOT_MIN) : 0
+}
+
+/** Whether a track `trackPx` wide must scroll sideways to keep the day at the floor (the CSS min-width's arithmetic).
+ *  `trackPx` is the TRACK alone = the scroll box's clientWidth − --label. Measured on the real gym page 07–22 (S26):
+ *  1280 open 972 − 136 = 836 → 990 − 836 = 154 px of overflow; 1180 open 872 − 136 = 736 → 254 (today.css, the S26
+ *  note under the floor rule: the page's --label is 136, not the 112 default). */
+export function trackOverflows(day: Hours, trackPx: number): boolean {
+  return trackPx < floorSlots(day) * minPxPer30
+}
+
+/** The ruler's word for an hour: the bare number, and 翌 + the hour for one past midnight (D2). */
+export const hourText = (h: number): string => (h >= HOURS_PER_DAY ? `翌${h - HOURS_PER_DAY}` : String(h))
+
+/** ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — A MIDNIGHT CLOSE READS 「24」: the closing EDGE of a day that closes
+ *  at exactly 24:00 is labelled 24, the way the settings room prints a midnight close (特別営業日's 「24:00閉店」 and its
+ *  read-only 24:00 box, SettingsScreen.tsx:2778; store-days-state.ts:92); 翌N starts only PAST it (25:00 → 翌1), for a
+ *  day that truly crosses midnight. A fractional close prints its HH:MM up to 24:00 and the 翌 form past it, always
+ *  (S25-15 (10): 1470 → 翌0:30, never 24:30). The edge tick's word only — an hour COLUMN at
+ *  24 inside a day that runs on (a bar 18–26) is still 翌0 (`hourText`). */
+export function edgeText(closeMin: number): string {
+  if (closeMin % HOUR_MIN !== 0) return closeMin > DAY_MIN ? `${hourText(Math.floor(closeMin / HOUR_MIN))}:${String(closeMin % HOUR_MIN).padStart(2, '0')}` : hhmm(closeMin)
+  const h = closeMin / HOUR_MIN
+  return h === HOURS_PER_DAY ? String(h) : hourText(h)
 }
 
 /** ⚖ §v11 V11-15 P20 — the track's gridlines take the ruler's lead: the share of the axis (percent) before its first
@@ -529,7 +700,7 @@ export interface BuildInput {
   blocks: FixtureBlock[]
   sellSlots: FixtureSellSlot[]
   decisions: FixtureDecision[]
-  /** The AXIS every item is placed on — the drawn window (`drawnWindow`). */
+  /** The AXIS every item is placed on — the board's day (`boardDay`). */
   hours: Hours
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for the wash edges that mean 開店/閉店. Absent = `hours`. */
   businessHours?: Hours
