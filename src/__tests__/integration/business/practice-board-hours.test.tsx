@@ -41,7 +41,7 @@ import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { DRAG_EDGE_STEP_PX, guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
+import { GYM, LOGIN, POLICIES, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
 import { familyNameOf, minPxPer30 } from '@/business/lib/today-board'
 
 let mockOptions: RecordedOptions = {}
@@ -605,5 +605,28 @@ it('⚖ S26 Round E (E4) — MOUNTED: at the scroll limit one zero-move frame en
     act(() => root.unmount())
     host.remove()
     restore()
+  }
+})
+
+it('⚖ S26 Round E3b — MOUNTED 10:00–21:30 (テスト自由が丘店, its recorded policy widened to 21:30 for this test only): ruler 「10」…「20」 + the edge 「21:30」, no 「21」 column, gridlines on the whole 11.5-hour span', async () => {
+  const saved = POLICIES[STORE.jiyugaoka].weekly_hours
+  const day = { open: '10:00', close: '21:30' }
+  POLICIES[STORE.jiyugaoka].weekly_hours = { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: day }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.jiyugaoka }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const ruler = Array.from(host.querySelectorAll<HTMLElement>('.time-head .hours span'))
+    expect(ruler.map((s) => s.textContent)).toEqual(['10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21:30'])
+    expect(ruler.map((s) => s.className)).toEqual([...Array(11).fill(''), 'edge']) // nothing 'off' inside the day; the close is the edge tick
+    const last = ruler.at(-2)!
+    expect(parseFloat(last.style.left) + parseFloat(last.style.width)).toBeCloseTo((660 / 690) * 100, 3) // 「20」 ends at 21:00 (660 of the 690 minutes)
+    const timeline = host.querySelector<HTMLElement>('[style*="--hours"]')!
+    expect([timeline.style.getPropertyValue('--hours'), timeline.style.getPropertyValue('--hour-lead')]).toEqual(['11.5', '']) // gridlines unchanged
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    POLICIES[STORE.jiyugaoka].weekly_hours = saved
   }
 })

@@ -131,8 +131,8 @@ export function boardRows(
 }
 
 /** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
- *  positions — one label per whole hour h with open ≤ h·60 < close (and close − h·60 ≥ RULER_MIN_COLUMN_MIN, S26 E3), placed exactly as place() places a card
- *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
+ *  positions — one label per FULL whole hour h with open ≤ h·60 and h·60 + 60 ≤ close (S26 E3b), placed exactly as place() places a card
+ *  (left = (h·60 − open)/span, width = 60/span). A whole-hour axis gives today's label set at
  *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %).
  *  ⚖ 10/7 S25-2 (Liam; P20's 「never the closing hour」 was the lead's rule) — the closing edge is printed as an EDGE
  *  TICK (`edge`, at 100 %, no column) labelled with the closing hour, so 「is 21:30 inside the day?」 is on the screen.
@@ -141,16 +141,18 @@ export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
   const span = axis.close - axis.open
   if (!(span > 0)) return []
   const out: RulerLabel[] = []
-  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) if (axis.close - h * HOUR_MIN >= RULER_MIN_COLUMN_MIN) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (Math.min(HOUR_MIN, axis.close - h * HOUR_MIN) / span) * 100 })
+  const fullHour = (h: number) => axis.close - h * HOUR_MIN >= HOUR_MIN // ⚖ S26 E3b — a partial last hour gets no column label (note below)
+  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) if (fullHour(h)) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (HOUR_MIN / span) * 100 })
   out.push({ hour: axis.close / HOUR_MIN, text: edgeText(axis.close), leftPct: 100, widthPct: 0, edge: true })
   return out
 }
 
-/** ⚖ S26 Round E (E3, Greptile P2 on #1145) — the shortest whole-hour COLUMN the ruler labels: half the ruler's unit.
- *  A column shorter than this is the last one before a close just past the hour (21:05 → the 「21」 column is 5
- *  minutes wide), and its label would sit under the right-aligned edge tick; the edge tick already prints that time
- *  (「21:05」), so the column's label is dropped and the edge tick stays. */
-export const RULER_MIN_COLUMN_MIN = 30
+/* ⚖ S26 Round E3b (the lead's ruling on Greptile's 「closing labels overlap」, #1145) — a whole-hour column label prints
+ *  only for a FULL hour; a partial last hour is named by the edge tick (21:30 → … 「20」 · edge 「21:30」), because at
+ *  the floor a partial column cannot hold both labels (a 30–45 minute last column is 33–50 px there; 「21」 ≈ 17 px with
+ *  padding + the right-aligned 「21:30」 ≈ 37 px). No pixel dependence: the rule is `fullHour` in rulerLabels,
+ *  close − h·60 ≥ HOUR_MIN (it replaces S26 E's RULER_MIN_COLUMN_MIN = 30). A partial FIRST hour is already never labelled: the loop starts at ⌈open/60⌉ (07:30 → 「8」),
+ *  and the gridlines take that lead from rulerLead(). The gridlines (`--hours` = span/60) are unchanged. */
 
 export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
 

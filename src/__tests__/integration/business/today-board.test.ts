@@ -84,7 +84,6 @@ import {
   rulerLabels,
   rulerLead,
   stripColumns,
-  RULER_MIN_COLUMN_MIN,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -457,11 +456,11 @@ describe('board derivations', () => {
     expect(late[0].leftPct).toBeCloseTo((30 / 870) * 100, 10)
     late.forEach((l) => expect(l.widthPct).toBeCloseTo((60 / 870) * 100, 10))
     expect(late.at(-1)!.leftPct + late.at(-1)!.widthPct).toBeCloseTo(100, 10)
-    const both = cols({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
-    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    const both = cols({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close → no 「22」 column (S26 E3b)
+    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
     expect(both[0].leftPct).toBeCloseTo((30 / 780) * 100, 10)
-    expect(both.at(-1)!.widthPct).toBeCloseTo((30 / 780) * 100, 10)
-    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    expect(both.at(-1)!.widthPct).toBeCloseTo((60 / 780) * 100, 10)
+    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo((750 / 780) * 100, 10) // 「21」 ends at 22:00; the edge tick names 22:30
     // ⚖ 10/7 S25-2 — the closing hour is PRINTED: one edge tick at 100 %, labelled with the closing hour (翌 past 24:00).
     expect(rulerLabels({ open: 540, close: 1140 }).at(-1)).toEqual({ hour: 19, text: '19', leftPct: 100, widthPct: 0, edge: true })
     expect(rulerLabels({ open: 420, close: 1320 }).filter((l) => l.edge).map((l) => l.text)).toEqual(['22'])
@@ -477,10 +476,21 @@ describe('board derivations', () => {
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
   })
-  it('⚖ S26 Round E (E3) — a whole-hour column shorter than RULER_MIN_COLUMN_MIN (30) is not labelled; the edge tick prints that time', () => {
-    const at = (close: number) => { const l = rulerLabels({ open: 420, close }); return [l.filter((x) => !x.edge).at(-1)!.text, l.find((x) => x.edge)!.text] }
-    expect(RULER_MIN_COLUMN_MIN).toBe(30)
-    expect([at(1265), at(1290), at(1260)]).toEqual([['20', '21:05'], ['21', '21:30'], ['20', '21']])
+  it('⚖ S26 Round E3b — a whole-hour column label prints only for a FULL hour; a partial last hour is named by the edge tick alone; a partial first hour is never a column', () => {
+    const at = (open: number, close: number) => { const l = rulerLabels({ open, close }); const c = l.filter((x) => !x.edge); return [c[0].text, c.at(-1)!.text, l.find((x) => x.edge)!.text] }
+    expect([at(420, 1265), at(420, 1290), at(420, 1260), at(420, 1320), at(450, 1320)]).toEqual([
+      ['7', '20', '21:05'], // 07:00–21:05
+      ['7', '20', '21:30'], // 07:00–21:30
+      ['7', '20', '21'], //    07:00–21:00
+      ['7', '21', '22'], //    07:00–22:00
+      ['8', '21', '22'], //    07:30–22:00: the loop starts at ⌈open/60⌉ = 8, no 「7」
+    ])
+    expect(rulerLabels({ open: 450, close: 1320 }).some((l) => l.text === '7')).toBe(false)
+    // every column is a whole hour wide; the gridline lead is unchanged
+    for (const [open, close] of [[420, 1265], [420, 1290], [450, 1320], [600, 1290]]) {
+      rulerLabels({ open, close }).filter((l) => !l.edge).forEach((l) => expect(l.widthPct).toBeCloseTo((60 / (close - open)) * 100, 10))
+      expect(rulerLead({ open, close })).toBeCloseTo(((Math.ceil(open / 60) * 60 - open) / (close - open)) * 100, 10)
+    }
   })
   it('⚖ S26 Round E (E1) — the strip\'s columns are each cell\'s real share of the day (one source with place()): steps 30 · 45 · 60 on 07–22 and 07–24', () => {
     for (const day of [{ open: 420, close: 1320 }, { open: 420, close: 1440 }]) {
