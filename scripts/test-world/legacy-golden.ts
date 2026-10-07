@@ -11,7 +11,7 @@ async function main() {
     if (e.keyPrefix !== e.type) continue
     const r = await loadRecipe(e.type, id)
     const legacy = new Set(r.legacyMembers)
-    const p = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), GOLDEN_TODAY, GOLDEN_TODAY)
+    const p = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours, legacyThrough: '9999-12-31' }), GOLDEN_TODAY, GOLDEN_TODAY)
     stores[id] = { customers: r.customers.filter((c) => legacy.has(c.member)),
       rows: p.appointments.filter((a) => legacy.has(a.member)).map((a) => [a.key, a.status, a.startsAt, a.staff, a.resource, a.menu]) }
   }

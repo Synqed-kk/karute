@@ -38,7 +38,7 @@ interface Run { at: string; type: string; store: string; today: string; created:
 export interface Manifest {
   businessId: string
   // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
-  stores: Record<string, { type: string; epoch: string; pastDays?: number; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
+  stores: Record<string, { type: string; epoch: string; pastDays?: number; legacyThrough?: string | null; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
   runs: Run[]
 }
 interface Registry {
@@ -107,10 +107,15 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
-export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number }): StoreCtx => {
+/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + futureDays; null = none. */
+export const lastWindowEnd = (runs: readonly { store: string; today: string }[], storeId: string): string | null =>
+  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, registry.futureDays)).sort().pop() ?? null
+
+export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number; legacyThrough?: string | null }, runs: readonly { store: string; today: string }[] = []): StoreCtx => {
   // ⚖ R6: an applied store plans from the pastDays its manifest recorded at first apply; a differing registry value is logged and ignored
   if (st.pastDays !== undefined && st.pastDays !== registry.pastDays) console.warn(`store ${storeId}: manifest pastDays ${st.pastDays} kept, registry.json pastDays ${registry.pastDays} ignored`)
-  return { storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom, pastDays: st.pastDays }
+  return { storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom, pastDays: st.pastDays,
+    legacyThrough: st.legacyThrough !== undefined ? st.legacyThrough : lastWindowEnd(runs, storeId) } // unrecorded: derived from the runs
 }
 
 /** --type is the original store alias; --store all preserves registry order. Unknown selectors fail closed. */
@@ -177,9 +182,11 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const policy = await read(() => core.storePolicies.get(storeId))
   const prior = m.stores[storeId]
   if (prior && prior.type !== recipe.id) throw new Error(`manifest type ${prior.type} ≠ registry type ${recipe.id}`)
-  const st = prior ?? { type: recipe.id, epoch: today, pastDays: registry.pastDays ?? 105, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
+  const st = prior ?? { type: recipe.id, epoch: today, pastDays: registry.pastDays ?? 105, legacyThrough: null, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
   if (!dry) m.stores[storeId] = st
   if (!dry && st.pastDays === undefined) st.pastDays = registry.pastDays ?? 105 // ⚖ R6: recorded once, at the first apply of this code
+  // ⚖ E2: recorded once, at the first apply of this code, from the runs before it (a new entry records null above)
+  if (st.legacyThrough === undefined) st.legacyThrough = lastWindowEnd(m.runs, storeId)
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
@@ -417,7 +424,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
         const r = await loadRecipe(t, storeId)
         const st = m.stores[storeId]
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays }), today, st?.epoch ?? today)
+        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
         console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
         if (rest.includes('--rows')) for (const a of p.appointments)
           console.log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))

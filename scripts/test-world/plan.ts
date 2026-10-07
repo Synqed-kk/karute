@@ -196,6 +196,9 @@ export interface StoreCtx {
   boardMinute?: number // defaults to the fixture board pin, 13:24 JST
   realismFrom?: string // the manifest's; absent = the plan as it always was
   pastDays?: number // ⚖ R6: the manifest's recorded pastDays (set at first apply); absent = the recipe's
+  // ⚖ E2: the last day already in core from the pre-FILL-2 planner (the manifest's legacyThrough). A legacy member's row on or
+  // before it keeps its origin/main time and staff (R5); after it — or always, for a store with no such day — it follows the side rule (R4).
+  legacyThrough?: string | null
 }
 
 export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: string): Plan {
@@ -308,10 +311,12 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       // a フリー visit goes to whoever the seeded order puts first, their 担当 included.
       const nominated = isNominated(recipe, c.member) && m.nomination
       const pool = !realDay ? [c.staff, ...others] : nominated ? [c.staff] : [c.staff, ...others].map((s) => ({ s, w: r() })).sort((a, b) => a.w - b.w).map((x) => x.s)
+      // ⚖ E2: a legacy row not yet in core (after legacyThrough) follows the side rule too; one in core keeps its old time and staff
+      const sided = profiled || (legacy.has(c.member) && !(store.legacyThrough && date <= store.legacyThrough))
       let slot: { s: number; staff: string; bed: string } | undefined
       for (const s of starts) {
         for (const staff of pool) {
-          const side = profiled ? sides?.get(staff) : undefined // ⚖ R4: a profile visit only inside the person's side
+          const side = sided ? sides?.get(staff) : undefined // ⚖ R4: a profile visit only inside the person's side
           if (side && (s < side.start || s + m.duration > side.end)) continue
           if (!free(staff, s, cells)) continue
           const bed = beds.find((b) => free(b.name, s, cells))

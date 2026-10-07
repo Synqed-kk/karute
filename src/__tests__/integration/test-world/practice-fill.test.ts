@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { SynqedClient } from '@synqed-kk/client'
-import { loadRecipe, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
+import { lastWindowEnd, loadRecipe, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
 import { addDays, bookingNotes, CANCEL_LABELS, hoursOn, jstIso, plan, sidesOf, type Plan, type Recipe } from '../../../../scripts/test-world/plan'
 
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(() => { throw new Error('pure plan attempted SDK construction') }) }))
@@ -15,10 +15,14 @@ const golden = JSON.parse(readFileSync(join(process.cwd(), 'scripts/test-world/_
 const plans = new Map<string, { r: Recipe; p: Plan }>()
 const minute = (a: { date: string; startsAt: string }) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000
 const weekday = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay()
+// the originals as core holds them: every legacy row of the TODAY window already applied (E2); a generated store has none
+const ctxOf = (id: string, r: Recipe) =>
+  storeCtx(id, { weeklyHours: r.policy.weekly_hours, legacyThrough: registry.stores[id].keyPrefix === r.id ? addDays(TODAY, registry.futureDays) : null })
 beforeAll(async () => {
   for (const [id, entry] of Object.entries(registry.stores)) {
     const r = await loadRecipe(entry.type, id)
-    plans.set(id, { r, p: plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), TODAY, TODAY) })
+    // the originals as core holds them: every legacy row of the window already applied (E2); a generated store has none
+    plans.set(id, { r, p: plan(r, ctxOf(id, r), TODAY, TODAY) })
   }
 })
 
@@ -89,7 +93,7 @@ it('T3 (R11/R13): the mean inside the type band, no weekday above 1.5 × the mea
 
 it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1), other days carry no pin rule; prices; window; labels', () => {
   for (const [id, { r, p }] of plans) {
-    const again = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), TODAY, TODAY)
+    const again = plan(r, ctxOf(id, r), TODAY, TODAY)
     expect(again).toEqual(p)
     expect(p.window).toEqual({ from: addDays(TODAY, -105), to: addDays(TODAY, 14) })
     const legacy = new Set(r.legacyMembers)
@@ -112,7 +116,7 @@ it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1),
       }
       if (a.status === 'NO_SHOW') expect(bookingNotes(a)).not.toContain('キャンセル理由')
     }
-    const future = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), addDays(TODAY, 7), TODAY)
+    const future = plan(r, ctxOf(id, r), addDays(TODAY, 7), TODAY)
     expect(p.appointments.every((a) => future.appointments.some((b) => a.key === b.key))).toBe(true)
   }
 })
@@ -120,7 +124,7 @@ it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1),
 it('R6: a manifest that recorded pastDays keeps every key when registry pastDays changes; without it the keys move', () => {
   for (const [id, { r, p }] of plans) {
     const moved = { ...r, counts: { ...r.counts, pastDays: r.counts.pastDays + 7 } }
-    const ctx = storeCtx(id, { weeklyHours: r.policy.weekly_hours })
+    const ctx = ctxOf(id, r)
     const keys = (q: Plan) => q.appointments.filter((a) => a.date >= p.window.from).map((a) => a.key).sort()
     expect(keys(plan(moved, { ...ctx, pastDays: r.counts.pastDays }, TODAY, TODAY))).toEqual(keys(p))
     expect(keys(plan(moved, ctx, TODAY, TODAY))).not.toEqual(keys(p)) // the negative: an unrecorded pastDays re-draws keys
@@ -180,4 +184,30 @@ it('R19: a day no menu fits is logged once and planned empty, without crashing t
   expect(q.appointments.length).toBeGreaterThan(0)
   expect(warn.mock.calls.filter((c) => String(c[0]).includes('overnight'))).toHaveLength(1)
   warn.mockRestore()
+})
+
+it('E2 (R5 vs R4): legacy rows in core keep their old time and staff; legacy rows not yet in core follow the side rule', () => {
+  const gym = [...plans.values()].find(({ r }) => r.id === 'personal_gym')!
+  const { r } = gym
+  const id = r.storeId!
+  const legacy = new Set(r.legacyMembers)
+  const sides = sidesOf(r.staff.map((s) => s.name), 420, 1320)!
+  const outside = (rows: Plan['appointments']) => rows.filter((a) => legacy.has(a.member)).filter((a) => { const s = sides.get(a.staff)!; return minute(a) < s.start || minute(a) + a.duration > s.end })
+  const row = (a: Plan['appointments'][number]) => [a.key, a.status, a.startsAt, a.staff, a.resource, a.menu]
+  // negative: all legacy rows in core (the golden world) — the old paths sit outside the sides
+  expect(outside(gym.p.appointments).length).toBeGreaterThan(0)
+  // no manifest entry: every row, legacy included, follows the side rule
+  expect(outside(plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), TODAY, TODAY).appointments)).toEqual([])
+  // a boundary mid-window: on or before it = the golden rows exactly; after it = inside the sides
+  const through = addDays(TODAY, -30)
+  const split = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours, legacyThrough: through }), TODAY, TODAY).appointments
+  const before = (a: { date: string }) => a.date <= through
+  expect(split.filter((a) => legacy.has(a.member) && before(a)).map(row)).toEqual(golden.stores[id].rows.filter((x: string[]) => x[2].slice(0, 10) <= through))
+  expect(outside(split.filter((a) => !before(a)))).toEqual([])
+  // the boundary: recorded wins; unrecorded = the latest run's today + futureDays; no run = none
+  const runs = [{ store: id, today: '2026-09-20' }, { store: id, today: '2026-10-01' }, { store: 'other', today: '2026-10-05' }]
+  expect(lastWindowEnd(runs, id)).toBe(addDays('2026-10-01', registry.futureDays))
+  expect(lastWindowEnd([], id)).toBeNull()
+  expect(storeCtx(id, { weeklyHours: r.policy.weekly_hours }, runs).legacyThrough).toBe(addDays('2026-10-01', registry.futureDays))
+  expect(storeCtx(id, { weeklyHours: r.policy.weekly_hours, legacyThrough: null }, runs).legacyThrough).toBeNull()
 })
