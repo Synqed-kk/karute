@@ -59,7 +59,7 @@ const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric',
 const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土']
 
 /** Canon's span: today and the six days after it. */
-const WINDOW_DAYS = 7
+export const WINDOW_DAYS = 7
 
 export interface ReservationsPropsInput {
   locale: string

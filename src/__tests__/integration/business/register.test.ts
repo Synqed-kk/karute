@@ -2419,7 +2419,8 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
     }
     // The shell's own vocabulary this room deliberately reuses, plus its own
     // state classes. Everything else must carry the `rg-` prefix.
-    const SHELL = new Set(['page', 'pg-register', 'btn', 'primary', 'danger', 'pill', 'good', 'warn', 'alert', 'indigo', 'bad', 'ok', 'attention', 'redacted', 'refund', 'unpaid', 'selected'])
+    const SHELL = new Set(['page', 'pg-register', 'btn', 'primary', 'danger', 'pill', 'good', 'warn', 'alert', 'indigo', 'bad', 'ok', 'attention', 'redacted', 'refund', 'unpaid', 'selected', 'sample-mark'])
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')).toContain('.biz .sample-mark {')
     const strays = [...rendered].filter((n) => !n.startsWith('rg-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('rg-')).length).toBeGreaterThan(30)

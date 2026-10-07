@@ -283,6 +283,7 @@ export type PlaneKey =
   // 設定 — 組織・管理
   | 'staffSettings' | 'rolePolicy' | 'connectors' | 'export' | 'auditLog' | 'language'
   | 'bookingColors' | 'colorTokens' | 'billing'
+  | 'inboxThreads' | 'registerLedger'
 
 export type PlaneState = 'sample' | 'live'
 
@@ -294,6 +295,7 @@ const PLANE_KEYS: readonly PlaneKey[] = [
   'coaching', 'sync', 'bookingPolicy', 'priceLock', 'notify',
   'staffSettings', 'rolePolicy', 'connectors', 'export', 'auditLog', 'language',
   'bookingColors', 'colorTokens', 'billing',
+  'inboxThreads', 'registerLedger',
 ]
 const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k, state])) as Record<PlaneKey, PlaneState>
 
@@ -319,6 +321,7 @@ const anySample = (planes: Readonly<Record<PlaneKey, PlaneState>>) => Object.val
  *  exists) while Business still reads the fixture — sample ON SCREEN until the
  *  read is connected. The lane's harness reads the map itself against this. */
 export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
+  inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id',
   operatingHours: 'operatingHours.open', shifts: 'FixtureShift.staff_id', absence: 'FixtureAbsence.staff_id',
   sellSlots: 'FixtureSellSlot.id', decisions: 'FixtureDecision.id', recoverySteps: 'recoverySteps',
   storeProfile: 'profile.photo', closures: 'closures[].dayOffset', opsConfig: 'opsConfig.bookingStepMin',

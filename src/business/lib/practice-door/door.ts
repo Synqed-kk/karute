@@ -14,6 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
+import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
 import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
@@ -851,6 +852,39 @@ export async function readReservationPlanes(lens: StoreLens) {
     // terminal_held included (as readDayPlanes).
     register: { cash_difference: 0, refunds: 0, terminal_held: [] },
   }
+}
+
+/** Supplied rows are the page's one listAppointments read. Standalone readers
+ *  reuse the board's dayRows memo, without liveRowsOf's fail-open wrapper. */
+async function planeBookings(actor: PracticeActor, lens: StoreLens, reach: number, supplied?: FixtureAppointment[]) {
+  const now = renderNow()
+  const from = jstDayKey(now)
+  const fixtures = appointments(now)
+  const rows = supplied ?? (await dayRows(actor, lens, { from, to: from + reach })).rows
+    .filter((r) => r.kind === 'BOOKING').map((r) => toAppointment(r, fixtures, now))
+  // One row per id: a core page overlap must never seat a thread or count money twice.
+  const unique = [...new Map(rows.map((r) => [r.id, r])).values()]
+  return clamp(unique, lens).filter((r) => {
+    const day = jstDayKey(r.starts_at)
+    return day >= from && day <= from + reach
+  })
+}
+
+export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  const today = jstDayKey(renderNow())
+  return inboxFor(await planeBookings(actor, lens, INBOX_WINDOW_DAYS - 1, rows), (b) => jstDayKey(b.starts_at) === today)
+}
+
+export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  const cutoff = Date.parse(jstSlot(0, 0, boardNow, renderNow()))
+  // Settled = what the close calls finished: 'done', or a still-'booked' visit that ended before boardNow — never in the chair, cancelled, 無断 or of unknown price.
+  const settled = (await planeBookings(actor, lens, 0, rows)).filter((a) => a.board_state !== 'noshow' && a.booked_price != null &&
+    (a.status === 'done' || (a.status === 'booked' && Date.parse(a.ends_at) < cutoff)))
+  return registerFor(settled, lensStore(lens) ?? null)
 }
 
 export async function readAnalyticsPlanes(lens: StoreLens) {

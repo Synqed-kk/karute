@@ -26,6 +26,7 @@ import {
   listStaff,
   listStoreOptions,
   renderNow,
+  sampleDateline,
   type StoreLens,
   readShellIdentity,
   practiceDoorOn,
@@ -314,7 +315,7 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
   })
 
   const props: KaruteProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
     lensLabel,
     // Canon's own subtitle (MOCK-karute-list.html:348), and it KEEPS the mock's
     // ＋新規カルテ sentence again (⚖ Liam 8/31, K-5 overturned — the argument is

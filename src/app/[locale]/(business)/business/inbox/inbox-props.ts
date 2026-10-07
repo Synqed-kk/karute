@@ -14,7 +14,8 @@
 // the string formatting. `page.tsx` keeps the admission gate, the route params
 // and the sheet import, which are the things a route entry owns.
 
-import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
+import { sampleWhole } from '@/business/lib/practice-door/sample-facade'
+import { jstSlot, jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import {
   defaultStoreId,
   listAppointments,
@@ -22,13 +23,16 @@ import {
   listMenus,
   listStoreOptions,
   readDayPlanes,
+  readInboxPlanes,
   readReservationPlanes,
   renderNow,
+  sampleDateline,
+  practiceDoorOn,
   type StoreLens,
 } from '@/business/lib/data'
 import { threads as threadPlane, type FixtureThread } from '@/business/lib/fixtures-inbox'
 import { type FixtureDecision } from '@/business/lib/fixtures-today'
-import { buildThreads, FILTERS, summarize } from '@/business/lib/inbox'
+import { buildThreads, FILTERS, INBOX_WINDOW_DAYS, summarize } from '@/business/lib/inbox'
 import { type InboxProps } from './InboxScreen'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
@@ -71,19 +75,22 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
   // ONE CLOCK READ PER RENDER (the cycle-1 law): the queue's day, its
   // deadlines and its 期限超過 flags all derive from this one instant, so a
   // render crossing JST midnight cannot put two different days on one screen.
+  const doorOn = await practiceDoorOn()
   const now = renderNow()
   const todayKey = jstDayKey(now)
 
   const [customers, appointments, menus, dayPlanes, reservationPlanes] = await Promise.all([
     listCustomers(lens),
-    listAppointments(lens),
+    listAppointments(lens, doorOn ? { from: jstSlot(0, 0, 0, now), to: new Date(Date.parse(jstSlot(INBOX_WINDOW_DAYS, 0, 0, now)) - 1).toISOString() } : {}),
     listMenus(lens),
     readDayPlanes(lens, todayKey),
     readReservationPlanes(lens),
   ])
 
+  const plane = await readInboxPlanes(lens, appointments, { threads: threadPlane })
+
   const models = buildThreads({
-    threads: world?.threads ?? threadPlane,
+    threads: world?.threads ?? plane.threads,
     customers,
     appointments,
     menus,
@@ -101,7 +108,8 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
   const storeQuery = clamped ? `?store=${encodeURIComponent(storeId!)}` : ''
 
   const props: InboxProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
+    sample: sampleWhole(doorOn, clamped ? storeId : storeOptions.map((s) => s.id), 'inboxThreads'),
     lensLabel,
     filters: FILTERS,
     threads: models.map((t) => ({
@@ -134,7 +142,10 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
       // 予約一覧で事実を確認 — a real link, but only where there IS a booking
       // to confirm. A 空き待ち has none, so the control refuses with its
       // reason rather than sending the reader to a list that cannot answer.
-      bookingHref: t.bookingNo ? `/${locale}/business/reservations${storeQuery}` : null,
+      // Keyed on the booking's PRESENCE (bookingNo is null only when the thread
+      // names no booking): a door-seated booking with no fixture twin has
+      // display_no '' and is still a real booking to confirm.
+      bookingHref: t.bookingNo !== null ? `/${locale}/business/reservations${storeQuery}` : null,
       // ⚠SETTINGS-BATCH / registry: 返信 and 対応の完了 are WRITES. Both ship
       // refused with the reason on the control itself, and the reply the room
       // WOULD send is shown above them — refusing to send is honest, hiding

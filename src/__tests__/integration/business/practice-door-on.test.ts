@@ -33,6 +33,17 @@ jest.mock('@/business/lib/data', () => {
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as data from '@/business/lib/data'
+import * as door from '@/business/lib/practice-door/door'
+import { hash } from '@/business/lib/practice-door/door-inbox-register'
+import { INBOX_WINDOW_DAYS } from '@/business/lib/inbox'
+import { WINDOW_DAYS as RESERVATIONS_WINDOW_DAYS } from '@/app/[locale]/(business)/business/reservations/reservations-props'
+import { threads as fixtureThreads } from '@/business/lib/fixtures-inbox'
+import { reservations as fixtureReservations } from '@/business/lib/fixtures-reservations'
+import { transactions as fixtureTransactions, closing as fixtureClosing, cashTolerance, type FixtureTransaction } from '@/business/lib/fixtures-register'
+import { buildLedger, ledgerTotals, expectedCash, denominationTotal } from '@/business/lib/register'
+import { inboxProps } from '@/app/[locale]/(business)/business/inbox/inbox-props'
+import { registerProps } from '@/app/[locale]/(business)/business/register/register-props'
+
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
@@ -625,6 +636,8 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
   })
   it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
+    expect(PLANE_ROW).toMatchObject({ inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id' })
+    expect(PRACTICE_PLANES).toMatchObject({ inboxThreads: 'sample', registerLedger: 'sample' })
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
     expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
@@ -838,6 +851,10 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
 })
 
 describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
+  it('S84 settlements preserve the full M-A/FE-1 aggregate', async () => {
+    await data.readRegisterPlanes(STORE.tokyo, undefined, { transactions: [], closing: null, cashTolerance: 0 })
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY)).register).toEqual({ cash_difference: 0, refunds: 0, terminal_held: [] })
+  })
   it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
     expect(register.refunds).toBeGreaterThan(0) // the fixture refund the door used to spread onto a live 純売上
     const day = await data.readDayPlanes(STORE.tokyo, TODAY)
@@ -2280,5 +2297,291 @@ describe('(S82 R2) the shared org read is bounded — the board finishes whateve
     } finally {
       quiet.mockRestore()
     }
+  })
+})
+
+
+describe('S84 — live-keyed inbox and register planes', () => {
+  const seed = APPOINTMENTS.find((a) => a.kind === 'BOOKING' && a.store_id === STORE.tokyo)!
+  const row = (id: string, extra: Partial<typeof seed> = {}) => ({ ...seed, id, customer_id: `customer-${id}`,
+    starts_at: '2026-09-14T01:00:00Z', ends_at: '2026-09-14T02:00:00Z', status: 'COMPLETED' as const,
+    booked_price_amount: 1234, booked_price_currency: 'JPY', ...extra })
+  const serve = (rows: typeof APPOINTMENTS) => {
+    const spy = withReads()
+    spy.appointmentsList.mockResolvedValue({ appointments: rows, total: rows.length, page: 1, page_size: 500 })
+    return spy
+  }
+  const carries = (id: string) => hash(id) % 23 < 5
+  const pick = (prefix: string, thread: boolean, n = 1) => {
+    const out: string[] = []
+    for (let i = 0; out.length < n; i++) if (carries(`${prefix}-${i}`) === thread) out.push(`${prefix}-${i}`)
+    return out
+  }
+  it('T-a one booking\'s thread is a function of its own id: inserting a booking relabels nobody', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => row(`s85-${i}`))
+    serve(rows)
+    const first = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(first.map((t) => t.appointment_id)).toEqual(rows.filter((r) => carries(r.id)).map((r) => r.id))
+    for (const t of first) {
+      expect(t.id).toBe(`smp-thr-${t.appointment_id}`)
+      expect(t.customer_id).toBe(rows.find((a) => a.id === t.appointment_id)!.customer_id)
+    }
+    for (const inserted of [...pick('s85-new', true), ...pick('s85-new', false)]) {
+      serve([...rows.slice(0, 10), row(inserted), ...rows.slice(10)])
+      const second = (await door.readInboxPlanes(STORE.tokyo)).threads
+      for (const t of first) expect(second.find((u) => u.id === t.id)).toEqual(t)
+      expect(second.some((t) => t.appointment_id === inserted)).toBe(carries(inserted))
+      expect(second).toHaveLength(first.length + (carries(inserted) ? 1 : 0))
+    }
+  })
+  it('T-b at 200 bookings the thread rate is the fixture 5/23 and change : delivery is 3 : 1', async () => {
+    serve(Array.from({ length: 200 }, (_, i) => row(`s85-n-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(Math.abs(threads.length - 200 * 5 / 23)).toBeLessThanOrEqual(12)
+    const change = threads.filter((t) => t.category === 'change').length
+    const delivery = threads.filter((t) => t.category === 'delivery').length
+    expect(change + delivery).toBe(threads.length)
+    expect(Math.abs(change / threads.length - 3 / 4)).toBeLessThanOrEqual(0.25 * 3 / 4)
+  })
+  it('T-c cancelled → no thread; 無断 → the noshow template; a future booking never gets it', async () => {
+    const [cancelled, absent] = pick('s85-c', true, 2)
+    const future = Array.from({ length: 60 }, (_, i) => row(`s85-f-${i}`, { status: 'SCHEDULED', starts_at: '2026-09-16T01:00:00Z', ends_at: '2026-09-16T02:00:00Z' }))
+    serve([row(cancelled, { status: 'CANCELLED' }), row(absent, { status: 'NO_SHOW' }), ...future])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.some((t) => t.appointment_id === cancelled)).toBe(false)
+    const noshow = fixtureThreads.find((t) => t.category === 'noshow')!
+    expect(threads.find((t) => t.appointment_id === absent)).toMatchObject({ category: 'noshow', subject: noshow.subject })
+    expect(threads.filter((t) => t.category === 'noshow').map((t) => t.appointment_id)).toEqual([absent])
+    expect(threads.some((t) => t.category === 'waitlist')).toBe(false)
+    serve([row(cancelled, { status: 'CANCELLED' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([])
+  })
+  it('T-d the floor: one eligible booking that its hash leaves out still gets one change thread', async () => {
+    const [quiet] = pick('s85-q', false)
+    serve([row(quiet), row(pick('s85-x', true)[0], { status: 'CANCELLED' })])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.map((t) => [t.appointment_id, t.category])).toEqual([[quiet, 'change']])
+  })
+  it('T-e a templated seat never carries the fixture\'s source proof', async () => {
+    serve(Array.from({ length: 60 }, (_, i) => row(`s85-p-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.length).toBeGreaterThan(0)
+    expect(threads.every((t) => t.source_proof === null)).toBe(true)
+  })
+  it('limits inbox reach, keeps canonical twin text and customer-only affiliation', async () => {
+    const twin = fixtureThreads.find((t) => t.category === 'change')!
+    const live = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([{ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) }])
+    expect(INBOX_WINDOW_DAYS).toBe(RESERVATIONS_WINDOW_DAYS)
+    const [d6, d7, before] = [pick('s85-d6', true)[0], pick('s85-d7', true)[0], pick('s85-y', true)[0]]
+    serve([row(d6, { starts_at: '2026-09-20T14:59:00Z' }), row(d7, { starts_at: '2026-09-20T15:00:00Z' }), row(before, { starts_at: '2026-09-13T14:59:00Z' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.map((t) => t.appointment_id)).toEqual([d6])
+    const wait = fixtureThreads.find((t) => t.appointment_id === null)!
+    serve([row('affiliated', { customer_id: liveIdOf('customers', wait.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toContainEqual({ ...wait, id: `smp-thr-${wait.id}`, customer_id: liveIdOf('customers', wait.customer_id) })
+    serve(Array.from({ length: 20 }, (_, i) => row(`mixed-${i}`, { customer_id: liveIdOf('customers', wait.customer_id)! })))
+    const mixed = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(mixed.filter((t) => t.category === 'waitlist').map((t) => t.id)).toEqual([`smp-thr-${wait.id}`])
+  })
+  it('settles only ended bookings, balances every yen and the count sheet, rejects a refund mutant', async () => {
+    const spy = serve([row('paid'), row('zero', { booked_price_amount: null }),
+      row('scheduled', { status: 'SCHEDULED' }), row('cancelled', { status: 'CANCELLED' }), row('absent', { status: 'NO_SHOW' }),
+      row('future', { status: 'SCHEDULED', ends_at: '2026-09-14T05:00:00Z' }), row('now', { status: 'SCHEDULED', ends_at: '2026-09-14T04:24:00Z' }),
+      row('tomorrow', { starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' })])
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    expect(plane.transactions.map((t) => t.appointment_id).sort()).toEqual(['paid', 'scheduled'])
+    const bookings = await data.listAppointments(STORE.tokyo)
+    const assertMoney = (transactions: FixtureTransaction[]) => {
+      expect(transactions.flatMap((t) => t.tenders).every((t) => t.flag === '')).toBe(true)
+      expect(transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(2468)
+      const totals = ledgerTotals(buildLedger({ transactions, appointments: bookings, customers: [], menus: [], terminalHeld: [], auditTrail: {}, lensStoreId: STORE.tokyo }))
+      expect(totals).toMatchObject({ net: 2468, refunds: 0, outstanding: 0 })
+      expect(plane.closing!.cash_counted - expectedCash({ float: plane.closing!.cash_float, paidIn: plane.closing!.cash_paid_in, paidOut: plane.closing!.cash_paid_out, bankDeposit: plane.closing!.cash_bank_deposit }, totals.cash)).toBe(0)
+      expect(denominationTotal(plane.closing!.cash_count_sheet)).toBe(plane.closing!.cash_counted)
+    }
+    assertMoney(plane.transactions)
+    const mutant = structuredClone(plane.transactions)
+    mutant[0].tenders.push({ label: '現金', flag: 'refund', amount: -1 })
+    expect(() => assertMoney(mutant)).toThrow()
+    expect((await door.readRegisterPlanes(VIEW_ALL, bookings)).closing).toBeNull()
+    const calls = spy.appointmentsList.mock.calls.length
+    await data.readRegisterPlanes(STORE.tokyo, bookings, { transactions: [], closing: null, cashTolerance: 0 })
+    await data.readInboxPlanes(STORE.tokyo, bookings, { threads: [] })
+    expect(spy.appointmentsList).toHaveBeenCalledTimes(calls)
+  })
+  const unsettledCheck = (props: unknown) => JSON.stringify(props).match(/\{"key":"unsettled".*?"done":(true|false)/)
+  it('T-f/T-g/T-h the register settles what the close calls finished, and nothing in the chair or unpriced', async () => {
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' }), row('chair', { status: 'IN_PROGRESS' }), row('unpriced', { booked_price_amount: null })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => t.appointment_id)).toEqual(['late'])
+    const check = unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)!
+    expect(check[1]).toBe('false')
+    expect(check[0]).toContain('¥0')
+    expect(check[0]).not.toContain('¥1,234')
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' })])
+    expect(unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)![1]).toBe('true')
+  })
+  it('T-i a twin with no tenders falls back to the single-tender rule', async () => {
+    const empty = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length === 0)!
+    serve([row(liveIdOf('appointments', empty.appointment_id!)!, { booked_price_amount: 0 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: 0, flag: '' }])
+  })
+  it('T-j over 30 mixed rows Σ tenders = Σ booked_price of the settled bookings, and only finished visits settle', async () => {
+    const statuses = ['COMPLETED', 'SCHEDULED', 'IN_PROGRESS', 'CANCELLED', 'NO_SHOW'] as const
+    serve(Array.from({ length: 30 }, (_, i) => row(`s85-m-${i}`, { status: statuses[i % 5],
+      booked_price_amount: i % 7 === 0 ? null : 1000 + i * 37, ends_at: i % 3 === 0 ? '2026-09-14T06:00:00Z' : '2026-09-14T02:00:00Z' })))
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    const byId = new Map((await data.listAppointments(STORE.tokyo)).map((a) => [a.id, a]))
+    const settled = plane.transactions.map((t) => byId.get(t.appointment_id!)!)
+    expect(settled.length).toBeGreaterThan(0)
+    expect(settled.every((a) => a.booked_price != null && a.board_state !== 'noshow' && (a.status === 'done' || a.status === 'booked'))).toBe(true)
+    expect(plane.transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(settled.reduce((n, a) => n + a.booked_price!, 0))
+  })
+  it('R4 a live booking without a display number reads as a booking; a fixture walk-in still reads as one', async () => {
+    const fact = (r: { facts: Array<{ label: string; value: string }> }) => r.facts.find((f) => f.label === '予約')?.value
+    serve([row('visit')])
+    const on = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(on.rows).toHaveLength(1)
+    expect(fact(on.rows[0])).not.toBe('予約なし・店頭販売')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect((await registerProps({ locale: 'ja', store: STORE_A })).props.rows.map(fact)).toContain('予約なし・店頭販売')
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+  })
+  it('S86 TEST 1 planes on Dev 銀座, props on the Tokyo lens with ids that have no 予約一覧 row: today\'s seats carry a deadline, 要対応 moves, 配信失敗 counts; an exception seat, a later day and a no-show keep none', async () => {
+    const store = STORE.devGinza
+    expect([STORE.tokyo, STORE.yokohama]).not.toContain(store) // not a registry twin: none of its own bookings has a 予約一覧 row
+    const at = (id: string, hourUtc: number) => row(id, { store_id: store, customer_id: seed.customer_id, status: 'SCHEDULED',
+      starts_at: `2026-09-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, ends_at: `2026-09-14T${String(hourUtc + 1).padStart(2, '0')}:00:00Z` })
+    const early = pick('s86-e', true, 6).map((id) => at(id, 1)) // 10:00 JST — before the pinned board now
+    const late = pick('s86-l', true, 6).map((id) => at(id, 6)) // 15:00 JST — after it
+    const record = fixtureReservations.find((r) => r.appointment_id === fixtureThreads.find((t) => t.category === 'change' && t.appointment_id)!.appointment_id)!
+    const exceptionId = liveIdOf('appointments', record.appointment_id)!
+    const [tomorrowId] = pick('s86-t', true)
+    const tomorrow = { ...at(tomorrowId, 1), starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' } // 10:00 JST tomorrow
+    const [absentId] = pick('s86-n', false)
+    const absent = { ...at(absentId, 1), status: 'NO_SHOW' as const }
+    const extra = [tomorrow, absent]
+    serve([...early, ...late, at(exceptionId, 2), ...extra])
+    const planes = (await door.readInboxPlanes(store)).threads
+    expect(planes.find((t) => t.appointment_id === tomorrowId)!.due).toBeNull()
+    expect(planes.find((t) => t.appointment_id === absentId)).toMatchObject({ category: 'noshow', due: null })
+    const exceptionSeat = planes.find((t) => t.appointment_id === exceptionId)!
+    expect(exceptionSeat.due).toBeNull()
+    const seated = planes.filter((t) => t.appointment_id !== null && ![exceptionId, tomorrowId, absentId].includes(t.appointment_id))
+    expect(seated.length).toBe(12)
+    for (const t of seated) expect(t.due).toBe(jstMinuteOfDay([...early, ...late].find((r) => r.id === t.appointment_id)!.starts_at))
+    const records = (await data.readReservationPlanes(store)).reservations.map((r) => r.appointment_id)
+    expect(seated.filter((t) => records.includes(t.appointment_id!))).toEqual([])
+    // The props half on the Tokyo lens: the recorded harness lists no customers for Dev 銀座, and buildThreads drops
+    // a thread whose customer the lens cannot read. These s86-* ids have no fixture twin, so no 予約一覧 row either.
+    serve([...early, ...late, at(exceptionId, 2), ...extra].map((r) => ({ ...r, store_id: STORE.tokyo })))
+    const tokyoRecords = (await data.readReservationPlanes(STORE.tokyo)).reservations.map((r) => r.appointment_id)
+    expect(seated.filter((t) => tokyoRecords.includes(t.appointment_id!))).toEqual([])
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const shown = props.threads.filter((t) => seated.some((s) => s.id === t.id))
+    expect(shown).toHaveLength(12)
+    for (const t of shown) expect(t.dueLabel).not.toBe('期限なし')
+    expect(props.summary.attention).toBeGreaterThan(0)
+    expect(shown.filter((t) => early.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'attention' && t.overdue)).toBe(true)
+    expect(shown.filter((t) => late.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'new' && !t.overdue)).toBe(true)
+    expect(props.threads.find((t) => t.id === `smp-thr-${tomorrowId}`)).toMatchObject({ dueLabel: '期限なし', status: 'new', overdue: false })
+    const failed = shown.filter((t) => t.category === 'delivery')
+    expect(failed.length).toBeGreaterThan(0)
+    expect(failed.every((t) => t.deliveryState === 'undelivered')).toBe(true)
+    expect(props.summary.failures).toBeGreaterThanOrEqual(failed.length)
+  })
+  it('S86 TEST 2 door ON on the TWIN store: a twin thread keeps its 予約一覧 record\'s deadline, non-null and null alike', async () => {
+    const withDeadline = fixtureReservations.find((r) => r.deadline !== null && fixtureThreads.some((t) => t.appointment_id === r.appointment_id))!
+    const withoutDeadline = fixtureReservations.find((r) => r.deadline === null && fixtureThreads.some((t) => t.appointment_id === r.appointment_id && t.category !== 'noshow'))!
+    expect([withDeadline.appointment_id, withDeadline.deadline, withoutDeadline.appointment_id]).toEqual(['apt-31', 12 * 60 + 30, 'apt-28'])
+    const ids = [withDeadline, withoutDeadline].map((r) => liveIdOf('appointments', r.appointment_id)!)
+    serve(ids.map((id) => row(id, { customer_id: seed.customer_id, status: 'SCHEDULED', starts_at: '2026-09-14T06:00:00Z', ends_at: '2026-09-14T07:00:00Z' })))
+    const planes = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(ids.map((id) => planes.find((t) => t.appointment_id === id)!.due)).toEqual([null, null])
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const label = (id: string) => props.threads.find((t) => t.id === `smp-thr-${id}`)!.dueLabel
+    expect(label(ids[0])).toMatch(/^12:30まで/)
+    expect(label(ids[1])).toBe('期限なし')
+  })
+  it('S86 P1 a seated thread on a live booking with no fixture twin links 予約一覧 (display_no \'\'); a twin keeps its href exactly', async () => {
+    const [liveId] = pick('s86-h', true)
+    const twinId = liveIdOf('appointments', 'apt-31')!
+    serve([liveId, twinId].map((id) => row(id, { customer_id: seed.customer_id, status: 'SCHEDULED', starts_at: '2026-09-14T06:00:00Z', ends_at: '2026-09-14T07:00:00Z' })))
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const thread = (id: string) => props.threads.find((t) => t.id === `smp-thr-${id}`)!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(thread(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(thread(twinId).bookingNo).toBeTruthy()
+    expect(thread(twinId).bookingHref).toBe(href)
+  })
+  it('S86 P1 register sibling: a live booking with no fixture twin gets a 予約一覧 link on its register row; a twin row keeps its href exactly', async () => {
+    const [liveId] = pick('s86-r', false)
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const twinId = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(liveId, { customer_id: seed.customer_id }), row(twinId, { customer_id: seed.customer_id, booked_price_amount: twin.tenders.reduce((n, t) => n + t.amount, 0) })])
+    const txOf = new Map((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => [t.appointment_id, t.id]))
+    const { props } = await registerProps({ locale: 'ja', store: STORE.tokyo })
+    const rowOf = (id: string) => props.rows.find((r) => r.id === txOf.get(id))!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(rowOf(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(rowOf(twinId).bookingNo).toBeTruthy()
+    expect(rowOf(twinId).bookingHref).toBe(href)
+  })
+  it('R5 one id served twice → one thread, one transaction', async () => {
+    // The id CARRIES a thread (hash % 23 < 5), so the floor alone cannot make the inbox half pass.
+    const [dup] = pick('s85-dup', true)
+    serve([row(dup), row(dup)])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.filter((t) => t.appointment_id === dup)).toHaveLength(1)
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions).toHaveLength(1)
+  })
+  it('S86 F2 inboxProps reads appointments from JST midnight to the last ms of day INBOX_WINDOW_DAYS − 1', async () => {
+    // Pinned clock: today is 2026-09-14 JST, whose 00:00 is 2026-09-13T15:00Z (the reach test above: 09-13T14:59Z is
+    // outside, 09-20T14:59Z inside). inboxProps asks for to = jstSlot(7, 0, 0, now) − 1 ms = 2026-09-20T14:59:59.999Z;
+    // the door hands core the exclusive day bound after it, 2026-09-20T15:00:00.000Z — that is the call pinned here.
+    const spy = serve([row(pick('s86-w', true)[0])])
+    await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const window = spy.appointmentsList.mock.calls.map(([q]) => q as { from?: string; to?: string; store_id?: string }).find((q) => q.from === '2026-09-13T15:00:00.000Z')
+    expect(window).toMatchObject({ to: '2026-09-20T15:00:00.000Z', store_id: STORE.tokyo })
+  })
+  it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const id = liveIdOf('appointments', twin.appointment_id!)!
+    const price = twin.tenders.reduce((n, t) => n + t.amount, 0)
+    serve([row(id, { booked_price_amount: price })])
+    const kept = (await door.readRegisterPlanes(STORE.tokyo)).transactions[0]
+    expect(kept.tenders).toEqual(twin.tenders)
+    expect(kept.tenders).not.toBe(twin.tenders)
+    expect(kept.tenders[0]).not.toBe(twin.tenders[0])
+    expect(kept.audit).toEqual(twin.audit)
+    expect(kept.audit).not.toBe(twin.audit)
+    serve([row(id, { booked_price_amount: price + 1 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: price + 1, flag: '' }])
+    withReads().appointmentsList.mockRejectedValue(new Error('S84 timeout'))
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    as(LOGIN.musubi)
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+  })
+  it('OFF returns exactly the `off` object passed and ON ignores it for the door readers; props keep overrides and table marks', async () => {
+    const offInbox = { threads: fixtureThreads }
+    const offRegister = { transactions: fixtureTransactions, closing: fixtureClosing[STORE_A], cashTolerance }
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(await data.readInboxPlanes(STORE_A, undefined, offInbox)).toBe(offInbox)
+    expect(await data.readRegisterPlanes(STORE_A, undefined, offRegister)).toBe(offRegister)
+    expect(await data.readRegisterPlanes(VIEW_ALL, undefined, offRegister)).toBe(offRegister)
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    const onInbox = await data.readInboxPlanes(STORE.tokyo, undefined, offInbox)
+    expect(onInbox).not.toBe(offInbox)
+    expect(onInbox).toEqual(await door.readInboxPlanes(STORE.tokyo))
+    expect(await data.readRegisterPlanes(STORE.tokyo, undefined, offRegister)).toEqual(await door.readRegisterPlanes(STORE.tokyo))
+    const inbox = (await inboxProps({ locale: 'ja', store: STORE.tokyo })).props
+    const register = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(inbox.threads.length).toBeGreaterThan(0)
+    expect(register.sample).toEqual({ form: 'whole' })
+    expect(inbox.sample).toEqual({ form: 'whole' })
+    expect(inbox.dateline).toBe(data.sampleDateline(data.renderNow(), inbox.lensLabel, true))
+    expect(register.dateline).not.toContain('サンプル')
+    expect((await inboxProps({ locale: 'ja', store: STORE.tokyo, world: { threads: [] } })).props.threads).toEqual([])
   })
 })

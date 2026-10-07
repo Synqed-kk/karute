@@ -340,7 +340,7 @@ describe('the fixture data door', () => {
       // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
       // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
       // ⚖ §v11 V11-8 (PR-B) — `./sample-day`: the give-way, door.ts's pure sibling (a NAMED allowance, never a widening).
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './door-inbox-register', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
       // ⚖ §v11 — the store's own 営業時間 · 定休日 reading; ⚖ S81 (Liam-applied) — through Karute's ONE hours resolver
       // `@/lib/operating-hours` (pure: jst · calendar-range · a type-only capacity import) and `../clock` (the shown day's
       // JST key); `./core-reach` stays the read's TYPE only.
@@ -787,13 +787,16 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-inbox',
         '@/business/lib/fixtures-today',
         '@/business/lib/inbox',
+        '@/business/lib/practice-door/sample-facade',
       ],
       'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [
         // ⚖ Liam 8/23 — the room's ? opens the family's guided tour, so it wires
         // its own trigger and overlay to the shared engine. Pure functions only:
         // this room reads no data on the client and that is unchanged.
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/inbox',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],
@@ -816,14 +819,17 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         // PR-2 (Greptile on #992): the operator now comes from the door (readShellIdentity).
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
         '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/register',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],

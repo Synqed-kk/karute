@@ -363,7 +363,7 @@ describe('the sample facade', () => {
 const DOOR_READERS = [
   'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'readShellViewer', 'listMenus',
   'readUnresolvedCounts', 'listResources', 'listShiftsByDay', 'listAbsenceByDay', 'listBlocksByDay',
-  'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
+  'readDayPlanes', 'readReservationPlanes', 'readInboxPlanes', 'readRegisterPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
   'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
   'readCanManageCardColor', // ⚖ A2 · G5 — may this operator save the card colour (core's sheet)
@@ -377,7 +377,7 @@ const DOOR_WRITERS = ['writeReserveCardColor'] as const
 const DOOR_HELPERS = ['canManageSettings', 'firstToken', 'orgSettingsOf'] as const // ⚖ R53 — firstToken: data.ts's door-OFF card mark reuses the ONE splitter
 
 describe('the door', () => {
-  it('exports exactly the twenty-three readers and the one writer, and three helpers', () => {
+  it('exports exactly the twenty-five readers and the one writer, and three helpers', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS, ...DOOR_HELPERS].sort())
   })
   // ⚖ S81 N3 — store-hours.ts is the ONE Business file the fence lets reach src/lib/operating-hours: it exports its own
@@ -480,5 +480,31 @@ describe('PR-2b — the rooms read ROW data only through the door', () => {
     // The scan is reading real imports: the rooms' OTHER fixture reads (staffCards, bedSecuredProof …) are seen.
     expect(taken.length).toBeGreaterThan(0)
     expect(forbidden(taken)).toEqual([])
+  })
+})
+
+
+describe('S84 — one sample dateline home', () => {
+  it('keeps the OFF text exactly, removes the ON prefix, and preserves analytics span wording', () => {
+    const now = new Date('2026-09-14T04:24:00Z')
+    expect(data.sampleDateline(now, '店舗', false)).toBe('サンプルデータ 9月14日 / 店舗')
+    expect(data.sampleDateline(now, '店舗', true)).toBe('9月14日 / 店舗')
+    for (const door of [false, true]) expect(data.sampleDateline(now, '', door, '9月（9月14日時点）'))
+      .toBe(`${door ? '' : 'サンプルデータ '}9月（9月14日時点）`)
+  })
+  it('all seven sites use the helper; no props assembly retains a sample-prefix literal', () => {
+    const root = join(process.cwd(), 'src/app/[locale]/(business)/business')
+    for (const room of ['inbox', 'register', 'analytics', 'ask-ai', 'karute', 'recording']) {
+      const src = readFileSync(join(root, room, `${room}-props.ts`), 'utf8')
+      expect(src.match(/dateline: sampleDateline\(/g)).toHaveLength(room === 'ask-ai' ? 2 : 1)
+    }
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) walk(path)
+        else if (entry.name.endsWith('-props.ts')) expect(readFileSync(path, 'utf8')).not.toContain('サンプルデータ ${')
+      }
+    }
+    walk(root)
   })
 })

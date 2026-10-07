@@ -84,6 +84,12 @@ export type StoreLens = string | { viewAll: true }
  *  practice door); re-exported so every room's import keeps working. */
 export { renderNow }
 
+/** One dateline for sample-backed rooms; analytics supplies its existing span body. */
+export function sampleDateline(now: Date, lensLabel: string, door: boolean, body?: string): string {
+  const day = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' }).format(now)
+  return `${door ? '' : 'サンプルデータ '}${body ?? `${day} / ${lensLabel}`}`
+}
+
 const lensStoreId = (lens: StoreLens): string | undefined =>
   typeof lens === 'string' ? lens : undefined
 
@@ -627,6 +633,24 @@ export async function readReservationPlanes(lens: StoreLens) {
     // one question; `heldInLens` is the one reading, so both doors make it.
     register: { ...register, terminal_held: heldInLens(register.terminal_held, lens) },
   }
+}
+
+type InboxPlanes = Awaited<ReturnType<typeof door.readInboxPlanes>>
+type RegisterPlanes = Awaited<ReturnType<typeof door.readRegisterPlanes>>
+
+/** ON → the door seats the sample world on the live rows (`off` is ignored);
+ *  OFF → the caller's own fixture plane, returned as passed. The props import
+ *  their fixture plane themselves, so this file's import list stays sealed. */
+export async function readInboxPlanes(lens: StoreLens, rows: FixtureAppointment[] | undefined, off: InboxPlanes): Promise<InboxPlanes> {
+  if (await doorOn()) return door.readInboxPlanes(lens, rows)
+  assertLens(lens)
+  return off
+}
+
+export async function readRegisterPlanes(lens: StoreLens, rows: FixtureAppointment[] | undefined, off: RegisterPlanes): Promise<RegisterPlanes> {
+  if (await doorOn()) return door.readRegisterPlanes(lens, rows)
+  assertLens(lens)
+  return off
 }
 
 /** The 売上分析 planes (canon's footnote: every figure derives from the 売上・
