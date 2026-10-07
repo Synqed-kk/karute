@@ -3752,5 +3752,14 @@
     "lastRunFailed": "失敗",
     "lastRunCounts": "新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件",
     "windowEmpty": "稼働時間帯の開始と終了が同じため、自動では同期されません"
+  },
+  "unassignedStaff": {
+    "mark": "担当未定",
+    "pickerTitle": "担当スタッフを選択",
+    "pickerLead": "選んだスタッフがこの予約の担当になります",
+    "assigned": "担当を{staff}に設定しました",
+    "recordBlockedReadOnly": "担当が決まると録音を開始できます",
+    "sheetSubtitle": "担当がまだ決まっていない予約です。担当を選択してください。",
+    "sheetSubtitleReadOnly": "担当がまだ決まっていない予約です。"
   }
 }

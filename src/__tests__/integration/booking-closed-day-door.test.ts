@@ -35,6 +35,8 @@ jest.mock('@synqed-kk/client', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'staff-1' }, { id: 'staff-2' }]),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -58,6 +60,8 @@ const resolveStoreScope = jest.fn(async () => ({
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: () => resolveStoreScope(),
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
+  // The REAL store rule the staff check (PR-B Q1) judges with.
+  filterStaffIdsToStore: jest.requireActual('@/lib/auth/store-scope').filterStaffIdsToStore,
 }))
 
 /** Open 10:00–24:00 every weekday, SAVED — the business-wide blob. */
@@ -108,6 +112,7 @@ const listClosedDays = jest.fn(
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate, delete: jest.fn() },
   packs: { listRecentRedemptions: jest.fn(async () => []) },
+  staff: { get: jest.fn(async (id: string) => ({ id, business_id: 'business-1', is_active: true })) },
   staffStores: { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) },
   stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) },
   storePolicies: {

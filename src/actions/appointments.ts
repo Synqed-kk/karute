@@ -12,7 +12,7 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -37,17 +37,23 @@ import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   cancelAppointmentCore,
   createAppointmentCore,
+  STAFF_NOT_ON_ROSTER,
   deleteAppointmentCore,
   markNoShowAppointmentCore,
   restoreAppointmentCore,
   updateAppointmentCore,
+  assignStaffToBooking,
 } from '@/lib/appointments/mutations'
 
 export { validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
-  staff_profile_id: string
+  /** null = the booking has no staff yet (an import core could not match);
+   *  shown as 担当未定, never a recording target (isRecordingTarget). */
+  staff_profile_id: string | null
+  /** The booking's store (null = none) — the 担当未定 picker scopes by it. */
+  store_id?: string | null
   client_id: string
   start_time: string
   duration_minutes: number
@@ -157,6 +163,17 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
     const scope = await resolveStoreScope()
     if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' }
     if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
+    // Fix round 6 F3 (attack read #4) — THE WEB TWIN of the facade create's
+    // roster gate (app/api/app/v1/appointments/route.ts): the dialog can only
+    // submit ROSTER staff, so the action enforces the same set, above the
+    // create-on-miss resolver. Nothing is resolved, created or written.
+    // This is the CHEAP FIRST check only: getStaffList is a 24 h cache, so a
+    // card switched off inside that window still passes here. The authority is
+    // the live active + business check in createAppointmentCore (fix round 7).
+    const roster = await getStaffList()
+    if (!roster.some((s) => s.id === input.staffProfileId)) {
+      return { error: STAFF_NOT_ON_ROSTER }
+    }
     // The active-store cookie is an ISOLATION input, not just a view label:
     // it is clamped below against the viewer's RBAC scope so a stale /
     // out-of-scope cookie can't stamp a booking into another branch.
@@ -199,7 +216,7 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -279,6 +296,9 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
     // (the record page falls back to the next candidate instead). Mirrors the
     // by-date hide.
     if (isTerminalStatus(a.status)) return null
+    // A booking with no staff (担当未定) is shown on the day list but is NOT a
+    // recording target: a recording is always one staff's session. Kept strict
+    // on purpose — the record page asks for the staff to be assigned first.
     if (!a.staff_id || !a.customer_id) return null
     // Store clamp: the list reads are store-filtered, but this per-id read would
     // otherwise let a branch-restricted staff resolve ANY booking by deep link.
@@ -515,10 +535,11 @@ export async function deleteAppointment(appointmentId: string) {
   }
 }
 
-// NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no
-// dynamic import — verified by exhaustive grep). Armed deliberately (Liam
-// ruling 2026-07-26: everything gets logged) so a future booking-edit
-// feature that picks this up is audited by default from day one.
+// NOTE (2026-10-06, PR-B): still no UI caller — the 担当未定 sheet assigns
+// through assignAppointmentStaff below (assign-only-empty), never this generic
+// edit; the facade has no twin of it. Armed deliberately (Liam ruling
+// 2026-07-26: everything gets logged) so a future booking-edit feature that
+// picks this up is audited by default from day one.
 export async function updateAppointment(
   appointmentId: string,
   updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
@@ -565,6 +586,37 @@ export async function updateAppointment(
         orgSaved: orgSettings?.operating_hours_saved,
       },
       scope, // store lock — see cancelAppointment (#948)
+    )
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      updateTag('dashboard')
+    }
+    return result
+  } catch (err) {
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+}
+
+// 担当未定 (PR-B): the ONE write the staff-less booking's sheet makes — give a
+// booking that has NO staff its staff. assignStaffToBooking refuses a booking
+// that already has one (reassignment is out of PR-B), then runs the shared
+// store + active + business check and the staff-only write. The thin shell's
+// port of this name posts …/assign-staff, which calls the same core function.
+export async function assignAppointmentStaff(appointmentId: string, staffProfileId: string) {
+  try {
+    await requireCapability('bookings.manage')
+    const [synqed, auditActor, scope] = await Promise.all([
+      getSynqedClient(),
+      resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
+    ])
+    const result = await assignStaffToBooking(
+      synqed,
+      appointmentId,
+      // R3: resolved inside, only after the store lock and the refusals.
+      () => resolveSynqedStaffId(staffProfileId),
+      { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
+      scope,
     )
     if ('success' in result) {
       revalidatePath('/appointments')

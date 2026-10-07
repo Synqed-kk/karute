@@ -264,10 +264,10 @@ describe('GET /api/app/v1/screens/record', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    // Fell through to the default target (today's own booking) — never bound to
-    // the other store's row, and cust-2's name never reaches the caller.
-    expect(body.nextAppointment?.id).toBe('appt-1')
-    expect(body.nextAppointment?.customerId).toBe('cust-1')
+    // Never bound to the other store's row, and cust-2's name never reaches
+    // the caller. Fix round 3 (R9): an explicit id that resolves to no row
+    // opens NO recorder — it no longer falls through to today's own booking.
+    expect(body.nextAppointment).toBeNull()
     expect(JSON.stringify(body)).not.toContain('佐藤 次郎')
   })
 

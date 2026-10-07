@@ -57,6 +57,7 @@ function client(weekly: unknown = CLOSES_1800, closed: string[] = []) {
     synqed: {
       appointments: { get: jest.fn(async () => STORED), update },
       packs: {},
+      staff: { get: jest.fn(async (id: string) => ({ id, business_id: 'business-1', is_active: true })) },
       staffStores: { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) },
       stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) },
       storePolicies: { get: policyGet, listClosedDays },

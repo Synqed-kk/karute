@@ -38,7 +38,7 @@ const dayAgendaByBusiness = unstable_cache(
     storeId: string,
     dateStr: string,
   ): Promise<AppointmentRow[]> => fetchDayAgendaRows(businessId, storeId, dateStr),
-  ['appointments-day-agenda-v2'],
+  ['appointments-day-agenda-v3'],
   // Invalidation: every web appointment mutation (create/update/delete/
   // cancel/restore/no-show) and the karute writers fire updateTag('dashboard')
   // — web edits repaint immediately. 'staff-list' covers the baked

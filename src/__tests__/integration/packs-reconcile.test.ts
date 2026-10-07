@@ -16,6 +16,7 @@ const appt = (over: Partial<FindUnprocessedInput['appointments'][number]> = {}) 
   isCancelled: false,
   isImport: false,
   hasKarute: false,
+  staffId: 's1' as string | null,
   ...over,
 })
 const base = (over: Partial<FindUnprocessedInput> = {}): FindUnprocessedInput => ({
@@ -33,6 +34,17 @@ describe('findUnprocessedVisits', () => {
     const { visits } = findUnprocessedVisits(base())
     expect(visits).toEqual([
       { customerId: 'c1', appointmentId: 'a1', visitDay: '2026-06-09', kind: 'unrecorded' },
+    ])
+  })
+  it('a 担当未定 (staff-less) visit with no karute is NOT 記録なし: not a recording target', () => {
+    const { visits, truncated } = findUnprocessedVisits(base({ appointments: [appt({ staffId: null })] }))
+    expect(visits).toEqual([])
+    expect(truncated).toBe(0)
+  })
+  it('a 担当未定 (staff-less) visit WITH a karute and no tick still shows as 消化のみ: the ticket is owed', () => {
+    const { visits } = findUnprocessedVisits(base({ appointments: [appt({ staffId: null, hasKarute: true })] }))
+    expect(visits).toEqual([
+      { customerId: 'c1', appointmentId: 'a1', visitDay: '2026-06-09', kind: 'unredeemed' },
     ])
   })
   it('karute exists but pack not ticked → 消化のみ未処理', () => {

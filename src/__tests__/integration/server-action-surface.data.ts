@@ -6,6 +6,7 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
   'src/actions/appointments-window.ts': [
   ],
   'src/actions/appointments.ts': [
+    'assignAppointmentStaff',
     'cancelAppointment',
     'createAppointment',
     'deleteAppointment', // UNSURE: no production caller found through this export.

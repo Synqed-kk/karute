@@ -3752,5 +3752,14 @@
     "lastRunFailed": "Failed",
     "lastRunCounts": "{created} new, {updated} updated, {cancelled} cancelled",
     "windowEmpty": "The start and end of the active hours are the same, so this store does not sync automatically"
+  },
+  "unassignedStaff": {
+    "mark": "Unassigned",
+    "pickerTitle": "Choose staff",
+    "pickerLead": "The person you pick takes this booking.",
+    "assigned": "Assigned to {staff}",
+    "recordBlockedReadOnly": "Recording opens once staff is assigned",
+    "sheetSubtitle": "No staff assigned yet. Choose who takes this booking.",
+    "sheetSubtitleReadOnly": "No staff assigned yet."
   }
 }

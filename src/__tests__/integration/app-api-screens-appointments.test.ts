@@ -339,7 +339,7 @@ const route = { params: Promise.resolve({}) }
 
 // The `from` the merged route actually asks core for, for a JST day.
 //
-// Since the capacity side landed, `windowFor` asks for 86,400,000 ms BEFORE
+// Since the capacity side landed, `shownWindowFor` asks for 86,400,000 ms BEFORE
 // every window it reads, so a booking that starts before day 1's midnight and
 // runs into it is in the rows the intersection index needs. The lead-in moves
 // no count — every consumer re-applies its own YMD spans — so the numbers these
@@ -499,6 +499,37 @@ describe('GET /api/app/v1/screens/appointments', () => {
 
     expect(dto.weekData).toBeNull()
     expect(dto.monthData).toBeNull()
+  })
+
+  // ⚖ PR-B X1 — a 担当未定 booking (core staff_id null) must ride the phone's
+  // wire: ReservationViewDTO.staffId is nullable, never '' or absent (the
+  // sheet wrapper routes on a falsy staffId; '' or undefined must never be the
+  // only thing between a staff-less booking and 録音開始).
+  it('a day with a staff-less booking → 200 and its reservationView carries staffId null', async () => {
+    const staffLess = {
+      id: 'appt-3',
+      staff_id: null,
+      customer_id: 'cust-1',
+      starts_at: inMs(180),
+      duration_minutes: 45,
+      title: 'カラー',
+      notes: null,
+      created_at: inMs(-600),
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+    }
+    const rows = [...dayRows, staffLess]
+    listAppointments.mockResolvedValue({
+      appointments: rows as typeof dayRows,
+      total: rows.length,
+    })
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    const view = dto.reservationViews.find((r) => r.id === 'appt-3')
+    expect(view).toBeDefined()
+    expect(view!.staffId).toBeNull()
+    expect(dto.reservationViews.map((r) => r.id).sort()).toEqual(['appt-1', 'appt-2', 'appt-3'])
   })
 
   it('?staff=self returns only the viewer\'s rows', async () => {
@@ -800,6 +831,32 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.dayTotals!.hoursSaved).toBe(false)
   })
 
+  // Fix round 3 (reader S3): the phone route's day line under a staff filter —
+  // 件 == rows with a 担当未定 booking on the day (shownWindowFor's shownUnder).
+  it.each([
+    ['self', ['appt-1', 'appt-nostaff']],
+    ['profile-2', ['appt-2', 'appt-nostaff']],
+  ])('?staff=%s: dayTotals.count === reservationViews.length with a staff-less row', async (staff, ids) => {
+    const onDay = [
+      { ...dayRows[0], starts_at: '2026-09-15T01:00:00.000Z' },
+      { ...dayRows[1], status: 'SCHEDULED', status_reason: null, starts_at: '2026-09-15T02:00:00.000Z' },
+      { ...dayRows[0], id: 'appt-nostaff', staff_id: null, starts_at: '2026-09-15T03:00:00.000Z' },
+    ]
+    listAppointments.mockResolvedValue({
+      appointments: onDay as typeof dayRows,
+      total: onDay.length,
+    })
+    const res = await GET(
+      req({}, `https://s/api/app/v1/screens/appointments?view=day&date=2026-09-15&staff=${staff}`),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.reservationViews.map((r) => r.id).sort()).toEqual([...ids].sort())
+    expect(dto.dayTotals).not.toBeNull()
+    expect(dto.dayTotals!.count).toBe(dto.reservationViews.length)
+  })
+
   it('?view=month reads the PREVIOUS span as well and carries 先月同期間比 on the wire', async () => {
     // Core answers each window with rows that really lie inside it: two counted
     // bookings in last month's compared days (plus one BEFORE the window, which
@@ -842,7 +899,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // previous one, which starts seven days before the 1st.
     //
     // Each `from` also carries the route's ONE-DAY LEAD-IN: since the capacity
-    // side landed, `windowFor` asks core for 86,400,000 ms before every window
+    // side landed, `shownWindowFor` asks core for 86,400,000 ms before every window
     // it reads, so a booking that starts before day 1's midnight and runs into
     // it is in the rows the intersection index needs. It moves no count — the
     // compare re-applies its own YMD spans — which is why 先月同期間比 is still
@@ -853,7 +910,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
 
   it('the previous span is clamped EXACTLY like the month read — same store, same 担当', async () => {
     // ⚖ store isolation: a store-restricted staffer's comparison must never
-    // widen to the business. The code went through the same `windowFor`
+    // widen to the business. The code went through the same `shownWindowFor`
     // closure already — but nothing pinned it, so a previous-span read with an
     // empty clamp survived the entire suite.
     staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
@@ -879,9 +936,119 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(prev).toBeDefined()
     expect(prev!.store_id).toBe(month!.store_id)
     expect(prev!.staff_id).toBe(month!.staff_id)
-    // …and not vacuously equal: the clamp and the 担当 filter really were on.
+    // …and not vacuously equal: the clamp really was on. The 担当 filter is
+    // applied by the list's own rule AFTER the read (round 5), so neither side
+    // asks core for a staff_id — staff-less bookings count on both sides.
     expect(month!.store_id).toBe('store-A')
-    expect(month!.staff_id).toBe('staff-core-1')
+    expect(month!.staff_id).toBeUndefined()
+  })
+
+  // Round 5: week, month and the 先月同期間比 base under a staff filter count a
+  // 担当未定 booking, as the day line does. Core is mocked to honour staff_id
+  // EQUALITY, as it does, so a read that still filtered at core loses it.
+  const r5Row = (id: string, staffId: string | null, day: string) => ({
+    id,
+    staff_id: staffId,
+    customer_id: 'cust-1',
+    starts_at: new Date(`${day}T10:00:00+09:00`).toISOString(),
+    duration_minutes: 60,
+    title: null,
+    notes: null,
+    created_at: new Date(`${day}T09:00:00+09:00`).toISOString(),
+    status: 'SCHEDULED',
+    source: 'MANUAL',
+  })
+  const coreHonoursStaffEquality = (pick: (from: string) => ReturnType<typeof r5Row>[]) =>
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const q = (opts[0] ?? {}) as { from?: string; staff_id?: string }
+      const all = pick(q.from ?? '')
+      const rows = q.staff_id ? all.filter((r) => r.staff_id === q.staff_id) : all
+      return { appointments: rows as unknown as typeof dayRows, total: rows.length }
+    })
+  const rangeCalls = () =>
+    (listAppointments.mock.calls as unknown as { from?: string; staff_id?: string }[][])
+      .map((c) => c[0])
+      .filter((c) => c?.from !== undefined)
+  const shownCount = (dto: Awaited<ReturnType<typeof dtoOf>>) =>
+    dto.weekData
+      ? dto.weekData.reduce((n, d) => n + d.count, 0)
+      : dto.monthData!.filter((c) => c.inMonth).reduce((n, c) => n + c.count, 0)
+
+  it.each([
+    ['week', 'self', 'staff-core-1', 'staff-core-2'],
+    ['week', 'profile-2', 'staff-core-2', 'staff-core-1'],
+    ['month', 'self', 'staff-core-1', 'staff-core-2'],
+    ['month', 'profile-2', 'staff-core-2', 'staff-core-1'],
+  ])('?view=%s&staff=%s: 件 includes the staff-less booking, every range read without staff_id', async (
+    view, staff, own, other,
+  ) => {
+    coreHonoursStaffEquality(() => [
+      r5Row('r5-own', own, '2026-09-15'),
+      r5Row('r5-other', other, '2026-09-15'),
+      r5Row('r5-nostaff', null, '2026-09-16'),
+    ])
+    const res = await GET(
+      req({}, `https://s/api/app/v1/screens/appointments?view=${view}&date=2026-09-15&staff=${staff}`),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(shownCount(dto)).toBe(2)
+    const ranged = rangeCalls()
+    expect(ranged.length).toBeGreaterThan(0)
+    for (const c of ranged) expect(c.staff_id).toBeUndefined()
+  })
+
+  it.each([
+    ['self', 'staff-core-1', 'staff-core-2'],
+    ['profile-2', 'staff-core-2', 'staff-core-1'],
+  ])('?view=month&staff=%s: the 先月同期間比 base includes last month\'s staff-less booking', async (
+    staff, own, other,
+  ) => {
+    // This month: own + 2 staff-less (+ other) = 3 shown. Last month's
+    // compared days: own + 1 staff-less (+ other) = 2 → +1件. A core-side
+    // staff filter would read 1 vs 1 → 0.
+    coreHonoursStaffEquality((from) =>
+      from < new Date('2026-08-01T00:00:00+09:00').toISOString()
+        ? [
+            r5Row('p-own', own, '2026-08-03'),
+            r5Row('p-nostaff', null, '2026-08-04'),
+            r5Row('p-other', other, '2026-08-04'),
+          ]
+        : [
+            r5Row('t-own', own, '2026-09-02'),
+            r5Row('t-nostaff-1', null, '2026-09-03'),
+            r5Row('t-nostaff-2', null, '2026-09-04'),
+            r5Row('t-other', other, '2026-09-04'),
+          ],
+    )
+    const res = await GET(
+      req({}, `https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15&staff=${staff}`),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(shownCount(dto)).toBe(3)
+    expect(dto.monthCompareDelta).toBe(1)
+    const prev = rangeCalls().find((c) => c.from === askedFrom('2026-07-25'))
+    expect(prev).toBeDefined()
+    expect(prev!.staff_id).toBeUndefined()
+  })
+
+  it.each(['week', 'month'])('?view=%s with an unplaceable ?staff= keeps the staff-less rows only, never empty', async (view) => {
+    coreHonoursStaffEquality(() => [
+      r5Row('r5-a', 'staff-core-1', '2026-09-15'),
+      r5Row('r5-b', 'staff-core-2', '2026-09-15'),
+      r5Row('r5-nostaff', null, '2026-09-16'),
+    ])
+    const res = await GET(
+      req({}, `https://s/api/app/v1/screens/appointments?view=${view}&date=2026-09-15&staff=somebody-who-left`),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(shownCount(dto)).toBe(1)
+    for (const c of rangeCalls()) expect(c.staff_id).toBeUndefined()
   })
 
   it('with the 先月同期間比 switch OFF the route reads NOTHING extra', async () => {
@@ -1098,5 +1265,62 @@ describe('⚖ W0.5 — a 臨時営業日 reaches the phone open, and the wire st
     expect(cell('2026-09-16').closed).toBe(false)
     expect(cell('2026-09-23').closed).toBe(true)
     expect(JSON.stringify(body)).not.toContain('"special"')
+  })
+})
+
+// ⚖ FIX ROUND 3 item 11 (S2, picker side) — the picker's rows are the DAY rows,
+// and the day fetch is store-clamped at route.ts (`storeId` = clamp.storeId,
+// passed to getAppointmentsByDateWithClient). Through the REAL clamp: a
+// branch viewer's picker never lists another store's booking or staff. The
+// fake core honours store_id the way core's server-side filter does.
+describe('⚖ FIX ROUND 3 item 11 — the 担当未定 picker under a clamped viewer', () => {
+  it('clamped to store-A: only store-A staff-less rows get a picker, offering only store-A staff', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'bookings.manage']))
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const staffless = (id: string, store: string) => ({
+      id,
+      staff_id: null,
+      store_id: store,
+      customer_id: 'cust-1',
+      starts_at: inMs(90),
+      duration_minutes: 60,
+      title: null,
+      notes: null,
+      created_at: inMs(-600),
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+    })
+    const all = [staffless('u-A', 'store-A'), staffless('u-B', 'store-B')]
+    listAppointments.mockImplementation(async (...a: unknown[]) => {
+      const sid = (a[0] as { store_id?: string } | undefined)?.store_id
+      const rows = sid ? all.filter((r) => r.store_id === sid) : all
+      return { appointments: rows, total: rows.length } as never
+    })
+    const coreStaff = fakeClient.staff.list
+    fakeClient.staff.list = jest.fn(async () => ({
+      staff: [
+        { id: 'staff-core-1', user_id: 'auth-user-1', name: 'Mika Tanaka', is_active: true },
+        { id: 'staff-core-2', user_id: 'profile-2', name: 'Yuko Sato', is_active: true },
+      ],
+    }))
+    // auth-user-1 works at store-B only; profile-2 at store-A only.
+    storeStaffIdSetForBusiness.mockImplementation(async (_l: unknown, sid: unknown) =>
+      sid === 'store-A' ? new Set(['profile-2']) : new Set(['auth-user-1']),
+    )
+    try {
+      const res = await GET(req({ 'store-id': 'store-A' }), route)
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.canAssign).toBe(true)
+      expect(dto.assignStaffIdsByBooking).toEqual({ 'u-A': ['profile-2'] })
+      expect(JSON.stringify(dto.assignStaffIdsByBooking)).not.toContain('auth-user-1')
+      const storeIds = (listAppointments.mock.calls as unknown as { store_id?: string }[][]).map(
+        (c) => c[0]?.store_id,
+      )
+      expect(new Set(storeIds)).toEqual(new Set(['store-A']))
+    } finally {
+      fakeClient.staff.list = coreStaff
+      storeStaffIdSetForBusiness.mockReset()
+    }
   })
 })

@@ -34,7 +34,8 @@ export type DisplayStatus =
 
 export interface ReservationView {
   id: string
-  staffId: string
+  /** null = no staff yet (担当未定); every filter keeps it, nothing records on it. */
+  staffId: string | null
   /** Display name of the assigned staff — populated from the staff list at
    *  adapter time so the mobile agenda row can render "担当 {name}" without
    *  re-looking it up. Empty string when the staff record is missing. */
@@ -175,7 +176,7 @@ export function appointmentsToReservationViews(
     return {
       id: r.id,
       staffId: r.staff_profile_id,
-      staffName: staffNameById.get(r.staff_profile_id) ?? '',
+      staffName: r.staff_profile_id ? staffNameById.get(r.staff_profile_id) ?? '' : '',
       startTimeHm: hm(r.start_time),
       durationMin: r.duration_minutes,
       customerName,
@@ -192,7 +193,9 @@ export function appointmentsToReservationViews(
       statusReason: r.status_reason,
       statusSetByName: r.status_set_by_name,
       statusSetAt: r.status_set_at,
-      staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
+      staffColorKey: r.staff_profile_id
+        ? staffColors.get(r.staff_profile_id)?.key ?? 'neutral'
+        : 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
       isFirstTimeVisit: isFirstTimeCustomer,

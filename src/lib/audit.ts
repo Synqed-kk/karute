@@ -245,6 +245,7 @@ export type FacadeEndpointKey =
   | 'appointment.create'
   | 'appointment.noShow'
   | 'appointment.restore'
+  | 'appointment.assignStaff'
   | 'askAi.read'
   | 'audit.list'
   | 'customer.ai.bodyPrediction'
@@ -429,6 +430,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'appointment.cancel': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#cancelAppointmentCore' },
   'appointment.noShow': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#markNoShowAppointmentCore' },
   'appointment.restore': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#restoreAppointmentCore' },
+  'appointment.assignStaff': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#updateAppointmentCore' },
   // dashboard pack mutations (design-parity Gap B-1 PR 2): the trail lives
   // in the rows themselves (dismissed_by / contacted_by stamps on the
   // packs tables), and the web actions emit no app-side audit for these
