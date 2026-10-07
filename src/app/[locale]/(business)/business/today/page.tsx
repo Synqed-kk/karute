@@ -62,7 +62,8 @@ import {
   dayBookings,
   dayTotals,
   decisionTitle,
-  drawnWindow,
+  boardDay,
+  boardRows,
   hhmm,
   laneMinutes,
   openDecisions,
@@ -266,9 +267,9 @@ export default async function TodayPage({
   }
 
   const bookings = dayBookings(input)
-  // ⚖ §v11 V11-15(a)(b) — the AXIS is the drawn window (the store's hours grown around every card); the store's own
-  // hours stay the RULE (the washes' 開店/閉店, the sell and guard frames, the dialogs). The plane is never written.
-  const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))
+  // ⚖ §v11 V11-15(a)(b), amended ⚖ 10/7 S25-2 — the AXIS is the board's day (the store's hours grown around every drawn
+  // row); the store's own hours stay the RULE (the washes' 開店/閉店, the sell and guard frames, the dialogs). The plane is never written.
+  const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })
   const lanes = buildLanes({ ...input, hours: drawn, businessHours: planes.operatingHours }, bookings)
   const minutes = laneMinutes(input, bookings)
   const util = utilization(minutes)

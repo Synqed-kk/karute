@@ -60,7 +60,8 @@ import {
   bookingCategory,
   buildLanes,
   dayBookings,
-  drawnWindow,
+  boardDay,
+  boardRows,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -385,26 +386,26 @@ describe('board derivations', () => {
       operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
     } as unknown as BuildInput
     const bookings = dayBookings(input)
-    const card = buildLanes({ ...input, hours: drawnWindow(gym, bookings) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
+    const card = buildLanes({ ...input, hours: boardDay({ hours: gym, rows: boardRows(input, bookings) }) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
     expect(card && [card.x >= 0, card.x <= 100, card.w >= 0, card.x + card.w <= 100 + 1e-9]).toEqual([true, true, true, true])
   })
 
   // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
-  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; grown in whole hours from the store\'s own edges', () => {
+  it('§v11 V11-15 P11 — boardDay(): inside and edge-touching grow nothing; outside grows to the whole hour; never before 0, no clamp past 1440 (⚖ S25-2); grown in whole hours from the store\'s own edges', () => {
     const gym = { open: 420, close: 1320 }
-    const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
-    expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
-    expect(drawnWindow(gym, at([420, 480], [1260, 1320]))).toEqual(gym)
-    expect(drawnWindow(gym, at([390, 450]))).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
-    expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
-    expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
-    expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
-    expect(drawnWindow(gym, at([1410, 30]))).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
-    const w = drawnWindow(gym, at([395, 1395]))
+    const at = (...spans: Array<[number, number]>) => spans.map(([start, end]) => ({ start, end }))
+    expect(boardDay({ hours: gym, rows: at([600, 660], [1000, 1100]) })).toEqual(gym)
+    expect(boardDay({ hours: gym, rows: at([420, 480], [1260, 1320]) })).toEqual(gym)
+    expect(boardDay({ hours: gym, rows: at([390, 450]) })).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
+    expect(boardDay({ hours: gym, rows: at([1290, 1350]) })).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
+    expect(boardDay({ hours: gym, rows: at([1350, 1395]) })).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
+    expect(boardDay({ hours: gym, rows: at([-10, 20], [1430, 1500]) })).toEqual({ open: 0, close: 1500 }) // ⚖ S25-2: never before 0; past 24:00 is drawn (25:00), no board clamp
+    expect(boardDay({ hours: gym, rows: at([1410, 30]) })).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
+    const w = boardDay({ hours: gym, rows: at([395, 1395]) })
     expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
     // B3: growth is anchored at the store's own edges — a fractional pair keeps its left edge (the drag lattice's anchor).
-    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 630, close: 1110 })
-    expect(drawnWindow({ open: 630, close: 1110 }, at([600, 640], [1100, 1130]))).toEqual({ open: 570, close: 1170 })
+    expect(boardDay({ hours: { open: 630, close: 1110 }, rows: [] })).toEqual({ open: 630, close: 1110 })
+    expect(boardDay({ hours: { open: 630, close: 1110 }, rows: at([600, 640], [1100, 1130]) })).toEqual({ open: 570, close: 1170 })
   })
 
   // ⚖ §v11 V11-15 fix round 1 — P15: a bed's turnover is cut by the store's closing time, not by an axis a late card grew.
@@ -455,11 +456,15 @@ describe('board derivations', () => {
     expect(rulerLead({ open: 600, close: 600 })).toBe(0)
   })
 
-  // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
-  it('§v11 V11-15 P17 — only bookings grow the axis: the page feeds drawnWindow its drawn cards alone, and a shift or 勤務不可 past close leaves the axis at the store\'s hours', () => {
+  // ⚖ 10/7 S25-2 (Liam) — amends P17 (stress mutant M3, 「only BOOKINGS grow the axis」): every DRAWN row widens the day.
+  it('⚖ S25-2 — every drawn row widens the day: the page feeds boardDay every drawn row, a shift past close grows the day, and a 勤務不可 that cuts the shift keeps it at the store\'s hours', () => {
     const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(page).toContain('const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))')
-    expect(page.split('drawnWindow(').length - 1).toBe(1)
+    expect(page).toContain('const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })')
+    expect(page.split('boardDay(').length - 1).toBe(1)
+    // ONE SOURCE: the store's hours never enter a width/position formula in the board's three files — only boardDay's day does.
+    for (const f of ['src/business/lib/today-board.ts', 'src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'src/app/[locale]/(business)/business/today/today-interactions.ts']) {
+      expect(readFileSync(join(process.cwd(), f), 'utf8').split('\n').filter((l) => /operatingHours/.test(l) && /place\(|Pct|--x|--w|\/ \(|scroll/.test(l))).toEqual([])
+    }
     const gym = { open: 420, close: 1320 }
     const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
     const row = { ...base, id: 'apt-in-hours', staff_id: 'p-late-shift', resource_id: null, starts_at: '2026-09-14T03:00:00.000Z', ends_at: '2026-09-14T04:00:00.000Z' } // 12:00–13:00 JST
@@ -471,8 +476,10 @@ describe('board derivations', () => {
       operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
     } as unknown as BuildInput
     const bookings = dayBookings(input)
-    const axis = drawnWindow(gym, bookings)
-    expect(axis).toEqual(gym)
+    const axis = boardDay({ hours: gym, rows: boardRows(input, bookings) })
+    expect(axis).toEqual(gym) // the 勤務不可 from 21:40 cuts the drawn shift there (effectiveShift), so nothing is drawn past close
+    const noAbsence = { ...input, absence: null } as unknown as BuildInput
+    expect(boardDay({ hours: gym, rows: boardRows(noAbsence, dayBookings(noAbsence)) })).toEqual({ open: 420, close: 1440 }) // the shift to 23:20 → 24:00
     const items = buildLanes({ ...input, hours: axis, businessHours: gym }, bookings).flatMap((l) => l.items)
     expect(items.length).toBeGreaterThan(1) // the card and the 勤務不可 — never a vacuous pass
     expect(items.filter((i) => !(i.x >= 0 && i.x + i.w <= 100 + 1e-9))).toEqual([])

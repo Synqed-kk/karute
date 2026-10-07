@@ -48,7 +48,7 @@ export interface Hours {
 }
 
 /** Percent placement on the timeline. The window is the board's DRAWN window
- *  (`drawnWindow`), so the hour ruler and the cards are the same axis by
+ *  (`boardDay`), so the hour ruler and the cards are the same axis by
  *  construction — canon's own sheet drew a 15-column ruler under 11 hours of
  *  cards, and the lines and the cards did not line up.
  *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: the INPUTS are clamped
@@ -69,21 +69,45 @@ export function place(start: number, end: number, hours: Hours): { x: number; w:
   }
 }
 
-/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE DRAWN WINDOW, the axis every
- *  card is placed on: the store's own hours, grown in whole hours FROM its own
- *  edges until every card fits, clamped to [0, 1440]. Only bookings grow it
- *  (never a shift, wash, break, absence, block or sell slot); one inside the
- *  hours or touching an edge grows nothing. A row whose end wrapped past
- *  midnight (end < start) grows it to its START. Anchored at the business edges,
- *  so a whole-hour pair gives whole hours and a fractional pair keeps today's
- *  left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
-export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
-  const earliest = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
-  const latest = Math.max(hours.close, ...bookings.map((b) => Math.max(b.startMinute, b.endMinute)))
+/** Minutes in one hour: the ruler's unit and the day's rounding unit (a clock fact, not a duration setting). */
+const HOUR_MIN = 60
+
+/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE BOARD'S DAY, the one axis the ruler, every card, the now-line, the
+ *  60分配置 strip and the booth rows are placed on: the store's own hours, grown in whole hours FROM its own edges
+ *  until every row fits. ⚖ 10/7 S25-2 (Liam) — EVERY DRAWN ROW widens the day (`boardRows`: bookings, shifts and
+ *  their 休憩, 勤務不可, blocks, offers; the washes and turnovers end at the store's edges or a shift's by
+ *  construction), never only bookings (V11-15(a)'s 「only bookings grow it」 was the lead's rule, DECISIONS S24-2).
+ *  It never opens before 0 and MAY close past 1440 — no board clamp (whether settings accept such a day is Q-20).
+ *  One inside the hours or touching an edge grows nothing. A row whose end wrapped past midnight (end < start)
+ *  grows it to its START. Anchored at the business edges, so a whole-hour pair gives whole hours and a fractional
+ *  pair keeps today's left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
+export function boardDay({ hours, rows }: { hours: Hours; rows: ReadonlyArray<{ start: number; end: number }> }): Hours {
+  const earliest = Math.min(hours.open, ...rows.map((r) => r.start))
+  const latest = Math.max(hours.close, ...rows.map((r) => Math.max(r.start, r.end)))
   return {
-    open: Math.max(0, hours.open - 60 * Math.ceil((hours.open - earliest) / 60)),
-    close: Math.min(1440, hours.close + 60 * Math.ceil((latest - hours.close) / 60)),
+    open: Math.max(0, hours.open - HOUR_MIN * Math.ceil((hours.open - earliest) / HOUR_MIN)),
+    close: hours.close + HOUR_MIN * Math.ceil((latest - hours.close) / HOUR_MIN),
   }
+}
+
+/** Every row the board DRAWS, in minutes — `boardDay`'s rows, from the same inputs `buildLanes` draws from: the
+ *  shown bookings, each drawn staff member's effective shift and its 休憩, the 勤務不可 start, and the blocks and
+ *  offers that sit on a drawn lane. A row on no drawn lane is not drawn, so it widens nothing. */
+export function boardRows(
+  input: Pick<BuildInput, 'staff' | 'resources' | 'shifts' | 'absence' | 'blocks' | 'sellSlots'>,
+  bookings: ReadonlyArray<Pick<BoardBooking, 'onBoard' | 'startMinute' | 'endMinute'>>,
+): Array<{ start: number; end: number }> {
+  const staff = new Set(input.staff.map((s) => s.id))
+  const rooms = new Set(input.resources.map((r) => r.id))
+  const onLane = (x: { staff_id: string | null; resource_id: string | null }) =>
+    (x.staff_id != null && staff.has(x.staff_id)) || (x.resource_id != null && rooms.has(x.resource_id))
+  return [
+    ...bookings.filter((b) => b.onBoard).map((b) => ({ start: b.startMinute, end: b.endMinute })),
+    ...input.shifts.filter((s) => staff.has(s.staff_id)).flatMap((s) => [effectiveShift(s, input.absence), ...s.breaks]),
+    ...(input.absence && staff.has(input.absence.staff_id) ? [{ start: input.absence.from, end: input.absence.from }] : []),
+    ...input.blocks.filter(onLane),
+    ...input.sellSlots.filter(onLane),
+  ].map((r) => ({ start: r.start, end: r.end }))
 }
 
 /** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
@@ -529,7 +553,7 @@ export interface BuildInput {
   blocks: FixtureBlock[]
   sellSlots: FixtureSellSlot[]
   decisions: FixtureDecision[]
-  /** The AXIS every item is placed on — the drawn window (`drawnWindow`). */
+  /** The AXIS every item is placed on — the board's day (`boardDay`). */
   hours: Hours
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for the wash edges that mean 開店/閉店. Absent = `hours`. */
   businessHours?: Hours
