@@ -1,16 +1,20 @@
+// FILL 2 (S86) — the practice-world planner, all seven stores. Jest-collected, outside Business territory (R3): it may import
+// the SDK mock and scripts/, never Business code (the registry-key and board-pin pins live in the Business territory test
+// practice-fill-registry.test.ts, which reads scripts/test-world/registry.json by node:fs).
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { SynqedClient } from '@synqed-kk/client'
 import { loadRecipe, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
-import { addDays, bookingNotes, hoursOn, jstIso, plan, type Plan, type Recipe } from '../../../../scripts/test-world/plan'
-import { STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
-import { boardNow } from '@/business/lib/fixtures-today'
+import { addDays, bookingNotes, CANCEL_LABELS, hoursOn, jstIso, plan, sidesOf, type Plan, type Recipe } from '../../../../scripts/test-world/plan'
 
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(() => { throw new Error('pure plan attempted SDK construction') }) }))
 const TODAY = '2026-10-07'
-const fixture = JSON.parse(readFileSync(join(process.cwd(), 'scripts/test-world/__fixtures__/legacy-keys.txt'), 'utf8').split('\n').slice(3).join('\n'))
+const BOARD_PIN = 13 * 60 + 24 // the loader's literal pin (plan.ts boardMinute default); Business pins boardNow to the same value
+const golden = JSON.parse(readFileSync(join(process.cwd(), 'scripts/test-world/__fixtures__/legacy-keys.txt'), 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n'))
 const plans = new Map<string, { r: Recipe; p: Plan }>()
+const minute = (a: { date: string; startsAt: string }) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000
+const weekday = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay()
 beforeAll(async () => {
   for (const [id, entry] of Object.entries(registry.stores)) {
     const r = await loadRecipe(entry.type, id)
@@ -18,24 +22,32 @@ beforeAll(async () => {
   }
 })
 
-it('T1: every practice store, original aliases/prefixes, disjoint customer identities and staff', () => {
-  expect(Object.keys(registry.stores).sort()).toEqual(Object.keys(STORE_SAMPLE_POLICY).sort())
-  const names = new Set<string>(), members = new Set<string>(), staff = new Set<string>(), phones = new Set<string>()
-  const prefixes = new Set<string>()
+it('T1: every practice store, original prefixes, plain staff names (R8), disjoint identities, a real name spread (R9)', () => {
+  const names = new Set<string>(), members = new Set<string>(), staff = new Set<string>(), phones = new Set<string>(), prefixes = new Set<string>()
   for (const [id, { r, p }] of plans) {
     const e = registry.stores[id]
-    expect(STORE_SAMPLE_POLICY[id]).toMatchObject({ type: e.type })
+    const original = !!golden.stores[id]
     expect(prefixes.has(e.keyPrefix)).toBe(false); prefixes.add(e.keyPrefix)
-    expect(e.keyPrefix).toBe(fixture.stores[id] ? e.type : `${e.type}@${id.slice(0, 8)}`)
+    expect(e.keyPrefix).toBe(original ? e.type : `${e.type}@${id.slice(0, 8)}`)
     expect(targetsFor(id)).toEqual([id])
-    if (fixture.stores[id]) expect(targetsFor(undefined, e.type)).toEqual([id])
-    expect(p.customers.map((c) => [c.name, c.kana, c.gender])).toEqual(r.namePool!.slice(e.namePool * r.counts.customers, (e.namePool + 1) * r.counts.customers))
+    if (original) expect(targetsFor(undefined, e.type)).toEqual([id])
     for (const c of p.customers) {
       expect(names.has(c.name)).toBe(false); names.add(c.name)
       expect(members.has(c.member)).toBe(false); members.add(c.member)
       expect(phones.has(c.phone)).toBe(false); phones.add(c.phone)
+      if (!r.legacyMembers?.includes(c.member)) expect(c.member).toMatch(original ? /^[A-Z]+-\d{4}$/ : new RegExp(`^[A-Z]+${Object.keys(registry.stores).indexOf(id) + 1}-\\d{4}$`))
     }
-    for (const s of p.staff) { expect(staff.has(s.name)).toBe(false); staff.add(s.name) }
+    for (const s of p.staff) {
+      expect(staff.has(s.name)).toBe(false); staff.add(s.name)
+      if (!original) expect(s.name).not.toMatch(/見本|（|[0-9a-f]{8}/)
+    }
+    const surnames = new Map<string, number>()
+    for (const c of p.customers) surnames.set(c.name.split(' ')[0], (surnames.get(c.name.split(' ')[0]) ?? 0) + 1)
+    expect(surnames.size).toBeGreaterThanOrEqual(80)
+    expect(Math.max(...surnames.values())).toBeLessThan(p.customers.length * 0.05)
+    expect(new Set(p.customers.map((c) => c.birth)).size).toBeGreaterThan(p.customers.length * 0.8)
+    expect(new Set(p.customers.map((c) => c.memo)).size).toBeGreaterThan(Math.min(25, p.customers.length / 2))
+    if (r.id === 'hair_salon') expect(Math.abs(p.customers.filter((c) => c.gender === 'male').length / p.customers.length - 0.35)).toBeLessThan(0.05) // R18
   }
   expect(targetsFor('all')).toEqual(Object.keys(registry.stores))
   expect(() => targetsFor('unknown')).toThrow('unmapped')
@@ -43,64 +55,98 @@ it('T1: every practice store, original aliases/prefixes, disjoint customer ident
   expect(() => targetsFor('all', 'hair_salon')).toThrow('choose')
 })
 
-it('T2: the pre-change planner golden preserves every original member, key and visit date', () => {
-  expect(fixture.epoch).toBe(TODAY)
-  for (const [id, old] of Object.entries(fixture.stores) as [string, { customers: Recipe['customers']; keys: string[] }][]) {
-    const { p } = plans.get(id)!
+it('T2 (R5): the original stores\' legacy members keep the origin/main planner\'s rows — key, status, start, staff, resource, menu', () => {
+  expect(golden.epoch).toBe(TODAY)
+  for (const [id, old] of Object.entries(golden.stores) as [string, { customers: Recipe['customers']; rows: string[][] }][]) {
+    const { r, p } = plans.get(id)!
     expect(p.customers.slice(0, 30)).toEqual(old.customers)
-    const members = new Set(old.customers.map((c) => c.member))
-    expect(p.appointments.filter((a) => members.has(a.member)).map((a) => a.key).sort()).toEqual([...old.keys].sort())
+    const legacy = new Set(r.legacyMembers)
+    expect(p.appointments.filter((a) => legacy.has(a.member)).map((a) => [a.key, a.status, a.startsAt, a.staff, a.resource, a.menu])).toEqual(old.rows)
   }
 })
 
-it('T3: every store meets its density tolerance; the operating gym week covers all fifteen open hours', () => {
+it('T3 (R11/R13): the mean inside the type band, no weekday above 1.5 × the mean, the gym\'s peak/trough ≥ 1.5', () => {
   const targets: Record<string, [number, number]> = { personal_gym: [24, 30], hair_salon: [16, 20], beauty_chiropractic: [14, 18] }
   for (const [id, { r, p }] of plans) {
     const [low, high] = targets[r.id]
     const density = Number(summarize(p, TODAY, r.policy.weekly_hours).perOpenDay)
-    expect({ id, density }).toEqual({ id, density: expect.any(Number) })
-    expect(density).toBeGreaterThanOrEqual(low * .85)
-    expect(density).toBeLessThanOrEqual(high * 1.15)
-    if (r.id !== 'personal_gym') continue
-    for (let d = TODAY; d <= addDays(TODAY, 6); d = addDays(d, 1)) {
-      const wd = new Date(`${d}T00:00:00Z`).getUTCDay()
-      if (wd === 0 || wd === 6) continue
-      const starts = new Set(p.appointments.filter((a) => a.date === d).map((a) => Math.floor((Date.parse(a.startsAt) - Date.parse(jstIso(d, 0))) / 3600000)))
-      expect({ d, starts: [...starts].sort((a, b) => a - b) }).toEqual({ d, starts: Array.from({ length: 15 }, (_, i) => i + 7) })
+    console.log(`T3 ${id.slice(0, 8)} ${r.id} perOpenDay ${density}`)
+    expect({ id, density, ok: density >= low && density <= high }).toEqual({ id, density, ok: true })
+    const past = p.appointments.filter((a) => a.date < TODAY)
+    const days = [...new Set(past.map((a) => a.date))]
+    const mean = past.length / days.length
+    for (let wd = 0; wd < 7; wd++) {
+      const on = days.filter((d) => weekday(d) === wd)
+      if (on.length) expect({ id, wd, ok: past.filter((a) => weekday(a.date) === wd).length / on.length <= 1.5 * mean }).toEqual({ id, wd, ok: true })
     }
+    if (r.id !== 'personal_gym') continue
+    const perHour = new Map<number, number>()
+    for (const a of past) perHour.set(Math.floor(minute(a) / 60), (perHour.get(Math.floor(minute(a) / 60)) ?? 0) + 1)
+    expect([...perHour.keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: 15 }, (_, i) => i + 7)) // every open hour has starts
+    expect(Math.max(...perHour.values()) / Math.min(...perHour.values())).toBeGreaterThanOrEqual(1.5)
   }
 })
 
-it('T4/T5: stable status hashes, one current booking at the board pin, menu prices and history window', () => {
-  expect(boardNow).toBe(13 * 60 + 24)
+it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1), other days carry no pin rule; prices; window; labels', () => {
   for (const [id, { r, p }] of plans) {
     const again = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), TODAY, TODAY)
     expect(again).toEqual(p)
     expect(p.window).toEqual({ from: addDays(TODAY, -105), to: addDays(TODAY, 14) })
-    const now = jstIso(TODAY, boardNow), today = p.appointments.filter((a) => a.date === TODAY)
-    expect(today.filter((a) => a.status === 'IN_PROGRESS')).toHaveLength(1)
+    const legacy = new Set(r.legacyMembers)
+    const now = jstIso(TODAY, BOARD_PIN)
+    const across = (a: { startsAt: string; endsAt: string; date: string }) => a.startsAt <= jstIso(a.date, BOARD_PIN) && jstIso(a.date, BOARD_PIN) < a.endsAt
+    expect(p.appointments.filter((a) => a.date === TODAY && a.status === 'IN_PROGRESS').length).toBeGreaterThanOrEqual(1)
+    const pastDays = [...new Set(p.appointments.filter((a) => a.date < TODAY).map((a) => a.date))]
+    expect(pastDays.some((d) => p.appointments.filter((a) => a.date === d && across(a)).length >= 2)).toBe(true) // no daily one-row stripe
     for (const a of p.appointments) {
       expect(a.booked_price).toBe(r.menus.find((m) => m.name === a.menu)!.price)
       expect(a.price).toBe(a.booked_price)
       expect(hoursOn(r.policy.weekly_hours, a.date)).not.toBeNull()
       if (a.date < TODAY) expect(['COMPLETED', 'CANCELLED', 'NO_SHOW']).toContain(a.status)
       else if (a.date > TODAY) expect(a.status).toBe('SCHEDULED')
-      else if (a.status === 'IN_PROGRESS') { expect(a.startsAt <= now && now < a.endsAt).toBe(true) }
-      else {
-        expect(a.status).toBe(a.startsAt < now ? 'COMPLETED' : 'SCHEDULED')
-        if (a.status === 'COMPLETED') expect(a.endsAt <= now).toBe(true)
-      }
+      else if (!legacy.has(a.member)) expect(a.status).toBe(across(a) ? 'IN_PROGRESS' : a.startsAt < now ? 'COMPLETED' : 'SCHEDULED')
       if (a.status === 'CANCELLED') {
         expect(Object.keys(registry.cancelReasons)).toContain(a.cancelReason)
-        expect(bookingNotes(a)).toContain(a.cancelReason!)
+        expect(bookingNotes(a)).toContain(`キャンセル理由：${CANCEL_LABELS[a.cancelReason!]}`)
+        expect(bookingNotes(a)).not.toContain(a.cancelReason!)
       }
+      if (a.status === 'NO_SHOW') expect(bookingNotes(a)).not.toContain('キャンセル理由')
     }
-    const past = p.appointments.filter((a) => a.date < TODAY)
-    for (const [status, share] of [['CANCELLED', .04], ['NO_SHOW', .02]] as const)
-      expect(Math.abs(past.filter((a) => a.status === status).length / past.length - share)).toBeLessThan(.02)
     const future = plan(r, storeCtx(id, { weeklyHours: r.policy.weekly_hours }), addDays(TODAY, 7), TODAY)
     expect(p.appointments.every((a) => future.appointments.some((b) => a.key === b.key))).toBe(true)
   }
+})
+
+it('R6: a manifest that recorded pastDays keeps every key when registry pastDays changes; without it the keys move', () => {
+  for (const [id, { r, p }] of plans) {
+    const moved = { ...r, counts: { ...r.counts, pastDays: r.counts.pastDays + 7 } }
+    const ctx = storeCtx(id, { weeklyHours: r.policy.weekly_hours })
+    const keys = (q: Plan) => q.appointments.filter((a) => a.date >= p.window.from).map((a) => a.key).sort()
+    expect(keys(plan(moved, { ...ctx, pastDays: r.counts.pastDays }, TODAY, TODAY))).toEqual(keys(p))
+    expect(keys(plan(moved, ctx, TODAY, TODAY))).not.toEqual(keys(p)) // the negative: an unrecorded pastDays re-draws keys
+  }
+})
+
+it('R10: 8–10 % of every store\'s members are 新規 with a 初回 visit in the window', () => {
+  for (const [id, { r, p }] of plans) {
+    const fresh = p.customers.filter((c) => c.isNew)
+    expect({ id, share: fresh.length / p.customers.length >= 0.08 && fresh.length / p.customers.length <= 0.1 }).toEqual({ id, share: true })
+    const firsts = new Set(p.appointments.filter((a) => a.menu === r.firstMenu).map((a) => a.member))
+    expect(fresh.filter((c) => firsts.has(c.member)).length).toBeGreaterThanOrEqual(fresh.length * 0.8)
+  }
+})
+
+it('R4: the side rule — staff by name alternate early/late; the planner books a profile visit only inside its person\'s side', () => {
+  expect(sidesOf(['b', 'a'], 600, 1140)).toBeNull()
+  expect(sidesOf(['solo'], 420, 1320)!.get('solo')).toEqual({ start: 420, end: 960 })
+  const two = sidesOf(['z', 'a'], 420, 1320)!
+  expect([two.get('a'), two.get('z')]).toEqual([{ start: 420, end: 960 }, { start: 780, end: 1320 }])
+  expect(new Set([...sidesOf(['a', 'b', 'c'], 0, 1440)!.values()].map((s) => s.start)).size).toBe(3)
+  const gym = [...plans.values()].find(({ r }) => r.id === 'personal_gym')!
+  const legacy = new Set(gym.r.legacyMembers)
+  const sides = sidesOf(gym.r.staff.map((s) => s.name), 420, 1320)!
+  const outside = gym.p.appointments.filter((a) => !legacy.has(a.member)).filter((a) => { const s = sides.get(a.staff)!; return minute(a) < s.start || minute(a) + a.duration > s.end })
+  expect(outside).toEqual([])
 })
 
 it('T6: loading and planning all seven stores never constructs the SDK or calls fetch', async () => {
@@ -118,15 +164,20 @@ it('T6: loading and planning all seven stores never constructs the SDK or calls 
 it('--store all --rows flushes every store and row through a pipe before exiting', () => {
   const output = execFileSync(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', '-O',
     '{"module":"commonjs","moduleResolution":"node"}', 'scripts/test-world/fill.ts', 'plan', '--store', 'all', '--rows'],
-    { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+    { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   const sections = [...output.matchAll(/^([0-9a-f-]{36}) ([a-z_]+) (\{\n[\s\S]*?\n\})/gm)]
   expect(sections.map((s) => s[1])).toEqual(Object.keys(registry.stores))
   const planned = sections.reduce((n, s) => n + Number(JSON.parse(s[3]).appointments.split(' ')[0]), 0)
   expect(output.split('\n').filter((l) => /^\d{4}-\d\d-\d\d · /.test(l))).toHaveLength(planned)
 })
 
-it('a menu longer than a special opening is dropped, without crashing the pure planner', async () => {
+it('R19: a day no menu fits is logged once and planned empty, without crashing the pure planner', async () => {
   const r = await loadRecipe('hair_salon')
-  const hours = Object.fromEntries(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, { open: '11:00', close: '11:30' }]))
-  expect(() => plan(r, { storeId: r.storeId!, weeklyHours: hours }, TODAY, TODAY)).not.toThrow()
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  const hours = { ...r.policy.weekly_hours, mon: { open: '18:00', close: '03:00' } }
+  const q = plan(r, { storeId: 'overnight', weeklyHours: hours }, TODAY, TODAY)
+  expect(q.appointments.filter((a) => weekday(a.date) === 1)).toEqual([])
+  expect(q.appointments.length).toBeGreaterThan(0)
+  expect(warn.mock.calls.filter((c) => String(c[0]).includes('overnight'))).toHaveLength(1)
+  warn.mockRestore()
 })

@@ -38,9 +38,12 @@ async function main() {
   const [copy, twinCopy] = [{ ...owned, id: 'copy-row' }, { ...twin, id: 'twin-row' }]
   const loneAbroad = { ...lone, id: 'lone-abroad', store_id: 'store-other' } // lone's tag in another store; lone has no recorded id
   rows.push(probe, copy, twinCopy, loneAbroad)
-  const want = stale.slice(7).map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
+  stale[7].status = 'IN_PROGRESS' // ⚖ R2: a row the loader wrote 施術中 on a day now past is closed out too
+  // ⚖ R2: today's started rows the plan already calls over are closed; a planned SCHEDULED or IN_PROGRESS one is left alone
+  const overToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime() && !['SCHEDULED', 'IN_PROGRESS'].includes(r.want))
+  const want = [...stale.slice(7), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
-  assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
+  assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0 && startedToday.some((r) => r.want === 'IN_PROGRESS') && overToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
   const fake = (business = DEV_SALON_BUSINESS_ID, failId = '') => {
     const [calls, reads] = [[] as { id: string; input: unknown }[], { org: 0, appts: 0 }]
@@ -53,7 +56,7 @@ async function main() {
     return { core: core as unknown as FillCore, calls, reads }
   }
   const run = async (apply: boolean, f = fake(), lines: string[] = []) => ({ ...f, lines, code: await closeOut(f.core, STORE, m, NOW, apply, (l) => void lines.push(l)) })
-  const table = (mode: string, written: boolean) => [`mode: ${mode} · today ${TODAY}`, ...['COMPLETED', 'CANCELLED', 'NO_SHOW'].map((s) => ((n) => `${s}: planned ${n} · written ${written ? n : 0}`)(want.filter((w) => w.input.status === s).length))]
+  const table = (mode: string, written: boolean) => [`mode: ${mode} · today ${TODAY}`, ...['COMPLETED', 'CANCELLED', 'NO_SHOW', 'IN_PROGRESS'].map((s) => ((n) => `${s}: planned ${n} · written ${written ? n : 0}`)(want.filter((w) => w.input.status === s).length))]
   const head = (lines: string[]) => lines.filter((l) => !l.startsWith('skipped: '))
   const dry = await run(false)
   const ap = await run(true)
@@ -61,7 +64,7 @@ async function main() {
 
   assert.ok(!touched(future.id), '(c) a future SCHEDULED tagged row is untouched')
   assert.ok(!touched(untagged.id) && !ap.lines.some((l) => l.includes(untagged.id)), '(d) an untagged past SCHEDULED row is untouched, no line')
-  const terminal = rows.filter((r) => r.status !== 'SCHEDULED').map((r) => r.id)
+  const terminal = rows.filter((r) => !['SCHEDULED', 'IN_PROGRESS'].includes(r.status)).map((r) => r.id)
   assert.ok(terminal.length > 10 && !ap.calls.some((c) => terminal.includes(c.id)), '(e) COMPLETED / CANCELLED / NO_SHOW rows are untouched')
   assert.deepEqual(ap.lines.filter((l) => l.includes(foreign.id)), [`skipped: appointments ${foreign.key}: booking ${foreign.id}'s customer differs from the planned customer, left alone`], '(f) a customer-mismatch row is skipped with one line')
   assert.ok(!touched(foreign.id), '(f) a customer-mismatch row is untouched')

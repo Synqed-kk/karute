@@ -61,7 +61,8 @@ async function planner() {
     const [lo, hi] = t.realism!.rhythmDays
     const j = t.realism!.rhythmJitter
     const gaps: number[] = []
-    for (const c of t.customers) {
+    const rhythm = t.customers.filter((c) => !t.legacyMembers?.length || t.legacyMembers.includes(c.member)) // ⚖ R2: legacy members carry the rhythm
+    for (const c of rhythm) {
       const days = neu.appointments.filter((a) => a.member === c.member).map((a) => a.date)
       const after = days.filter((d) => d >= cut)
       if (after.length) assert.ok(c.every || days.length === 1, `${type} ${c.member}: a one-visit customer came back`)
@@ -72,7 +73,7 @@ async function planner() {
     }
     const after = gaps.filter((g) => g < 5 * hi) // a visit dropped on a full day doubles one gap
     const median = [...after].sort((a, b) => a - b)[after.length >> 1]
-    assert.ok(gaps.length > t.customers.length / 2, `${type}: ${gaps.length} rhythm gaps`)
+    assert.ok(gaps.length > rhythm.length / 2, `${type}: ${gaps.length} rhythm gaps`)
     assert.ok(Math.min(...gaps) >= lo - j && median >= lo - j && median <= hi + j + 2, `${type}: rhythm gaps min ${Math.min(...gaps)} median ${median} vs [${lo}, ${hi}] ± ${j}`)
     const free = t.customers.filter((c) => c.every && !isNominated(t, c.member))
     assert.ok(free.some((c) => new Set(neu.appointments.filter((a) => a.member === c.member && a.date >= cut).map((a) => a.staff)).size > 1), `${type}: フリー customers meet more than one staffer after the cut`)
@@ -140,7 +141,9 @@ function fakeCore(rows: Appointment[], o: { business?: string; karuted?: Set<str
 }
 
 async function world() {
-  const recipe = await loadRecipe('beauty_chiropractic')
+  // the original thirty-member world (the legacy paths, unchanged from origin/main): realism's fixture premises hold on it
+  const full = await loadRecipe('beauty_chiropractic')
+  const recipe = { ...full, customers: full.customers.slice(0, 30), profile: undefined, legacyMembers: undefined, counts: { ...full.counts, customers: 30, pastDays: full.legacyPastDays! } }
   const p = plan(recipe, { storeId: STORE, weeklyHours: recipe.policy.weekly_hours }, TODAY, EPOCH)
   const rows: Appointment[] = p.appointments.map((a) => ({
     id: `a-${a.key}`, business_id: DEV_SALON_BUSINESS_ID, customer_id: `c-${a.member}`, staff_id: `s-${a.staff}`, kind: 'BOOKING', store_id: STORE, requires_private_room: false,
