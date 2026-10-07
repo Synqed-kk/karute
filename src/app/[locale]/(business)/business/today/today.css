@@ -337,7 +337,10 @@
 .biz .board-main { min-width: 0; }
 .biz .timeline-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .biz .timeline-scroll:focus-visible { outline-offset: -3px; }
-.biz .timeline { position: relative; min-width: 0; --label: 112px; }
+.biz .timeline { position: relative; min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); --label: 112px; }
+/* ⚖ 10/7 S25-1 — fit to width first; the track never goes below minPxPer30 (today-board.ts) per grid cell, so only a day
+   that cannot fit makes .timeline-scroll scroll sideways; the name column (.lane-label / .time-head > span) is sticky-left
+   and the ruler scrolls with the schedule. --board-cells / --cell-floor are set by TodayScreen from the day model. */
 .biz .time-head, .biz .lane { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); }
 .biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }
 .biz .time-head > span {

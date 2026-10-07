@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours, boardCells, minPxPer30 } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -1159,6 +1159,15 @@ export function TodayScreen(props: TodayProps) {
   const band = props.businessHours?.ownHours === true
   const offBefore = band ? (business.open - hours.open) / (hours.close - hours.open) : 0
   const offAfter = band ? (hours.close - business.close) / (hours.close - hours.open) : 0
+  // ⚖ 10/7 S25-1 — a day that cannot fit at the floor scrolls SIDEWAYS (the CSS min-width, today.css .timeline); on
+  // load it is scrolled so the now-line sits mid-view. The floor's only JS: one scroll, on mount, only when it overflows.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || props.nowFraction == null || el.scrollWidth <= el.clientWidth) return
+    const label = parseFloat(getComputedStyle(el.firstElementChild ?? el).getPropertyValue('--label')) || 0
+    el.scrollLeft = (el.scrollWidth - label) * props.nowFraction - (el.clientWidth - label) / 2
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount: the now-line is brought into view, never chased
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -9426,6 +9435,7 @@ export function TodayScreen(props: TodayProps) {
               </div>
               <div
                 className="timeline-scroll"
+                ref={scrollRef}
                 tabIndex={0}
                 aria-label={`営業時間${hhmm(business.open)}から${hhmm(business.close)}の予約ボード${props.businessHours ? `（営業時間外を含め${hhmm(hours.open)}から${hhmm(hours.close)}を表示）` : ''}`}
                 data-guide-title="今日のボード"
@@ -9434,7 +9444,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, '--board-cells': boardCells(hours, props.guard.bookingStepMin), '--cell-floor': `${minPxPer30}px`, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).

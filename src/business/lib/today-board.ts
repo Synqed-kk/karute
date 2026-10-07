@@ -128,6 +128,26 @@ export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
 
 export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
 
+/** ⚖ 10/7 S25-1 (Liam: 「we do compress it as far as we can, but when it just becomes impossible, we introduce
+ *  scrolling」) — THE READABLE FLOOR, px per grid cell (one opsConfig.bookingStepMin): the width at which a one-cell
+ *  card still shows a two-kanji family name whole at the card's OWN type. Measured in headless Chromium: 「山本」 at
+ *  `.biz .page-today .event[data-book] > strong` (today.css, 13px / 700) = 26.0 px (a CJK ideograph is 1 em);
+ *  + the tightest padding + border the card allows (S0 「tight」: left 4 = the 3 px category stripe + 1, right 1,
+ *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. */
+export const FAMILY_NAME_PX = 26
+export const CARD_TIGHT_PAD_PX = 7
+export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
+
+/** The cells of the board's day on its grid unit — the strip's cell count and the CSS floor's multiplier. */
+export function boardCells(day: Hours, stepMin: number): number {
+  return stepMin > 0 && day.close > day.open ? Math.ceil((day.close - day.open) / stepMin) : 0
+}
+
+/** Whether a track `trackPx` wide must scroll sideways to keep every cell at the floor (the CSS min-width's arithmetic). */
+export function trackOverflows(day: Hours, stepMin: number, trackPx: number): boolean {
+  return trackPx < boardCells(day, stepMin) * minPxPer30
+}
+
 /** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */
 const HOURS_PER_DAY = 24
 /** The ruler's word for an hour: the bare number, and 翌 + the hour for one past midnight (D2). */
