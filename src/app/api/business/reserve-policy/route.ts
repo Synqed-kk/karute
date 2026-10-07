@@ -40,5 +40,6 @@ export async function PUT(req: Request): Promise<Response> {
     typeof body.storeId !== 'string' || typeof body.basedOn !== 'string'
   ) return refuse('invalid')
   const result = await setReservePolicy(body.storeId, body.policy, body.basedOn)
-  return result.ok ? Response.json(result, { status: 200 }) : refuse(result.reason, result.message)
+  // The door's whole answer goes back: a 'stale' 409 carries core's current six + their basedOn (the screen keeps the draft).
+  return Response.json(result, { status: result.ok ? 200 : STATUS[result.reason] })
 }

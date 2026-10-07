@@ -885,8 +885,27 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     const second = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 50 }, first.ok ? first.basedOn : 'x')
     expect(second.ok).toBe(true)
     const third = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 0 }, first.ok ? first.basedOn : 'x')
-    expect(third).toEqual({ ok: false, reason: 'stale', message: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。' })
+    expect(third).toMatchObject({ ok: false, reason: 'stale', message: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。' })
     expectWrites({ set: 2 })
+  })
+
+  it('stale carries the current six + their basedOn; the next save with that basedOn succeeds (an explicit second press)', async () => {
+    const theirs = { ...PROOF, no_show_pct: 50 }
+    let row: Record<string, unknown> = { ...BASE_POLICY, ...theirs, updated_at: '2026-10-08T01:00:00.000Z' }
+    const reads = withReads()
+    reads.storePolicyGet.mockImplementation(async () => ({ ...row }))
+    mockCore.writer.set.mockImplementation(async (_id: string, input: Record<string, unknown>) => {
+      const { acting_staff_id: _a, ...rest } = input
+      row = { ...row, ...rest, updated_at: '2026-10-08T02:00:00.000Z' }
+      return { ...row }
+    })
+    const mine = { ...PROOF, cancel_late_pct: 40 }
+    const first = await data.setReservePolicy(STORE_ID, mine, BASED)
+    expect(first).toEqual({ ok: false, reason: 'stale', message: expect.any(String), current: { ...theirs, updated_at: '2026-10-08T01:00:00.000Z' }, basedOn: policyHash(theirs) })
+    expectWrites()
+    const second = await data.setReservePolicy(STORE_ID, mine, !first.ok && first.reason === 'stale' ? first.basedOn : 'x')
+    expect(second).toEqual({ ok: true, row: { ...mine, updated_at: '2026-10-08T02:00:00.000Z' }, basedOn: policyHash(mine) })
+    expectWrites({ set: 1 })
   })
 
   it('no-op: the six already stored → ok with the stored row and the same basedOn, ONE get and NO set (updated_at stays)', async () => {

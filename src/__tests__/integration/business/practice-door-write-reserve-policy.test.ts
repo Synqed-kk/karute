@@ -86,7 +86,6 @@ describe('Reserve S66 — PUT /api/business/reserve-policy', () => {
   it.each([
     ['forbidden', 403],
     ['tenant', 409],
-    ['stale', 409],
     ['invalid', 400],
     ['core', 503],
   ] as const)('the door’s %s → %i, with its line', async (reason, status) => {
@@ -94,5 +93,13 @@ describe('Reserve S66 — PUT /api/business/reserve-policy', () => {
     const res = await put()
     expect(res.status).toBe(status)
     expect(await res.json()).toEqual({ ok: false, reason, message: `line-${reason}` })
+  })
+
+  it('the door’s stale → 409 carrying the current six and their basedOn, exactly as the door answered', async () => {
+    const current = { ...POLICY, reserve_start_grid_min: 15 as const, no_show_pct: 50, updated_at: '2026-10-08T01:00:00.000Z' }
+    door.mockResolvedValueOnce({ ok: false, reason: 'stale', message: 'line-stale', current, basedOn: '21|90|15|12|30|50' })
+    const res = await put()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ ok: false, reason: 'stale', message: 'line-stale', current, basedOn: '21|90|15|12|30|50' })
   })
 })

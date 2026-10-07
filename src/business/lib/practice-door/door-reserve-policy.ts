@@ -17,10 +17,14 @@ import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem
 
 // 'stale' belongs to this write alone: the shared store-days Reason feeds four-reason STATUS maps (two routes).
 type Reason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'
-/** `basedOn` is the saved row's fingerprint, the next save's precondition (R9). */
+type StoredPolicy = ReservePolicy & { updated_at: string | null }
+/** `basedOn` is the saved row's fingerprint, the next save's precondition (R9). A 'stale' answer carries the row
+ *  as core holds it now and ITS fingerprint (the lead's ruling, fix batch 1): the screen cannot re-read, so it
+ *  keeps the manager's draft, shows the stale line and takes this basedOn; only a second, explicit press saves. */
 export type SetReservePolicyResult =
-  | { ok: true; row: ReservePolicy & { updated_at: string | null }; basedOn: string }
-  | { ok: false; reason: Reason; message: string }
+  | { ok: true; row: StoredPolicy; basedOn: string }
+  | { ok: false; reason: 'stale'; message: string; current: StoredPolicy; basedOn: string }
+  | { ok: false; reason: Exclude<Reason, 'stale'>; message: string }
 
 // DESIGN-BUILD2 §4 + §9 R5/R9 — native JP, listed for the blind pass. The stale line follows お店ページ's
 // (store-page/copy.ts); the failure line is the store-days line without its schedule-list clause.
@@ -36,7 +40,7 @@ const MSG = {
 /** §9 R5 + R5b — shown (never refused) when the cutoff is shorter than the free-cancel deadline and a late fee is set. */
 export const LATE_FROM_BOOKING_NOTE = MSG.lateFromBooking
 
-const refuse = (reason: Reason, message: string): { ok: false; reason: Reason; message: string } => ({ ok: false, reason, message })
+const refuse = (reason: Exclude<Reason, 'stale'>, message: string): { ok: false; reason: Exclude<Reason, 'stale'>; message: string } => ({ ok: false, reason, message })
 
 /** Recognised by SHAPE, never `instanceof` — this file imports no SDK class (door-writes.ts's own rule). */
 function isSynqedError(e: unknown): e is { name: string; status: number; message: string } {
@@ -76,7 +80,7 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
     if (!(await hasHqGrant(actor))) return refuse('forbidden', MSG.readOnly)
     const read = await actor.reads.storePolicyGet(storeId)
     const current = pickReservePolicy(read)
-    if (policyHash(current) !== basedOn) return refuse('stale', MSG.stale)
+    if (policyHash(current) !== basedOn) return { ok: false, reason: 'stale', message: MSG.stale, current: { ...current, updated_at: read.updated_at }, basedOn: policyHash(current) }
     if (policyHash(next) === basedOn) return { ok: true, row: { ...current, updated_at: read.updated_at }, basedOn }
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, ...next })
