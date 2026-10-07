@@ -1,5 +1,7 @@
 // FILL 2 (S86) — the generated sample day: the side rule (R4), staggered breaks, the 販売可能枠 after the pin at the
 // store's own prices (R16), the closed day as before (R15), the 10–19 six-person twin untouched (R22).
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { shifts, absence, sellSlots } from '@/business/lib/fixtures-today'
 import { SAMPLE_SLOT_PRICES } from '@/business/lib/practice-door/registry'
 import { serveDay, shiftDay, sidesOf, type LiveSpan } from '@/business/lib/practice-door/sample-day'
@@ -100,4 +102,36 @@ it('R15/R16: generated slots yield to a busy person or room; a closed day keeps 
   expect(serveDay({ ...base, rows: [{ staff: slot.staff_id, id: 'live', start: slot.start, end: slot.end }] }).sellSlots).not.toContainEqual(slot)
   const closed = serveDay({ ...base, hours: { ...base.hours, shownDayClosed: 'closed_date' } })
   expect(closed).toEqual({ shifts: [], absence: null, sellSlots })
+})
+
+// ⚖ S87 Q1 pin — the gym recipe's six people (name + role) ARE the roster the side rule above expects: read from the loader's
+// files by node:fs (the territory never imports scripts/), skipped until the loader's FILL 2 lands exactly like
+// practice-fill-registry.test.ts (registry.json without a FILL 2 `stores` map), strict after it.
+const world = (f: string) => join(process.cwd(), 'scripts/test-world', f)
+const reg = existsSync(world('registry.json')) ? (JSON.parse(readFileSync(world('registry.json'), 'utf8')) as { stores?: Record<string, unknown> }) : null
+const filled = !!reg?.stores && Object.values(reg.stores).every((e) => typeof e === 'object' && e !== null && 'keyPrefix' in e)
+if (!filled) console.log('practice-fill-shifts: scripts/test-world/registry.json has no FILL 2 `stores` map yet (loader FILL 2 not merged) — the gym roster pin skipped')
+;(filled ? it : it.skip)('Q1 pin: the gym recipe staffs exactly these six, with these roles (registry.json: c33e4c43 is the personal_gym)', () => {
+  expect((reg!.stores!['c33e4c43-bc3b-4470-ac22-aa60fecdabe3'] as { type: string }).type).toBe('personal_gym')
+  const src = readFileSync(world('recipes/personal_gym.ts'), 'utf8')
+  const consts = Object.fromEntries([...src.matchAll(/^const (\w+) = '([^']+)'/gm)].map((m) => [m[1], m[2]]))
+  const block = src.match(/\n  staff: \[([\s\S]*?)\n  \],/)![1]
+  const staffed = [...block.matchAll(/\{ name: (\w+|'[^']+'), role: '(\w+)' \}/g)].map((m) => [m[1].startsWith("'") ? m[1].slice(1, -1) : consts[m[1]], m[2]].join(' / '))
+  expect(staffed.sort()).toEqual(NAMES.map((n, i) => `${n} / ${ROLES[i]}`).sort())
+})
+
+// ⚖ S87 Q1 negative — the attack's failure case (a card whose name sorts FIRST used to flip every trainer to 07:00–22:00,
+// 900 min): one extra OWNER or ADMIN card changes no trainer's side, no trainer serves past 540 min, and the card itself
+// works the whole day with no side.
+it.each(['OWNER', 'ADMIN'])('Q1 negative: an extra %s card sorting first moves no trainer; it works the whole day', (role) => {
+  const rows = planRows(NAMES, roster, GYM)
+  const base = gym(rows)
+  const card = 'card-extra'
+  expect(['Dev Salon', ...NAMES].sort()[0]).toBe('Dev Salon')
+  const out = serveDay({ ...input(GYM), roster: [...roster, card], type: 'personal_gym', names: [...NAMES, 'Dev Salon'], roles: [...ROLES, role], prices: SAMPLE_SLOT_PRICES.personal_gym, pin: 804, rows })
+  const span = (d: Day, id: string) => { const s = d.shifts.find((x) => x.staff_id === id)!; return { id, start: s.start, end: s.end } }
+  for (const id of roster) expect(span(out, id)).toEqual(span(base, id))
+  for (const id of roster) expect(span(out, id).end - span(out, id).start).toBeLessThanOrEqual(540)
+  expect(span(out, card)).toEqual({ id: card, start: GYM.open, end: GYM.close })
+  expect(sidesOf(NAMES, GYM)!.has('Dev Salon')).toBe(false)
 })
