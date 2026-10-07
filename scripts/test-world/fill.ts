@@ -332,8 +332,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const pid = packId.get(k.key)
       if (!pid) return
       const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
-      const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
-      let used = [...burnt].filter((b) => b.startsWith(`${pid}|`)).length
+      const redeemed = pid.startsWith('dry:') ? [] : await read(() => core.packs.listRedemptions(cid))
+      const burnt = new Set(redeemed.map((r) => `${r.pack_id}|${r.redeemed_on}`))
+      let used = redeemed.filter((r) => r.pack_id === pid).length // ⚖ Q7: every burn counts, a same-day double burn too (never distinct dates)
       for (const key of k.redeem) {
         if (used >= k.size) break // ⚖ R5: never more burns than the pack holds (never 6 on a 5)
         const aid = done(key)

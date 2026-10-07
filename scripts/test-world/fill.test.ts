@@ -241,6 +241,18 @@ async function main() {
   assert.equal(mn.runs[1].created.packs ?? 0, 0, 'an edited pack note: the re-run makes no second pack')
   assert.deepEqual(fn.t.packs.filter((x) => x.customer_id === pk.customer_id).map((x) => x.id), [pk.id], 'one pack on the customer')
   assert.equal(fn.t.burns.filter((b) => b.pack_id === pk.id).length, k0.redeem.length, 'every burn lands on the recorded pack')
+  // ⚖ Q7: the cap counts burns, not distinct dates — core already holding size burns on ONE date (a same-day double
+  // burn) gets no further burn on the re-run (counting dates would allow size − 1 more).
+  const fq = fakeCore()
+  const mq = empty()
+  const addQ = fq.core.packs.addRedemption
+  Object.assign(fq.core.packs, { addRedemption: async () => Promise.reject(Object.assign(new Error('refused'), { status: 400 })) })
+  assert.equal(await apply(fq.core, opts(mq)), 1)
+  Object.assign(fq.core.packs, { addRedemption: addQ })
+  const pq = fq.t.packs.find((x) => x.id === mq.stores[STORE].created.packs![k0.key])!
+  for (let i = 0; i < k0.size; i++) fq.t.burns.push({ id: `double-${i}`, pack_id: pq.id, customer_id: pq.customer_id, redeemed_on: '2026-01-05', appointment_id: `hand-${i}` })
+  assert.equal(await apply(fq.core, opts(mq)), 0)
+  assert.equal(fq.t.burns.filter((b) => b.pack_id === pq.id).length, k0.size, 'a full pack burnt twice on one day gets no further burn')
   // (b) Staff clear a loader booking's note (its tag is gone) → the re-run finds it by its recorded id: no second
   // booking, no clash skip, its karute and burn stay on it.
   const fb = fakeCore()
