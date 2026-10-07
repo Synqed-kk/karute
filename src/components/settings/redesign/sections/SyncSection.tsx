@@ -243,8 +243,10 @@ export function SyncSection({
   }
 
   const isError = lastResult?.error === true
-  // Disabled only while THIS store's own save or run is in flight.
-  const syncing = inFlight.has(storeId ?? '')
+  // Disabled only while THIS store's own save or run is in flight. With no
+  // store shown (its read failed), a run here would hit the route's default
+  // store, which may be the one a list run has claimed: any claim disables it.
+  const syncing = storeId ? inFlight.has(storeId) : inFlight.size > 0
   // Core keeps the OLD credentials when only the login changes, so a changed
   // login needs its password too (fix round 4, Opus C3; the route mirrors it).
   const loginNeedsPassword =

@@ -7,7 +7,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
-import { snapshot as inFlightNow } from '@/lib/sync/in-flight'
+import { claim, release, snapshot as inFlightNow } from '@/lib/sync/in-flight'
 
 jest.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 
@@ -421,5 +421,30 @@ describe('fix round 8 (attack A-6) — a stale reload can no longer overwrite a 
     expect(loginInput().value).toBe('new-login')
     expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
     expect(button('saveConfig').disabled).toBe(false)
+  })
+})
+
+describe('no store shown — a list run of any store disables the form', () => {
+  const runButton = () => screen.getByRole('button', { name: /^sync(Now|ing)$/ }) as HTMLButtonElement
+  const toggle = () => screen.getByRole('switch', { name: 'autoSyncTitle' }) as HTMLButtonElement
+
+  it("storeId undefined + any named claim in flight → the form's 今すぐ同期 and toggle are disabled", async () => {
+    render(<SyncSection storeId={undefined} />)
+    await flush()
+    expect([runButton().disabled, toggle().disabled]).toEqual([false, false])
+    act(() => { claim('store-x') })
+    expect([runButton().disabled, toggle().disabled]).toEqual([true, true])
+    act(() => { release('store-x') })
+    expect([runButton().disabled, toggle().disabled]).toEqual([false, false])
+  })
+
+  it("storeId defined + another store's claim in flight → NOT disabled (unchanged)", async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    act(() => { claim('store-x') })
+    expect([runButton().disabled, toggle().disabled]).toEqual([false, false])
+    expect(toggle().getAttribute('aria-checked')).toBe('true')
+    act(() => { release('store-x') })
   })
 })
