@@ -355,6 +355,14 @@ export async function resolveSynqedStaffIdForBusiness(
     email: typedProfile.email ?? null,
     user_id: staffProfileId,
   })
-  updateTag('staff-list')
+  // Best-effort, like the self-heal above (fix round 6 F5): updateTag throws
+  // outside a Server Action (a Route Handler — the phone facade), and the card
+  // is already written; a refresh that cannot run must never turn that write
+  // into a 500.
+  try {
+    updateTag('staff-list')
+  } catch (err) {
+    console.warn('[staff-map] staff-list refresh after create-on-miss failed', err)
+  }
   return createdStaff.id
 }

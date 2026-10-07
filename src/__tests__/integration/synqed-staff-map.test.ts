@@ -362,6 +362,20 @@ describe('resolveSynqedStaffId — create-on-miss', () => {
     })
   })
 
+  it('F5: updateTag throwing (outside a Server Action — the facade) after create-on-miss → resolves to the created card, created exactly once, no throw', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
+      profileName: '牧之瀬 拓海',
+      profileEmail: 'takumi@salon.com',
+      profileCustomerId: BIZ,
+      updateTagThrows: true,
+    })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('profile-seeded', BIZ)).resolves.toBe('staff-created')
+    expect(staffCreate).toHaveBeenCalledTimes(1)
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
+  })
+
   it('s2: rejects a profile in another business without creating staff or invalidating tags', async () => {
     mockDeps({
       staff: [],
