@@ -69,6 +69,7 @@ import { accessFor as karuteAccessFor } from '@/business/lib/karute'
 import { accessFor as recordingAccessFor } from '@/business/lib/recording'
 import { accessFor as registerAccessFor } from '@/business/lib/register'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { LATE_FROM_BOOKING_NOTE } from '@/business/lib/data'
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
@@ -2598,5 +2599,49 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(inbox.dateline).toBe(data.sampleDateline(data.renderNow(), inbox.lensLabel, true))
     expect(register.dateline).not.toContain('サンプル')
     expect((await inboxProps({ locale: 'ja', store: STORE.tokyo, world: { threads: [] } })).props.threads).toEqual([])
+  })
+})
+
+describe('(12) Reserve S66 — 受付 reads the store\'s six booking rules live (door ON, テスト東京店)', () => {
+  type Props = Awaited<ReturnType<typeof settingsProps>>['props']
+  const blockOf = (props: Props, blockId: string) => props.sections.find((s) => s.id === 'reserve-acceptance')!.blocks.find((b) => b.id === blockId)!
+  const controlOf = (props: Props, id: string) =>
+    props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).find((c) => c.id === id)!
+  const SIX = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_min: 15, cancel_free_until_hours: 12, cancel_late_pct: 30, no_show_pct: 100 }
+  const read = async (six: Partial<typeof SIX>, updated_at: string | null = '2026-10-07T01:00:00Z') => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], ...SIX, ...six, updated_at } : POLICIES[id]))
+    return (await settingsProps({ locale: 'ja', store: STORE.tokyo, section: 'reserve-acceptance' })).props
+  }
+
+  it('the six rows show core\'s row; 直前の空きは売らない is linked to 直前締切 (locked, never written)', async () => {
+    const props = await read({})
+    expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map((id) => controlOf(props, id).value))
+      .toEqual(['21', '90', '15', '12', '30', '100'])
+    expect(controlOf(props, 'reserve.lead')).toMatchObject({ value: '90', locked: '直前締切と同じ' })
+    const lead = props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows)).find((r) => r.controls.some((c) => c.id === 'reserve.lead'))!
+    expect(lead.trio!.base).toBe('初期値: 直前締切と同じ')
+  })
+
+  it('R5/R5b — the late-from-booking note shows only when cutoff < free×60 AND the late fee is above 0', async () => {
+    expect(blockOf(await read({}), 'reserve.cancel').facts).toEqual([LATE_FROM_BOOKING_NOTE])
+    expect(blockOf(await read({ cancel_late_pct: 0 }), 'reserve.cancel').facts ?? []).not.toContain(LATE_FROM_BOOKING_NOTE)
+    expect(blockOf(await read({ cutoff_minutes: 720 }), 'reserve.cancel').facts ?? []).not.toContain(LATE_FROM_BOOKING_NOTE)
+    expect(blockOf(await read({ cutoff_minutes: 719 }), 'reserve.cancel').facts).toEqual([LATE_FROM_BOOKING_NOTE])
+  })
+
+  it('R11/R11b — 最終変更 is core\'s updated_at on both live blocks; no line when updated_at is null', async () => {
+    const props = await read({})
+    expect(blockOf(props, 'reserve.window').audit).toBe('最終変更: 10月7日(水)')
+    expect(blockOf(props, 'reserve.cancel').audit).toBe('最終変更: 10月7日(水)')
+    const none = await read({}, null)
+    expect(blockOf(none, 'reserve.window').audit ?? null).toBeNull()
+    expect(blockOf(none, 'reserve.cancel').audit ?? null).toBeNull()
+  })
+
+  it('R1 — the window block marks only its opsConfig rows; the cancel block is unmarked while live', async () => {
+    const props = await read({})
+    expect(blockOf(props, 'reserve.window').sample).toEqual({ form: 'part', labels: [...PLANE_LABEL.opsConfig] })
+    expect(blockOf(props, 'reserve.cancel')).not.toHaveProperty('sample')
   })
 })
