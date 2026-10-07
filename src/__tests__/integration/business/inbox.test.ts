@@ -1007,8 +1007,9 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
       if (!sel.includes('pg-inbox')) continue
       for (const c of classesIn(sel)) if (c !== 'pg-inbox') styled.add(c)
     }
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')).toContain('.biz .sample-mark {')
     // Shell-owned names the room renders and does not restyle.
-    for (const c of ['pill', 'indigo', 'alert', 'warn', 'good']) styled.add(c)
+    for (const c of ['pill', 'indigo', 'alert', 'warn', 'good', 'sample-mark']) styled.add(c)
     const rendered = new Set<string>()
     for (const m of SRC.matchAll(/className="([^"]*)"/g)) for (const c of m[1].split(/\s+/)) if (c) rendered.add(c)
     for (const m of SRC.matchAll(/className=\{`([^`]*)`\}/g)) {
@@ -1032,7 +1033,7 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // shapes are untouched) because every element this room owns carries an
     // `ib-` name that exists nowhere else in the family — a fence that cannot
     // rot as the neighbours change shape underneath it.
-    const styled = new Set<string>(['pill', 'indigo', 'alert', 'warn', 'good'])
+    const styled = new Set<string>(['pill', 'indigo', 'alert', 'warn', 'good', 'sample-mark'])
     for (const sel of selectorsOf(CSS)) {
       if (!sel.includes('pg-inbox')) continue
       for (const c of classesIn(sel)) if (c !== 'pg-inbox') styled.add(c)

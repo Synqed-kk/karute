@@ -33,6 +33,13 @@ jest.mock('@/business/lib/data', () => {
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as data from '@/business/lib/data'
+import * as door from '@/business/lib/practice-door/door'
+import { threads as fixtureThreads } from '@/business/lib/fixtures-inbox'
+import { transactions as fixtureTransactions, closing as fixtureClosing, cashTolerance, type FixtureTransaction } from '@/business/lib/fixtures-register'
+import { buildLedger, ledgerTotals, expectedCash, denominationTotal } from '@/business/lib/register'
+import { inboxProps } from '@/app/[locale]/(business)/business/inbox/inbox-props'
+import { registerProps } from '@/app/[locale]/(business)/business/register/register-props'
+
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
@@ -625,6 +632,8 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
   })
   it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
+    expect(PLANE_ROW).toMatchObject({ inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureTransaction.appointment_id' })
+    expect(PRACTICE_PLANES).toMatchObject({ inboxThreads: 'sample', registerLedger: 'sample' })
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
     expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
@@ -838,6 +847,10 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
 })
 
 describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
+  it('S84 settlements preserve the full M-A/FE-1 aggregate', async () => {
+    await data.readRegisterPlanes(STORE.tokyo)
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY)).register).toEqual({ cash_difference: 0, refunds: 0, terminal_held: [] })
+  })
   it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
     expect(register.refunds).toBeGreaterThan(0) // the fixture refund the door used to spread onto a live 純売上
     const day = await data.readDayPlanes(STORE.tokyo, TODAY)
@@ -2280,5 +2293,112 @@ describe('(S82 R2) the shared org read is bounded — the board finishes whateve
     } finally {
       quiet.mockRestore()
     }
+  })
+})
+
+
+describe('S84 — live-keyed inbox and register planes', () => {
+  const seed = APPOINTMENTS.find((a) => a.kind === 'BOOKING' && a.store_id === STORE.tokyo)!
+  const row = (id: string, extra: Partial<typeof seed> = {}) => ({ ...seed, id, customer_id: `customer-${id}`,
+    starts_at: '2026-09-14T01:00:00Z', ends_at: '2026-09-14T02:00:00Z', status: 'COMPLETED' as const,
+    booked_price_amount: 1234, booked_price_currency: 'JPY', ...extra })
+  const serve = (rows: typeof APPOINTMENTS) => {
+    const spy = withReads()
+    spy.appointmentsList.mockResolvedValue({ appointments: rows, total: rows.length, page: 1, page_size: 500 })
+    return spy
+  }
+  it.each([1, 3, 8, 20])('%i bookings: stable threads, exact live joins and fixture category proportions', async (n) => {
+    const rows = Array.from({ length: n }, (_, i) => row(`s84-${i}`))
+    const spy = serve(rows)
+    const first = await door.readInboxPlanes(STORE.tokyo)
+    expect(first.threads).toHaveLength(n)
+    for (const t of first.threads) {
+      expect(t.id).toBe(`smp-thr-${t.appointment_id}`)
+      expect(t.customer_id).toBe(rows.find((a) => a.id === t.appointment_id)!.customer_id)
+    }
+    for (const category of ['change', 'noshow', 'waitlist', 'delivery']) {
+      const want = n * fixtureThreads.filter((t) => t.category === category).length / fixtureThreads.length
+      expect(Math.abs(first.threads.filter((t) => t.category === category).length - want)).toBeLessThanOrEqual(1)
+    }
+    expect(await door.readInboxPlanes(STORE.tokyo)).toEqual(first)
+    expect(spy.appointmentsList).toHaveBeenCalledTimes(1)
+  })
+  it('limits inbox reach, keeps canonical twin text and customer-only affiliation', async () => {
+    const twin = fixtureThreads.find((t) => t.category === 'change')!
+    const live = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! }),
+      row('day7', { starts_at: '2026-09-21T01:00:00Z' }), row('day8', { starts_at: '2026-09-22T01:00:00Z' }),
+      row('yesterday', { starts_at: '2026-09-13T01:00:00Z' })])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.map((t) => t.appointment_id).sort()).toEqual([live, 'day7'].sort())
+    expect(threads.find((t) => t.appointment_id === live)).toEqual({ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) })
+    const wait = fixtureThreads.find((t) => t.appointment_id === null)!
+    serve([row('affiliated', { customer_id: liveIdOf('customers', wait.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toContainEqual({ ...wait, id: `smp-thr-${wait.id}`, customer_id: liveIdOf('customers', wait.customer_id) })
+    serve(Array.from({ length: 20 }, (_, i) => row(`mixed-${i}`, { customer_id: liveIdOf('customers', wait.customer_id)! })))
+    const mixed = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(mixed).toHaveLength(21)
+    for (const category of ['change', 'noshow', 'waitlist', 'delivery']) {
+      const want = mixed.length * fixtureThreads.filter((t) => t.category === category).length / fixtureThreads.length
+      expect(Math.abs(mixed.filter((t) => t.category === category).length - want)).toBeLessThanOrEqual(1)
+    }
+  })
+  it('settles only ended bookings, balances every yen and the count sheet, rejects a refund mutant', async () => {
+    const spy = serve([row('paid'), row('zero', { booked_price_amount: null }),
+      row('scheduled', { status: 'SCHEDULED' }), row('cancelled', { status: 'CANCELLED' }), row('absent', { status: 'NO_SHOW' }),
+      row('future', { ends_at: '2026-09-14T05:00:00Z' }), row('now', { ends_at: '2026-09-14T04:24:00Z' }),
+      row('tomorrow', { starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' })])
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    expect(plane.transactions.map((t) => t.appointment_id).sort()).toEqual(['paid', 'scheduled', 'zero'])
+    const bookings = await data.listAppointments(STORE.tokyo)
+    const assertMoney = (transactions: FixtureTransaction[]) => {
+      expect(transactions.flatMap((t) => t.tenders).every((t) => t.flag === '')).toBe(true)
+      expect(transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(2468)
+      const totals = ledgerTotals(buildLedger({ transactions, appointments: bookings, customers: [], menus: [], terminalHeld: [], auditTrail: {}, lensStoreId: STORE.tokyo }))
+      expect(totals).toMatchObject({ net: 2468, refunds: 0, outstanding: 0 })
+      expect(plane.closing!.cash_counted - expectedCash({ float: plane.closing!.cash_float, paidIn: plane.closing!.cash_paid_in, paidOut: plane.closing!.cash_paid_out, bankDeposit: plane.closing!.cash_bank_deposit }, totals.cash)).toBe(0)
+      expect(denominationTotal(plane.closing!.cash_count_sheet)).toBe(plane.closing!.cash_counted)
+    }
+    assertMoney(plane.transactions)
+    const mutant = structuredClone(plane.transactions)
+    mutant[0].tenders.push({ label: '現金', flag: 'refund', amount: -1 })
+    expect(() => assertMoney(mutant)).toThrow()
+    expect((await door.readRegisterPlanes(VIEW_ALL, bookings)).closing).toBeNull()
+    const calls = spy.appointmentsList.mock.calls.length
+    await data.readRegisterPlanes(STORE.tokyo, bookings)
+    await data.readInboxPlanes(STORE.tokyo, bookings)
+    expect(spy.appointmentsList).toHaveBeenCalledTimes(calls)
+  })
+  it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const id = liveIdOf('appointments', twin.appointment_id!)!
+    const price = twin.tenders.reduce((n, t) => n + t.amount, 0)
+    serve([row(id, { booked_price_amount: price })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual(twin.tenders)
+    serve([row(id, { booked_price_amount: price + 1 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: price + 1, flag: '' }])
+    withReads().appointmentsList.mockRejectedValue(new Error('S84 timeout'))
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    as(LOGIN.musubi)
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+  })
+  it('routes OFF to the identical fixtures and ON to the door readers; props keep overrides and table marks', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect((await data.readInboxPlanes(STORE_A)).threads).toBe(fixtureThreads)
+    expect(await data.readRegisterPlanes(STORE_A)).toEqual({ transactions: fixtureTransactions, closing: fixtureClosing[STORE_A], cashTolerance })
+    expect((await data.readRegisterPlanes(VIEW_ALL)).closing).toBeNull()
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    expect(await data.readInboxPlanes(STORE.tokyo)).toEqual(await door.readInboxPlanes(STORE.tokyo))
+    expect(await data.readRegisterPlanes(STORE.tokyo)).toEqual(await door.readRegisterPlanes(STORE.tokyo))
+    const inbox = (await inboxProps({ locale: 'ja', store: STORE.tokyo })).props
+    const register = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(inbox.threads.length).toBeGreaterThan(0)
+    expect(register.sample).toEqual({ form: 'whole' })
+    expect(inbox.sample).toEqual({ form: 'whole' })
+    expect(inbox.dateline).toBe(data.sampleDateline(data.renderNow(), inbox.lensLabel, true))
+    expect(register.dateline).not.toContain('サンプル')
+    expect((await inboxProps({ locale: 'ja', store: STORE.tokyo, world: { threads: [] } })).props.threads).toEqual([])
   })
 })
