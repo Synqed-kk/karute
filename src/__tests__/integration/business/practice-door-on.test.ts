@@ -540,7 +540,9 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    // Reserve S66 §9 R1 — the admitted store's six booking rules read core's row: bookingPolicy is its one override.
+    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: { ...PRACTICE_PLANES, bookingPolicy: 'live' } })
+    expect(STORE_PLANE_OVERRIDES).toEqual({ [STORE.tokyo]: { bookingPolicy: 'live' } })
     // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
     const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
     expect(storeSample(true, STORE.laEstro)).toEqual(onA)
@@ -589,8 +591,10 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
 })
 
 describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', () => {
+  const SHIPPED = structuredClone(STORE_PLANE_OVERRIDES) // Reserve S66 — the table ships one row (テスト東京店 · bookingPolicy)
   afterEach(() => {
     for (const k of Object.keys(STORE_PLANE_OVERRIDES)) delete STORE_PLANE_OVERRIDES[k]
+    Object.assign(STORE_PLANE_OVERRIDES, structuredClone(SHIPPED))
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
   })
   const BOARD = ['shifts', 'absence', 'sellSlots', 'operatingHours'] as const
@@ -652,6 +656,11 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(PLANE_LABEL.menuVisible).toEqual(['表示・非表示'])
     expect(PLANE_LABEL.tickets).toEqual(['回数券'])
     expect(PLANE_LABEL.company).toEqual(['本部による一括の管理'])
+    // Reserve S66 R1 — 受付ウィンドウ's fixture rows, each its row title verbatim.
+    for (const word of PLANE_LABEL.opsConfig) expect(src).toMatch(new RegExp(`row\\(\\s*'reserve\\.row-[a-z]+',\\s*'${word}'`))
+    expect(samplePart(true, STORE.tokyo, 'opsConfig')).toEqual({ form: 'part', labels: [...PLANE_LABEL.opsConfig] })
+    expect(sampleWhole(true, STORE.tokyo, 'bookingPolicy')).toBeUndefined()
+    expect(sampleWhole(true, STORE.devSalon, 'bookingPolicy')).toEqual({ form: 'whole' })
   })
   it('V4-3 — the sample history credits the fixture operator, never the admitted person', () => {
     expect(historyOperatorName()).toBe(operator.name)

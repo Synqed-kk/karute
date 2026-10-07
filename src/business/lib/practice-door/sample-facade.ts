@@ -306,6 +306,10 @@ export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = { ...ever
 /** The later one-line flip, per live store × plane — here and nowhere else.
  *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures + bookingPolicy in PLANE_MAP_SAYS_LIVE are the open case, PR-4). */
 export const STORE_PLANE_OVERRIDES: Record<string, Partial<Record<PlaneKey, PlaneState>>> = {}
+// Reserve S66 §9 R1 — 受付's six booking rules read core's per-store row (settings-props.ts, readStoreDays' one
+// `storePolicyGet`) for the Dev Salon's admitted store, テスト東京店; saved by setReservePolicy.
+const ADMITTED_STORE = liveIdOf('stores', 'store-test-ginza')
+if (ADMITTED_STORE !== null) STORE_PLANE_OVERRIDES[ADMITTED_STORE] = { bookingPolicy: 'live' }
 const ALL_LIVE: Readonly<Record<PlaneKey, PlaneState>> = every('live')
 
 /** A store's planes under the door: the practice table, then its overrides. */
@@ -360,6 +364,8 @@ export const PLANE_LABEL = {
   tickets: ['回数券'],
   // ブランド・本部's own fact line: 「…本部による一括の管理は使っていません。」 (the store count before it is live).
   company: ['本部による一括の管理'],
+  // Reserve 受付's 受付ウィンドウ rows that still read the fixture (the six booking rules beside them are live).
+  opsConfig: ['標準セッションの長さ', '販売する枠の長さ', 'スキマ枠の販売', 'スキマ割', '確保枠の自動解除'],
 } as const satisfies Partial<Record<PlaneKey, readonly string[]>>
 export type LabeledPlaneKey = keyof typeof PLANE_LABEL
 

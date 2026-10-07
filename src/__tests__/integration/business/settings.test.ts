@@ -2739,7 +2739,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // census now reads number/number/segment.
     expect(controlOf(props, 'reserve.days').control.kind).toBe('number')
     expect(controlOf(props, 'reserve.free').control.kind).toBe('number')
-    expect(controlOf(props, 'reserve.noshow').control.kind).toBe('segment')
+    expect(controlOf(props, 'reserve.noshow').control.kind).toBe('number') // Reserve S66 R3 — any whole percent
   })
 
   /** ⚖ D-15 (round 3, A2) — EVERY LENGTH ROW RENDERS `kind:'number'`, WITH ITS
@@ -2750,7 +2750,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
    *  pin exists to catch. */
   it('⚖ D-15 (round 3, A2) — the five converted rows are free minute fields, unit 分, store value never snapped', async () => {
     const props = await room({ store: STORE_A })
-    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+    for (const id of ['reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
       const c = controlOf(props, id)
       expect({ id, kind: c.control.kind }).toEqual({ id, kind: 'number' })
       expect(c.control.kind === 'number' && c.control.unit).toBe('分')
@@ -2796,7 +2796,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // was the OLD server-only spelling D-36 found stale against a live page).
     const props = await room({ store: STORE_A })
     const dayLen = weeklyDayLen()
-    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+    for (const id of ['reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBe(dayLen)
       // ⚖ D-36 — AND THE CEILING FOLLOWS THE LIVE WEEKLY HOURS: every LENGTH
@@ -2807,13 +2807,19 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     }
     // …and the four 「before start」/「days ahead」/「hours before」 fields have
     // NO ceiling at all (⚖ D-15's own rule: no honest bound exists for them).
-    for (const id of ['reserve.days', 'reserve.cutoff', 'reserve.lead', 'reserve.free', 'reserve.autorelease-min']) {
+    for (const id of ['reserve.lead', 'reserve.autorelease-min']) {
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBeNull()
     }
+    // Reserve S66 — the store's booking rules carry core's OWN ranges (reserve-policy.ts), not an invented cap.
+    expect(controlOf(props, 'reserve.days').control).toMatchObject({ min: 1, max: 365 })
+    expect(controlOf(props, 'reserve.cutoff').control).toMatchObject({ min: 0, max: 10080, zeroLabel: '締め切らない' })
+    expect(controlOf(props, 'reserve.free').control).toMatchObject({ min: 0, max: 720 })
+    expect(controlOf(props, 'reserve.sameday').control).toMatchObject({ min: 0, max: 100, unit: '%' })
+    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'segment', options: [{ value: '15', label: '15分' }, { value: '30', label: '30分' }, { value: '60', label: '60分' }, { value: 'default', label: 'お店の標準（30分）' }] })
     // ⚖ D-32 F6 — AND THE FLOOR, since a floor with no pin is a mutant
     // (1 → 0, or 0 → -1) nothing in this battery would notice.
-    for (const id of ['reserve.days', 'reserve.grid', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
+    for (const id of ['reserve.days', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
       const c = controlOf(props, id)
       expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 1 })
     }
@@ -2863,7 +2869,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // LENGTH row's ceiling on THIS page are the same initial number, because
     // both are `longestOpenDayMin` over the same weekly rows.
     expect(policy.dayLenMin).toBe(expected)
-    expect(controlOf(props, 'reserve.grid').control).toMatchObject({ max: expected })
+    expect(controlOf(props, 'reserve.session').control).toMatchObject({ max: expected })
     // …and the screen mounts #812's section with a LIVE override of that
     // field, spelled through the one shared `WEEK_CEILING`, never a second
     // ids list — the source line the D-36 fix actually added.
