@@ -895,7 +895,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     const reads = withReads()
     reads.storePolicyGet.mockImplementation(async () => ({ ...row }))
     mockCore.writer.set.mockImplementation(async (_id: string, input: Record<string, unknown>) => {
-      const { acting_staff_id: _a, ...rest } = input
+      const rest = Object.fromEntries(Object.entries(input).filter(([k]) => k !== 'acting_staff_id'))
       row = { ...row, ...rest, updated_at: '2026-10-08T02:00:00.000Z' }
       return { ...row }
     })
@@ -1045,7 +1045,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     beforeEach(() => {
       withReads().storePolicyGet.mockResolvedValue({ ...BASE_POLICY, ...PROOF })
       mockCore.writer.set.mockImplementation(async (_id: string, input: Record<string, unknown>) => {
-        const { acting_staff_id: _actor, ...rest } = input
+        const rest = Object.fromEntries(Object.entries(input).filter(([k]) => k !== 'acting_staff_id'))
         return { ...BASE_POLICY, ...rest }
       })
     })
@@ -1072,7 +1072,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
       expectWrites({ set: 1 })
     })
 
-    const { no_show_pct: _dropped, ...FIVE } = D
+    const FIVE = Object.fromEntries(Object.entries(D).filter(([k]) => k !== 'no_show_pct'))
     it.each([
       ['open days 366', { ...D, booking_open_days: 366 }],
       ['cutoff 10081', { ...D, booking_open_days: 365, cutoff_minutes: 10081 }],
