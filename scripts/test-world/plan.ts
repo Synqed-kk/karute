@@ -189,6 +189,10 @@ export const loaderSet = (a: { status_set_by?: string | null; status_reason?: st
 /** ⚖ R17: the cancel reason in notes is the app's own Japanese label (messages/ja.json), never the slug; realism.ts stays the status_reason writer. */
 export const CANCEL_LABELS: Record<string, string> = { 'cancel-advance-contact': '事前連絡あり', 'cancel-same-day-contact': '当日連絡あり', 'cancel-salon-initiated': '店舗都合' }
 export const bookingNotes = (a: Pick<PlannedAppointment, 'key' | 'request'> & { cancelReason?: string | null }) => `テストデータ [${a.key}]${a.request ? `\n${a.request}` : ''}${a.cancelReason ? `\nキャンセル理由：${CANCEL_LABELS[a.cancelReason] ?? a.cancelReason}` : ''}`
+/** ⚖ G2 (S87): the ONE 「is this note ours?」 check — the bare tag, the labelled bookingNotes(a), or the line the loader
+ *  wrote before the cancel label existed (tag + ご要望, no キャンセル理由). Any other text is a person's edit. */
+export const isGeneratedNote = (notes: string | null | undefined, a: Pick<PlannedAppointment, 'key' | 'request'> & { cancelReason?: string | null }): boolean =>
+  notes === `テストデータ [${a.key}]` || notes === bookingNotes(a) || notes === bookingNotes({ ...a, cancelReason: null })
 
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
  *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */

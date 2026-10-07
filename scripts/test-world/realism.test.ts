@@ -313,6 +313,26 @@ async function pass() {
   }
   assert.ok(!c3.held.some((l) => l.startsWith(`${kept.id}:`)) && !c3.changes.some((c) => c.id === kept.id && c.set.notes !== undefined), 'the plan\'s own line stays the loader\'s')
 
+  // ⚖ G2 (S87): a cancelled booking the OLD loader wrote (tag + ご要望, no キャンセル理由 line) is still the loader's: its
+  // status_reason repair runs and its notes move to the labelled line; a hand-written note on a twin is still held.
+  const w4 = await world()
+  const p4 = new Map(w4.p.appointments.map((a) => [`a-${a.key}`, a]))
+  const cancelled = w4.rows.filter((r) => r !== w4.edited && r !== w4.human && p4.get(r.id)?.status === 'CANCELLED' && p4.get(r.id)!.request && p4.get(r.id)!.cancelReason)
+  assert.ok(cancelled.length >= 2, `the plan has cancelled bookings with a ご要望 (${cancelled.length})`)
+  const [oldRow, handRow] = cancelled
+  const oldNote = `テストデータ [${p4.get(oldRow.id)!.key}]\n${p4.get(oldRow.id)!.request}`
+  assert.notEqual(oldNote, bookingNotes(p4.get(oldRow.id)!), 'the old format differs from the labelled one (not vacuous)')
+  for (const r of [oldRow, handRow]) Object.assign(r, { status: 'CANCELLED', status_reason: null, status_set_by: null })
+  oldRow.notes = oldNote
+  handRow.notes = `テストデータ [${p4.get(handRow.id)!.key}]\nお客様より電話あり、来週に振替希望`
+  const c4 = planStore({ ...input, recipe: w4.recipe, plan: w4.p, rows: w4.rows, karuted: w4.karuted, burnt: new Set() })
+  const fix = c4.changes.find((c) => c.id === oldRow.id)
+  assert.ok(!c4.held.some((l) => l.startsWith(`${oldRow.id}:`)), 'an old-format generated note is recognised as the loader\'s')
+  assert.ok(fix && (CANCEL_REASONS as readonly string[]).includes(fix.set.status_reason as string), 'its status_reason repair runs')
+  assert.equal(fix!.set.notes, bookingNotes(p4.get(oldRow.id)!), 'its notes move to the labelled line')
+  assert.ok(c4.held.includes(`${handRow.id}: its notes were edited by hand, left alone`) && !c4.changes.some((c) => c.id === handRow.id), 'a hand-written note is still protected')
+  console.log(`✓ G2: old-format cancelled note ${oldRow.id} repaired (${fix!.set.status_reason}); hand-written ${handRow.id} held`)
+
   // --repair-foreign never sets a MANUAL booking's null duration (Karute's own create always sends one): held, one line.
   const manual = { ...clone(w2.reserve), id: 'manual-row', notes: '電話で予約', source: 'MANUAL' as const }
   const d = planStore({ ...input, rows: [...clone(w2.rows), manual], karuted: w2.karuted, burnt: new Set(), repairForeign: true })

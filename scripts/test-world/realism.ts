@@ -44,7 +44,7 @@ import {
 } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, bookingNotes, loaderSet, plan, rng, type Plan, type Recipe } from './plan'
+import { addDays, bookingNotes, isGeneratedNote, loaderSet, plan, rng, type Plan, type Recipe } from './plan'
 
 export type RealismCore = Pick<FillCore, 'orgSettings' | 'stores' | 'staff' | 'customers' | 'appointments' | 'karuteRecords' | 'packs'>
 export type Fields = { notes?: string | null; status?: AppointmentStatus; status_reason?: string | null; duration_minutes?: number | null }
@@ -89,12 +89,11 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
   for (const a of i.rows) {
     const tag = TAG.exec(a.notes ?? '')?.[1]
     const p = tag ? planned.get(tag) : undefined
-    const bare = `テストデータ [${tag}]`
     const why = !tag ? `not a loader booking (source ${a.source})`
       : seen.get(tag)! > 1 ? `its tag ${tag} is on ${seen.get(tag)} bookings`
       : !p ? `${tag} is not in the plan`
       : a.customer_id !== i.custId.get(p.member) ? `its customer differs from the planned customer (${p.member})`
-      : a.notes !== bare && a.notes !== bookingNotes(p) ? 'its notes were edited by hand' // any text but the plan's own line
+      : !isGeneratedNote(a.notes, p) ? 'its notes were edited by hand' // any text but a line the loader wrote for this key
       : null
     if (why) {
       const dur = a.duration_minutes != null ? '' : a.source === 'MANUAL' ? ' — its duration_minutes is null (a MANUAL booking: --repair-foreign leaves it)'
