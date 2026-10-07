@@ -337,7 +337,8 @@
 .biz .board-main { min-width: 0; }
 .biz .timeline-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .biz .timeline-scroll:focus-visible { outline-offset: -3px; }
-.biz .timeline { position: relative; min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); --label: 112px; }
+.biz .timeline { position: relative; min-width: 0; --label: 112px; }
+.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); }
 /* ⚖ 10/7 S25-1 — fit to width first; the track never goes below minPxPer30 (today-board.ts) per grid cell, so only a day
    that cannot fit makes .timeline-scroll scroll sideways; the name column (.lane-label / .time-head > span) is sticky-left
    and the ruler scrolls with the schedule. --board-cells / --cell-floor are set by TodayScreen from the day model. */
@@ -483,6 +484,22 @@
 .biz .timeline .time-head > span.off-caption.before { left: var(--label); width: calc((100% - var(--label)) * var(--off-before, 0)); }
 .biz .timeline .time-head > span.off-caption.after { left: auto; right: 0; width: calc((100% - var(--label)) * var(--off-after, 0)); }
 .biz .hours span.off, .biz .page-today .hours span.off { color: #a1a1aa; }
+/* ⚖ 10/7 S25-2 (D2) — the closing EDGE TICK: the closing hour printed at the track's right edge (rulerLabels' `edge`),
+   right-aligned against the edge instead of starting a column. */
+.biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
+
+/* ⚖ 10/7 S25-2 (D5) — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A container query
+   measures the CONTENT box (width − CARD_PAD_PX 18), so: MID < 66 → 48 · NARROW < 56 → 38 · SLIVER < 20 → 2.
+   NARROW drops the time line and gives back the padding down to CARD_TIGHT_PAD_PX (left 4, right 1: −6 / −5 px);
+   SLIVER keeps only the coloured bar (the full text is the card's title + the existing hover/tap detail).
+   CSS ellipsis stays as the last-resort overflow. */
+.biz .page-today .event { container-type: inline-size; }
+@container (width < 48px) { .biz .page-today .event > .e-tkt { display: none; } }
+@container (width < 38px) {
+  .biz .page-today .event > .e-time { display: none; }
+  .biz .page-today .event > * { margin-left: -6px; margin-right: -5px; }
+}
+@container (width < 2px) { .biz .page-today .event > * { visibility: hidden; } }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep
@@ -3486,20 +3503,3 @@
     .biz .page-today .biz-dialog[open]::backdrop { opacity: 0; }
   }
 }
-
-/* ⚖ 10/7 S25-2 (D2) — the closing EDGE TICK: the closing hour printed at the track's right edge (rulerLabels' `edge`),
-   right-aligned against the edge instead of starting a column. */
-.biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
-
-/* ⚖ 10/7 S25-2 (D5) — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A container query
-   measures the CONTENT box (width − CARD_PAD_PX 18), so: MID < 66 → 48 · NARROW < 56 → 38 · SLIVER < 20 → 2.
-   NARROW drops the time line and gives back the padding down to CARD_TIGHT_PAD_PX (left 4, right 1: −6 / −5 px);
-   SLIVER keeps only the coloured bar (the full text is the card's title + the existing hover/tap detail).
-   CSS ellipsis stays as the last-resort overflow. */
-.biz .page-today .event { container-type: inline-size; }
-@container (width < 48px) { .biz .page-today .event > .e-tkt { display: none; } }
-@container (width < 38px) {
-  .biz .page-today .event > .e-time { display: none; }
-  .biz .page-today .event > * { margin-left: -6px; margin-right: -5px; }
-}
-@container (width < 2px) { .biz .page-today .event > * { visibility: hidden; } }
