@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { SynqedClient } from '@synqed-kk/client'
 import { lastWindowEnd, loadRecipe, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
+import { SURNAMES } from '../../../../scripts/test-world/names'
 import { addDays, bookingNotes, CANCEL_LABELS, hoursOn, jstIso, plan, sidesOf, type Plan, type Recipe } from '../../../../scripts/test-world/plan'
 
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(() => { throw new Error('pure plan attempted SDK construction') }) }))
@@ -28,6 +29,7 @@ beforeAll(async () => {
 
 it('T1: every practice store, original prefixes, plain staff names (R8), disjoint identities, a real name spread (R9)', () => {
   const names = new Set<string>(), members = new Set<string>(), staff = new Set<string>(), phones = new Set<string>(), prefixes = new Set<string>()
+  expect(new Set(SURNAMES.map(([s]) => s)).size).toBeGreaterThanOrEqual(100) // ⚖ Q6: the surname pool itself holds ≥ 100 distinct surnames
   for (const [id, { r, p }] of plans) {
     const e = registry.stores[id]
     const original = !!golden.stores[id]
