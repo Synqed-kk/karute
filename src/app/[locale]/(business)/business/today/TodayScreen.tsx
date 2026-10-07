@@ -884,6 +884,11 @@ interface DragCtx {
    *  during the gesture, so this is also the live answer to "where is the other
    *  half right now". */
   home: PairLanes
+  /** ⚖ Q-23 (S27) — THE STAGED ENTRIES AS THEY STOOD AT POINTERDOWN, both sides: `moves[id]` and
+   *  `bedMoves[id]`, `null` = no key. Every abandoned landing (`restoreSides`) puts exactly these back —
+   *  a key that was absent is deleted, a value that was there is written back — so a cancelled drag
+   *  leaves nothing staged behind, and a cancelled re-drag of a staged card keeps its staged span. */
+  staged: { staff: Move | null; bed: Move | null }
   track: Element
   /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL runs on the board's ONE loop (`edgeStart` / `edgeAim` /
    *  `edgeStop`, `edgeRef`). `scrolled` is how far the box moved under the held card: it is added to the pointer's
@@ -3519,7 +3524,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardVerdictAt(lanes, laneKey, start, {
             open: business.open,
             close: business.close,
-            stepMin: 30,
+            stepMin: props.guard.bookingStepMin,
             dur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -5112,16 +5117,20 @@ export function TodayScreen(props: TodayProps) {
    *  sides, whichever one was dragged. Every abandoned landing goes through here
    *  — the shelf drop's write-back, the two refusals, the no-op release and the
    *  cancel — because a restore that knows only the staff lane is the same
-   *  one-sided write that lost the card in the first place. */
-  function restoreSides(id: string, home: PairLanes) {
-    if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))
-    setBedMoves((was) => {
-      if (home.bed) return { ...was, [id]: home.bed }
+   *  one-sided write that lost the card in the first place.
+   *  ⚖ Q-23 (S27) — it puts back the STAGED ENTRIES as they were at pointerdown (`DragCtx.staged`), never
+   *  "stage home": staging the home span left a Move behind on every cancel, and `atSpan` prints a staged
+   *  Move's full range, so a cancelled stretch read 「07:00〜07:30」 on a card that never changed. */
+  function restoreSides(id: string, staged: DragCtx['staged']) {
+    const put = (was: Moves, m: Move | null): Moves => {
+      if (m) return was[id] === m ? was : { ...was, [id]: m }
       if (!(id in was)) return was
       const next = { ...was }
       delete next[id]
       return next
-    })
+    }
+    setMoves((was) => put(was, staged.staff))
+    setBedMoves((was) => put(was, staged.bed))
   }
 
   function revertPending() {
@@ -5707,7 +5716,7 @@ export function TodayScreen(props: TodayProps) {
     return { box, scrollLeft0: box?.scrollLeft ?? 0, unfollow: () => box?.removeEventListener('scroll', onScroll) }
   }
 
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at'>) {
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at' | 'staged'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5786,6 +5795,7 @@ export function TodayScreen(props: TodayProps) {
     window.addEventListener('blur', cancelDrag)
     dragRef.current = {
       ...ctx,
+      staged: { staff: moves[ctx.id] ?? null, bed: bedMoves[ctx.id] ?? null },
       pending: null,
       frame: null,
       box: follow.box,
@@ -6087,7 +6097,7 @@ export function TodayScreen(props: TodayProps) {
     const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX + scrolledNow(ctx), STEP) // ⚖ S26 Round F: derived
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
-      restoreSides(ctx.id, from)
+      restoreSides(ctx.id, ctx.staged)
       // The chip's `home` is the STAFF side: its × writes it straight back into
       // `moves`, and a bed key there is the same collapse in the shelf's clothes.
       park(ctx.id, item, from.staff ?? { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w })
@@ -6098,7 +6108,7 @@ export function TodayScreen(props: TodayProps) {
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (!laneKey) {
         clearDrag()
-        restoreSides(ctx.id, from)
+        restoreSides(ctx.id, ctx.staged)
         // ⚖ LIAM flag 50(d) + flag 61 — AND THIS ONE EXPLAINS ITSELF AT THE
         // CURSOR TOO. A bottom toast, on a dense board, while the operator's
         // eye is on the card they are holding, is functionally silence — the
@@ -6127,7 +6137,7 @@ export function TodayScreen(props: TodayProps) {
     const laneChanged = ctx.origin.mode === 'move' && targetLane !== ctx.homeLane
     clearDrag()
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && !laneChanged) {
-      restoreSides(ctx.id, from)
+      restoreSides(ctx.id, ctx.staged)
       return
     }
     // ⚖ Liam flag 31a — A MOVE NEVER OPENS THE CONSULT. It used to call
@@ -6462,7 +6472,7 @@ export function TodayScreen(props: TodayProps) {
   function cancelDrag(e: { timeStamp: number }) {
     const ctx = dragRef.current
     if (!ctx) return
-    restoreSides(ctx.id, ctx.home)
+    restoreSides(ctx.id, ctx.staged)
     openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)
     clearDrag()
     freeGesture()
