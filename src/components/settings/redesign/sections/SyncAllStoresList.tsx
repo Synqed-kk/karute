@@ -145,8 +145,13 @@ export function SyncAllStoresList({
   // ⚖ Never two crawls of one store at once: the row runs, すべての店舗を同期
   // and the form's own save / 今すぐ同期 all mark the store in SyncSection's
   // one in-flight set, and none starts a store that is already in it.
+  // A form save / run that names no store ('') runs the route's default
+  // store, whose real id is not claimed: while one is pending, no list run
+  // starts (the same disabled state as a pending すべての店舗を同期).
+  const blocked = runAll.pending || inFlight.has('')
+
   async function runOne(row: SyncStoreRow) {
-    if (runAll.pending || !beginSyncing(row.storeId)) return
+    if (blocked || !beginSyncing(row.storeId)) return
     const outcome = await runStoreSync(row.storeId)
     endSyncing(row.storeId)
     setRowResult((r) => ({ ...r, [row.storeId]: outcome }))
@@ -163,7 +168,7 @@ export function SyncAllStoresList({
   // is never crawled. A failed per-store re-read skips that store (it is not
   // in the result count).
   async function runAllStores() {
-    if (!rows || runAll.pending) return
+    if (!rows || blocked) return
     setRunAll({ pending: true, results: null })
     const fresh = await fetchStoreRows()
     if (!fresh) {
@@ -219,7 +224,7 @@ export function SyncAllStoresList({
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{t('scopeLine', { n: rows.length })}</span>
         {runAllCount >= 2 && (
-          <button type="button" onClick={runAllStores} disabled={runAll.pending} className={OUTLINE_BUTTON}>
+          <button type="button" onClick={runAllStores} disabled={blocked} className={OUTLINE_BUTTON}>
             {runAll.pending ? t('runNowPending') : t('runAll')}
           </button>
         )}
@@ -348,7 +353,7 @@ export function SyncAllStoresList({
                         <button
                           type="button"
                           onClick={() => void runOne(row)}
-                          disabled={pending || runAll.pending}
+                          disabled={pending || blocked}
                           className={OUTLINE_BUTTON}
                         >
                           {pending ? t('runNowPending') : t('runNow')}

@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
-import { snapshot as inFlightNow } from '@/lib/sync/in-flight'
+import { claim, release, snapshot as inFlightNow } from '@/lib/sync/in-flight'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (k: string, p?: Record<string, unknown>) => (p ? `${k}${JSON.stringify(p)}` : k),
@@ -458,6 +458,26 @@ describe('viewAll caller', () => {
     await act(async () => { runs[0].resolve(ok) })
     await flush()
     expect(configsCalls()).toBe(before + 1)
+  })
+
+  it("while a form request that names no store ('') is pending, すべての店舗を同期 and every row run are disabled", async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    const ids = ['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']
+    const disabled = () => [
+      (screen.getByText('runAll').closest('button') as HTMLButtonElement).disabled,
+      ...ids.map((id) => (within(screen.getByTestId(`sync-row-${id}`)).getByRole('button', { name: 'runNow' }) as HTMLButtonElement).disabled),
+    ]
+    expect(disabled()).toEqual([false, false, false, false])
+    act(() => { claim('') })
+    // the labels are unchanged (no pending text): only the disabled state
+    expect(disabled()).toEqual([true, true, true, true])
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await act(async () => { fireEvent.click(within(screen.getByTestId(`sync-row-${ids[1]}`)).getByText('runNow')) })
+    await flush()
+    expect(runs).toHaveLength(0)
+    act(() => { release('') })
+    expect(disabled()).toEqual([false, false, false, false])
   })
 
   it("an abandoned loop's store is released when its POST answers (the set is empty afterwards)", async () => {
