@@ -34,6 +34,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as data from '@/business/lib/data'
 import * as door from '@/business/lib/practice-door/door'
+import { hash } from '@/business/lib/practice-door/door-inbox-register'
 import { threads as fixtureThreads } from '@/business/lib/fixtures-inbox'
 import { transactions as fixtureTransactions, closing as fixtureClosing, cashTolerance, type FixtureTransaction } from '@/business/lib/fixtures-register'
 import { buildLedger, ledgerTotals, expectedCash, denominationTotal } from '@/business/lib/register'
@@ -2307,41 +2308,77 @@ describe('S84 — live-keyed inbox and register planes', () => {
     spy.appointmentsList.mockResolvedValue({ appointments: rows, total: rows.length, page: 1, page_size: 500 })
     return spy
   }
-  it.each([1, 3, 8, 20])('%i bookings: stable threads, exact live joins and fixture category proportions', async (n) => {
-    const rows = Array.from({ length: n }, (_, i) => row(`s84-${i}`))
-    const spy = serve(rows)
-    const first = await door.readInboxPlanes(STORE.tokyo)
-    expect(first.threads).toHaveLength(n)
-    for (const t of first.threads) {
+  const carries = (id: string) => hash(id) % 23 < 5
+  const pick = (prefix: string, thread: boolean, n = 1) => {
+    const out: string[] = []
+    for (let i = 0; out.length < n; i++) if (carries(`${prefix}-${i}`) === thread) out.push(`${prefix}-${i}`)
+    return out
+  }
+  it('T-a one booking\'s thread is a function of its own id: inserting a booking relabels nobody', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => row(`s85-${i}`))
+    serve(rows)
+    const first = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(first.map((t) => t.appointment_id)).toEqual(rows.filter((r) => carries(r.id)).map((r) => r.id))
+    for (const t of first) {
       expect(t.id).toBe(`smp-thr-${t.appointment_id}`)
       expect(t.customer_id).toBe(rows.find((a) => a.id === t.appointment_id)!.customer_id)
     }
-    for (const category of ['change', 'noshow', 'waitlist', 'delivery']) {
-      const want = n * fixtureThreads.filter((t) => t.category === category).length / fixtureThreads.length
-      expect(Math.abs(first.threads.filter((t) => t.category === category).length - want)).toBeLessThanOrEqual(1)
+    for (const inserted of [...pick('s85-new', true), ...pick('s85-new', false)]) {
+      serve([...rows.slice(0, 10), row(inserted), ...rows.slice(10)])
+      const second = (await door.readInboxPlanes(STORE.tokyo)).threads
+      for (const t of first) expect(second.find((u) => u.id === t.id)).toEqual(t)
+      expect(second.some((t) => t.appointment_id === inserted)).toBe(carries(inserted))
+      expect(second).toHaveLength(first.length + (carries(inserted) ? 1 : 0))
     }
-    expect(await door.readInboxPlanes(STORE.tokyo)).toEqual(first)
-    expect(spy.appointmentsList).toHaveBeenCalledTimes(1)
+  })
+  it('T-b at 200 bookings the thread rate is the fixture 5/23 and change : delivery is 3 : 1', async () => {
+    serve(Array.from({ length: 200 }, (_, i) => row(`s85-n-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(Math.abs(threads.length - 200 * 5 / 23)).toBeLessThanOrEqual(12)
+    const change = threads.filter((t) => t.category === 'change').length
+    const delivery = threads.filter((t) => t.category === 'delivery').length
+    expect(change + delivery).toBe(threads.length)
+    expect(Math.abs(change / threads.length - 3 / 4)).toBeLessThanOrEqual(0.25 * 3 / 4)
+  })
+  it('T-c cancelled → no thread; 無断 → the noshow template; a future booking never gets it', async () => {
+    const [cancelled, absent] = pick('s85-c', true, 2)
+    const future = Array.from({ length: 60 }, (_, i) => row(`s85-f-${i}`, { status: 'SCHEDULED', starts_at: '2026-09-16T01:00:00Z', ends_at: '2026-09-16T02:00:00Z' }))
+    serve([row(cancelled, { status: 'CANCELLED' }), row(absent, { status: 'NO_SHOW' }), ...future])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.some((t) => t.appointment_id === cancelled)).toBe(false)
+    const noshow = fixtureThreads.find((t) => t.category === 'noshow')!
+    expect(threads.find((t) => t.appointment_id === absent)).toMatchObject({ category: 'noshow', subject: noshow.subject })
+    expect(threads.filter((t) => t.category === 'noshow').map((t) => t.appointment_id)).toEqual([absent])
+    expect(threads.some((t) => t.category === 'waitlist')).toBe(false)
+    serve([row(cancelled, { status: 'CANCELLED' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([])
+  })
+  it('T-d the floor: one eligible booking that its hash leaves out still gets one change thread', async () => {
+    const [quiet] = pick('s85-q', false)
+    serve([row(quiet), row(pick('s85-x', true)[0], { status: 'CANCELLED' })])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.map((t) => [t.appointment_id, t.category])).toEqual([[quiet, 'change']])
+  })
+  it('T-e a templated seat never carries the fixture\'s source proof', async () => {
+    serve(Array.from({ length: 60 }, (_, i) => row(`s85-p-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.length).toBeGreaterThan(0)
+    expect(threads.every((t) => t.source_proof === null)).toBe(true)
   })
   it('limits inbox reach, keeps canonical twin text and customer-only affiliation', async () => {
     const twin = fixtureThreads.find((t) => t.category === 'change')!
     const live = liveIdOf('appointments', twin.appointment_id!)!
-    serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! }),
-      row('day7', { starts_at: '2026-09-21T01:00:00Z' }), row('day8', { starts_at: '2026-09-22T01:00:00Z' }),
+    serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([{ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) }])
+    serve([row('day7', { starts_at: '2026-09-21T01:00:00Z' }), row('day8', { starts_at: '2026-09-22T01:00:00Z' }),
       row('yesterday', { starts_at: '2026-09-13T01:00:00Z' })])
-    const { threads } = await door.readInboxPlanes(STORE.tokyo)
-    expect(threads.map((t) => t.appointment_id).sort()).toEqual([live, 'day7'].sort())
-    expect(threads.find((t) => t.appointment_id === live)).toEqual({ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) })
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.map((t) => t.appointment_id)).toEqual(['day7'])
     const wait = fixtureThreads.find((t) => t.appointment_id === null)!
     serve([row('affiliated', { customer_id: liveIdOf('customers', wait.customer_id)! })])
     expect((await door.readInboxPlanes(STORE.tokyo)).threads).toContainEqual({ ...wait, id: `smp-thr-${wait.id}`, customer_id: liveIdOf('customers', wait.customer_id) })
     serve(Array.from({ length: 20 }, (_, i) => row(`mixed-${i}`, { customer_id: liveIdOf('customers', wait.customer_id)! })))
     const mixed = (await door.readInboxPlanes(STORE.tokyo)).threads
-    expect(mixed).toHaveLength(21)
-    for (const category of ['change', 'noshow', 'waitlist', 'delivery']) {
-      const want = mixed.length * fixtureThreads.filter((t) => t.category === category).length / fixtureThreads.length
-      expect(Math.abs(mixed.filter((t) => t.category === category).length - want)).toBeLessThanOrEqual(1)
-    }
+    expect(mixed.filter((t) => t.category === 'waitlist').map((t) => t.id)).toEqual([`smp-thr-${wait.id}`])
   })
   it('settles only ended bookings, balances every yen and the count sheet, rejects a refund mutant', async () => {
     const spy = serve([row('paid'), row('zero', { booked_price_amount: null }),

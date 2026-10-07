@@ -1,6 +1,6 @@
 // Sample message/payment facts seated on the bookings the lens actually reads.
 import type { FixtureAppointment } from '../fixtures'
-import { threads, type FixtureThread, type ThreadCategory } from '../fixtures-inbox'
+import { threads, type FixtureThread } from '../fixtures-inbox'
 import { cashTolerance, closing, transactions, type FixtureTransaction } from '../fixtures-register'
 import { decisions } from '../fixtures-today'
 import { auditTrail, reservations } from '../fixtures-reservations'
@@ -8,41 +8,56 @@ import { jstMinuteOfDay } from '../clock'
 import { tenderChannel } from '../register'
 import { fixtureIdOf, liveIdOf, samplePolicyFor } from './registry'
 
-/** FNV-1a over the entire id; hash order + weighted deficits preserve the fixture category mix. */
-const hash = (id: string): number => {
+/** FNV-1a over the entire id: every per-booking choice below reads this alone. */
+export const hash = (id: string): number => {
   let n = 2166136261
   for (const c of id) n = Math.imul(n ^ c.charCodeAt(0), 16777619)
   return n >>> 0
 }
 
+/** The fixture world's own thread ratio: 5 booking-backed threads over 23 bookings in reach. */
+const THREAD_SLOTS = 23
+const THREAD_SHARE = 5
+const noshowTemplate = threads.find((t) => t.appointment_id !== null && t.category === 'noshow')!
+const bookingTemplates = threads.filter((t) => t.appointment_id !== null && t.category !== 'noshow' && t.category !== 'waitlist')
+const firstChange = bookingTemplates.find((t) => t.category === 'change')!
+
+/** One rule per booking, from its own hash only — inserting or removing another
+ *  booking never relabels this one. Cancelled → none; 無断キャンセル → the noshow
+ *  template; else a thread iff hash % 23 < 5, its template by (hash >>> 8). */
 export function inboxFor(bookings: FixtureAppointment[]): { threads: FixtureThread[] } {
   const customerOnly = threads.filter((t) => t.appointment_id === null).flatMap((t) => {
     const customer = liveIdOf('customers', t.customer_id)
     return customer && bookings.some((b) => b.customer_id === customer)
       ? [{ ...t, id: `smp-thr-${t.id}`, customer_id: customer }] : []
   })
-  const ordered = [...bookings].sort((a, b) => hash(a.id) - hash(b.id) || a.id.localeCompare(b.id))
-  const categories = [...new Set(threads.map((t) => t.category))]
   const canonical = (id: string) => threads.find((t) => t.appointment_id !== null && t.appointment_id === fixtureIdOf('appointments', id))
-  const counts = Object.fromEntries(categories.map((c) => [c, ordered.filter((b) => canonical(b.id)?.category === c).length + customerOnly.filter((t) => t.category === c).length])) as Record<ThreadCategory, number>
-  const deficit = (t: FixtureThread) => (bookings.length + customerOnly.length) * threads.filter((f) => f.category === t.category).length / threads.length - counts[t.category]
-  const seated = ordered.map((booking): FixtureThread => {
+  const eligible = bookings.filter((b) => b.status !== 'cancelled')
+  const templateOf = (b: FixtureAppointment): FixtureThread | undefined =>
+    canonical(b.id) ?? (b.board_state === 'noshow' ? noshowTemplate
+      : hash(b.id) % THREAD_SLOTS < THREAD_SHARE ? bookingTemplates[(hash(b.id) >>> 8) % bookingTemplates.length] : undefined)
+  const chosen = new Map(eligible.flatMap((b) => { const t = templateOf(b); return t ? [[b.id, t] as const] : [] }))
+  if (eligible.length > 0 && chosen.size === 0) {
+    const floor = eligible.reduce((lo, b) => hash(b.id) < hash(lo.id) ? b : lo)
+    chosen.set(floor.id, firstChange)
+  }
+  const seated = eligible.flatMap((booking): FixtureThread[] => {
+    const template = chosen.get(booking.id)
+    if (!template) return []
+    const own = template === canonical(booking.id)
     const twin = fixtureIdOf('appointments', booking.id)
-    const candidates = threads.map((_, i) => threads[(hash(booking.id) + i) % threads.length])
-    const own = canonical(booking.id)
-    const template = own ?? candidates.reduce((best, t) => deficit(t) > deficit(best) ? t : best)
-    if (!own) counts[template.category] += 1
     const decision = twin !== null && decisions.some((d) => d.appointment_id === twin)
     const exception = twin !== null && reservations.some((r) => r.appointment_id === twin)
     const audit = twin === null ? [] : (auditTrail[twin] ?? [])
-    return {
+    return [{
       ...template, id: `smp-thr-${booking.id}`, appointment_id: booking.id, customer_id: booking.customer_id,
       delivery_state: decision ? null : template.delivery_state,
       delivery_detail: decision ? null : template.delivery_detail,
-      source_proof: decision || exception ? null : template.source_proof,
+      // A templated seat never carries the fixture's own source proof (its names belong to the fixture world).
+      source_proof: !own || decision || exception ? null : template.source_proof,
       due: exception ? null : template.due,
       events: template.events.filter((event) => !audit.some((row) => row.every((s, i) => s === event[i]))),
-    }
+    }]
   })
   return { threads: [...seated, ...customerOnly] }
 }
