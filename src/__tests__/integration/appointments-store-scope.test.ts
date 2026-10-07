@@ -58,6 +58,11 @@ jest.mock('@/actions/stores', () => ({
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({ operating_hours: null })),
 }))
+jest.mock('@/lib/staff', () => ({
+  ...jest.requireActual('@/lib/staff'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'staff-1' }]),
+}))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
 }))

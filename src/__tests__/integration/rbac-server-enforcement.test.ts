@@ -67,7 +67,8 @@ jest.mock('@/lib/staff', () => ({
   // loadKaruteWindow's fan-out (round 4): without these the action died on an
   // undefined import before ever reaching the read, which made the leap-date
   // test below pass VACUOUSLY.
-  getStaffList: jest.fn(async () => []),
+  // Self only: createAppointment's roster gate (fix round 6 F3) books staff-self.
+  getStaffList: jest.fn(async () => [{ id: SELF_STAFF_ID, full_name: null }]),
 }))
 
 // Same fan-out. Mutations in this suite never touch the customer list, so a

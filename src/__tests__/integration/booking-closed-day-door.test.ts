@@ -35,6 +35,8 @@ jest.mock('@synqed-kk/client', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'staff-1' }, { id: 'staff-2' }]),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({

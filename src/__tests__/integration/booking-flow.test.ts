@@ -36,6 +36,8 @@ jest.mock('@/lib/auth/store-scope', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
+  // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
+  getStaffList: jest.fn(async () => [{ id: 'staff-1' }, { id: 'staff-2' }]),
   // Audit identity seam (resolveWebAuditContext, @/lib/audit-web) — booking
   // mutations now emit through the shared cores.
   resolveUserId: jest.fn(async () => 'auth-user-1'),

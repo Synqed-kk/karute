@@ -87,6 +87,12 @@ jest.mock('@/lib/staff', () => ({
   staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1', full_name: 'Viewer' }]),
   getBusinessId: jest.fn(async () => BIZ),
   getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
+  // The web roster as staffListCore builds it: the profile, plus the ACTIVE
+  // core-only cards (synqedStaffWithoutProfile drops is_active false), so the
+  // inactive card 'core-inactive' is not on it.
+  getStaffList: jest.fn(async () =>
+    ['auth-user-1', 'core-only-1', 'core-store-2', 'core-stores-unreadable'].map((id) => ({ id, full_name: id })),
+  ),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -112,9 +118,10 @@ const STAFF_ROWS: Record<string, { is_active: boolean; business_id: string }> = 
   'core-of-business-2': { is_active: true, business_id: 'business-2' },
 }
 const apptGet = jest.fn()
+const apptCreate = jest.fn(async () => ({ id: 'appt-new' }))
 const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 const fakeClient = {
-  appointments: { get: apptGet, update: apptUpdate },
+  appointments: { get: apptGet, update: apptUpdate, create: apptCreate },
   packs: {},
   staff: {
     get: jest.fn(async (id: string) => {
@@ -133,7 +140,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { POST as assignPOST } from '@/app/api/app/v1/appointments/[id]/assign-staff/route'
-import { assignAppointmentStaff } from '@/actions/appointments'
+import { assignAppointmentStaff, createAppointment } from '@/actions/appointments'
 import { STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
 import ja from '../../../messages/ja.json'
 
@@ -253,5 +260,34 @@ describe('P2 — a profiles read failure is an outage, not bad input', () => {
     expect(res.status).toBe(400)
     expect(JSON.stringify(await res.json())).toContain(STAFF_NOT_ELIGIBLE)
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// Fix round 6 F3 (attack read #4) — web create gets the facade create's roster
+// gate: a card of this business that is not on the roster (an inactive one) is
+// refused with the facade's own words, before the resolver; nothing written.
+describe('F3 — web createAppointment: roster gate, as the facade create', () => {
+  const booking = (staffProfileId: string) => ({
+    staffProfileId,
+    clientId: 'cust-1',
+    startTime: '2026-10-06T01:00:00.000Z',
+    durationMinutes: 60,
+  })
+
+  it('an inactive core-only card of this business → the facade create refusal, nothing resolved, created or written', async () => {
+    await expect(createAppointment(booking('core-inactive'))).resolves.toEqual({
+      error: 'staffProfileId is not a staff member of this business',
+    })
+    expect(apptCreate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(profileReads).not.toHaveBeenCalled()
+  })
+
+  it('an active core-only card on the roster passes the gate and books under its own core id', async () => {
+    const result = await createAppointment(booking('core-only-1'))
+    expect(result).not.toEqual({ error: 'staffProfileId is not a staff member of this business' })
+    expect(apptCreate).toHaveBeenCalledTimes(1)
+    expect(apptCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'core-only-1' }))
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 })

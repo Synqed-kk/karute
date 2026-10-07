@@ -134,7 +134,12 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 
 const appointments = { create: jest.fn() }
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn().mockImplementation(() => ({ appointments })),
+  // staff.list: the core half of the REAL roster read createAppointment's gate
+  // makes (fix round 6 F3) — no core-only cards; the profiles are the roster.
+  SynqedClient: jest.fn().mockImplementation(() => ({
+    appointments,
+    staff: { list: async () => ({ staff: [], total: 0 }) },
+  })),
   SynqedError: class SynqedError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -208,7 +213,8 @@ describe('createAppointment — auth-derived staff attribution', () => {
     scenario.staffProfiles = [
       { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
     ]
-    // 'ghost-profile' isn't in synqedStaffByProfileId → resolver throws
+    // 'ghost-profile' is on no roster → the roster gate refuses it before the
+    // resolver (fix round 6 F3, the facade create's words)
     appointments.create.mockResolvedValue({ id: 'should-not-fire' })
 
     const result = await createAppointment({
@@ -220,7 +226,7 @@ describe('createAppointment — auth-derived staff attribution', () => {
 
     expect('error' in result).toBe(true)
     if ('error' in result) {
-      expect(result.error).toMatch(/no synqed staff/i)
+      expect(result.error).toBe('staffProfileId is not a staff member of this business')
     }
     expect(appointments.create).not.toHaveBeenCalled()
   })

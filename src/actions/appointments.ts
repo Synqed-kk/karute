@@ -12,7 +12,7 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -162,6 +162,17 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
     const scope = await resolveStoreScope()
     if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' }
     if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
+    // Fix round 6 F3 (attack read #4) — THE WEB TWIN of the facade create's
+    // roster gate (app/api/app/v1/appointments/route.ts): the dialog can only
+    // submit ROSTER staff, so the action enforces the same set, above the
+    // create-on-miss resolver. The resolver takes any card of this business
+    // as-is (departed ones included); the roster (staffListCore) carries only
+    // ACTIVE core-only cards, so an inactive card is refused here too, with the
+    // facade's own words. Nothing is resolved, created or written.
+    const roster = await getStaffList()
+    if (!roster.some((s) => s.id === input.staffProfileId)) {
+      return { error: 'staffProfileId is not a staff member of this business' }
+    }
     // The active-store cookie is an ISOLATION input, not just a view label:
     // it is clamped below against the viewer's RBAC scope so a stale /
     // out-of-scope cookie can't stamp a booking into another branch.
