@@ -51,7 +51,8 @@ async function hasHqGrant(actor: PracticeActor): Promise<boolean> {
 
 /** The six booking rules of one store, written to core's per-store row. Order: OFF → shape, core's ranges and the
  *  §4 checks (all pure, before any call) → lazy core-reach → actor → store isolation → settings.manage → HQ grant →
- *  ONE fresh `get` → `policyHash(current) !== basedOn` → 'stale' → ONE `set` carrying ONLY the six fields. The window
+ *  ONE fresh `get` → `policyHash(current) !== basedOn` → 'stale' → the same six as stored → ok with no `set` (core
+ *  would file no audit row for it anyway; this keeps updated_at still) → ONE `set` carrying ONLY the six fields. The window
  *  between that `get` and the `set` is unguarded: core's PUT takes no precondition yet (CORE-44 is ordered, not on
  *  main), so two saves inside it can still cross. A core failure is reported, never swallowed or retried. */
 export async function setReservePolicy(storeId: string, draft: unknown, basedOn: string): Promise<SetReservePolicyResult> {
@@ -73,8 +74,10 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
   if (!canManageSettings(actor)) return refuse('forbidden', MSG.readOnly)
   try {
     if (!(await hasHqGrant(actor))) return refuse('forbidden', MSG.readOnly)
-    const current = pickReservePolicy(await actor.reads.storePolicyGet(storeId))
+    const read = await actor.reads.storePolicyGet(storeId)
+    const current = pickReservePolicy(read)
     if (policyHash(current) !== basedOn) return refuse('stale', MSG.stale)
+    if (policyHash(next) === basedOn) return { ok: true, row: { ...current, updated_at: read.updated_at }, basedOn }
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, ...next })
     const row = pickReservePolicy(saved)

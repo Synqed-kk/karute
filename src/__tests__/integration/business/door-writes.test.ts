@@ -889,6 +889,22 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     expectWrites({ set: 2 })
   })
 
+  it('no-op: the six already stored → ok with the stored row and the same basedOn, ONE get and NO set (updated_at stays)', async () => {
+    const reads = withReads()
+    reads.storePolicyGet.mockResolvedValue({ ...BASE_POLICY, ...PROOF, updated_at: '2026-09-01T00:00:00.000Z' })
+    const result = await data.setReservePolicy(STORE_ID, { ...PROOF }, policyHash(PROOF))
+    expect(result).toEqual({ ok: true, row: { ...PROOF, updated_at: '2026-09-01T00:00:00.000Z' }, basedOn: policyHash(PROOF) })
+    expect(reads.storePolicyGet).toHaveBeenCalledTimes(1)
+    expect(mockCore.writerFor).not.toHaveBeenCalled()
+    expectWrites()
+  })
+
+  it('no-op with a stale basedOn is still stale (the precondition is asked first)', async () => {
+    withReads().storePolicyGet.mockResolvedValue({ ...BASE_POLICY, ...PROOF })
+    expect(await data.setReservePolicy(STORE_ID, { ...PROOF }, policyHash(RESERVE_POLICY_DEFAULTS))).toMatchObject({ ok: false, reason: 'stale' })
+    expectWrites()
+  })
+
   it('stale: a basedOn that is not the row as read → stale, no set', async () => {
     const result = await data.setReservePolicy(STORE_ID, { ...PROOF }, policyHash(RESERVE_POLICY_DEFAULTS))
     expect(result).toMatchObject({ ok: false, reason: 'stale' })
