@@ -2496,9 +2496,19 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(label(ids[1])).toBe('期限なし')
   })
   it('R5 one id served twice → one thread, one transaction', async () => {
-    serve([row('dup'), row('dup')])
-    expect((await door.readInboxPlanes(STORE.tokyo)).threads.filter((t) => t.appointment_id === 'dup')).toHaveLength(1)
+    // The id CARRIES a thread (hash % 23 < 5), so the floor alone cannot make the inbox half pass.
+    const [dup] = pick('s85-dup', true)
+    serve([row(dup), row(dup)])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.filter((t) => t.appointment_id === dup)).toHaveLength(1)
     expect((await door.readRegisterPlanes(STORE.tokyo)).transactions).toHaveLength(1)
+  })
+  it('S86 F2 inboxProps reads appointments from JST midnight to the last ms of day INBOX_WINDOW_DAYS − 1', async () => {
+    // Pinned clock: today is 2026-09-14 JST, whose 00:00 is 2026-09-13T15:00Z (the reach test above: 09-13T14:59Z is
+    // outside, 09-20T14:59Z inside). inboxProps asks for to = jstSlot(7, 0, 0, now) − 1 ms = 2026-09-20T14:59:59.999Z;
+    // the door hands core the exclusive day bound after it, 2026-09-20T15:00:00.000Z — that is the call pinned here.
+    const spy = serve([row(pick('s86-w', true)[0])])
+    await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    expect(spy.appointmentsList.mock.calls[0][0]).toMatchObject({ from: '2026-09-13T15:00:00.000Z', to: '2026-09-20T15:00:00.000Z', store_id: STORE.tokyo })
   })
   it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
     const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
