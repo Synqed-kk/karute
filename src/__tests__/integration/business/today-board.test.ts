@@ -425,26 +425,33 @@ describe('board derivations', () => {
 
   // ⚖ §v11 V11-15 fix round 4 — P20 (Greptile P1 on 8637ba1d7): the AXIS may be fractional (B3); the RULER prints whole
   // hours at their minute positions, so a label sits on the gridline of its own hour on any axis.
-  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []', () => {
-    const whole = rulerLabels({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
+  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []; ⚖ S25-2 the closing hour IS printed as an edge tick', () => {
+    const cols = (axis: { open: number; close: number }) => rulerLabels(axis).filter((l) => !l.edge) // the hour columns; the edge tick is asserted below
+    const whole = cols({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
     expect(whole.map((l) => l.hour)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
     whole.forEach((l, i) => { expect(l.leftPct).toBe((i / 10) * 100); expect(l.widthPct).toBeCloseTo(10, 10) })
     for (const axis of [{ open: 600, close: 1140 }, { open: 420, close: 1320 }, { open: 0, close: 1440 }]) { // every whole-hour axis = today's label set and columns
       const count = (axis.close - axis.open) / 60
-      const got = rulerLabels(axis)
+      const got = cols(axis)
       expect(got.map((l) => String(l.hour))).toEqual(Array.from({ length: count }, (_, i) => String(axis.open / 60 + i)))
       got.forEach((l, i) => { expect(l.leftPct).toBeCloseTo((i / count) * 100, 10); expect(l.widthPct).toBeCloseTo(100 / count, 10) })
     }
-    const late = rulerLabels({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
+    const late = cols({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
     expect(late.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
     expect(late[0].leftPct).toBeCloseTo((30 / 870) * 100, 10)
     late.forEach((l) => expect(l.widthPct).toBeCloseTo((60 / 870) * 100, 10))
     expect(late.at(-1)!.leftPct + late.at(-1)!.widthPct).toBeCloseTo(100, 10)
-    const both = rulerLabels({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
+    const both = cols({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
     expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
     expect(both[0].leftPct).toBeCloseTo((30 / 780) * 100, 10)
     expect(both.at(-1)!.widthPct).toBeCloseTo((30 / 780) * 100, 10)
     expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    // ⚖ 10/7 S25-2 — the closing hour is PRINTED: one edge tick at 100 %, labelled with the closing hour (翌 past 24:00).
+    expect(rulerLabels({ open: 540, close: 1140 }).at(-1)).toEqual({ hour: 19, text: '19', leftPct: 100, widthPct: 0, edge: true })
+    expect(rulerLabels({ open: 420, close: 1320 }).filter((l) => l.edge).map((l) => l.text)).toEqual(['22'])
+    expect(rulerLabels({ open: 570, close: 1440 }).at(-1)!.text).toBe('翌0')
+    expect(rulerLabels({ open: 1080, close: 1560 }).map((l) => l.text)).toEqual(['18', '19', '20', '21', '22', '23', '翌0', '翌1', '翌2'])
+    expect(rulerLabels({ open: 570, close: 1350 }).at(-1)!.text).toBe('22:30')
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
   })
@@ -821,7 +828,8 @@ describe('今日の運営 screen', () => {
   it('E — the board head has its hours ruler, its sell shelf and a day label', async () => {
     const p = await board(STORE_A)
     expect(p.hours.count).toBe((operatingHours.close - operatingHours.open) / 60)
-    expect(p.hours.labels).toHaveLength(p.hours.count)
+    expect(p.hours.labels).toHaveLength(p.hours.count + 1) // ⚖ S25-2 — one label per hour column + the closing edge tick (printed)
+    expect(p.hours.labels.at(-1)).toMatchObject({ hour: operatingHours.close / 60, edge: true })
     expect(p.hours.labels[0].hour).toBe(operatingHours.open / 60) // P20 — labels are { hour, leftPct, widthPct }
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
     // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the

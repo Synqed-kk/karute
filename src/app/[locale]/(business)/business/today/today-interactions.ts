@@ -2320,6 +2320,9 @@ export interface RailInput {
   close: number
   /** The rail's own grid — canon paints every exact 30-minute start. */
   stepMin: number
+  /** ⚖ 10/7 S25-2 (D4) — the board's DAY (boardDay) the cells walk; absent = `open`/`close`. A cell outside
+   *  `open`/`close` (the store's hours) is the 「—」 state and offers nothing. */
+  axis?: { open: number; close: number }
   /** The session the rail is asking about placing (canon's 60分配置). */
   dur: number
   /** The window the guard is PROTECTING, for the sentences. */
@@ -2515,8 +2518,10 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput, words: LaneW
     const beforeCtx = beforeCtxFor(lane, input, ctx)
     // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
     const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
-    for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap, wordsFor(words, lane)))
+    // ⚖ 10/7 S25-2 (D4) — one cell per grid unit of the board's day, so the strip can never drift from the ruler.
+    for (let start = input.axis?.open ?? input.open; start < (input.axis?.close ?? input.close); start += input.stepMin) {
+      const cell = railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap, wordsFor(words, lane))
+      cells.push(start < input.open || start >= input.close ? { ...cell, state: 'blocked', label: '—', alternatives: [], alternativeKind: null, ackAllowed: false } : cell)
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }

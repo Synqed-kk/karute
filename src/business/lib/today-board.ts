@@ -113,14 +113,25 @@ export function boardRows(
 /** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
  *  positions — one label per whole hour h with open ≤ h·60 < close, placed exactly as place() places a card
  *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
- *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %). */
-export function rulerLabels(axis: Hours): ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> {
+ *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %).
+ *  ⚖ 10/7 S25-2 (Liam; P20's 「never the closing hour」 was the lead's rule) — the closing edge is printed as an EDGE
+ *  TICK (`edge`, at 100 %, no column) labelled with the closing hour, so 「is 21:30 inside the day?」 is on the screen.
+ *  An hour past midnight reads 翌0, 翌1 … (`hourText`). */
+export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
   const span = axis.close - axis.open
   if (!(span > 0)) return []
-  const out: { hour: number; leftPct: number; widthPct: number }[] = []
-  for (let h = Math.ceil(axis.open / 60); h * 60 < axis.close; h++) out.push({ hour: h, leftPct: ((h * 60 - axis.open) / span) * 100, widthPct: (Math.min(60, axis.close - h * 60) / span) * 100 })
+  const out: RulerLabel[] = []
+  for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (Math.min(HOUR_MIN, axis.close - h * HOUR_MIN) / span) * 100 })
+  out.push({ hour: axis.close / HOUR_MIN, text: axis.close % HOUR_MIN === 0 ? hourText(axis.close / HOUR_MIN) : hhmm(axis.close), leftPct: 100, widthPct: 0, edge: true })
   return out
 }
+
+export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
+
+/** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */
+const HOURS_PER_DAY = 24
+/** The ruler's word for an hour: the bare number, and 翌 + the hour for one past midnight (D2). */
+export const hourText = (h: number): string => (h >= HOURS_PER_DAY ? `翌${h - HOURS_PER_DAY}` : String(h))
 
 /** ⚖ §v11 V11-15 P20 — the track's gridlines take the ruler's lead: the share of the axis (percent) before its first
  *  whole hour, so the lines start where the first label does. 0 on a whole-hour axis (nothing is added to the DOM). */

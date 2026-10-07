@@ -636,7 +636,7 @@ export interface TodayProps {
   windowDays: number
   /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). `lead` (P20, rulerLead()): present only on a
    *  fractional axis — the gridlines' offset to the first whole hour, so they start where the ruler's first label does. */
-  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }>; lead?: number }
+  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; text: string; leftPct: number; widthPct: number; edge?: true }>; lead?: number }
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
    *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
    *  store in core — only then is 営業時間外 painted. */
@@ -2877,9 +2877,10 @@ export function TodayScreen(props: TodayProps) {
   const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
     open: business.open,
     close: business.close,
-    // the rail's 30-minute grid, spelled the way this screen's own two RailInput
-    // sites spell it — there is no constant for it in this file.
-    stepMin: 30,
+    // ⚖ 10/7 S25-2 (D4) — the cells walk the board's DAY (the ruler's axis) on the board's own grid unit
+    // (opsConfig.bookingStepMin, the drag lattice's step); the store's hours above stay the rule.
+    axis: { open: hours.open, close: hours.close },
+    stepMin: props.guard.bookingStepMin,
     // canon's 60分配置. NOT `railDur`, which follows the live aim and would put
     // both memos on the frame path.
     dur: props.guard.standardSessionMin,
@@ -2892,7 +2893,7 @@ export function TodayScreen(props: TodayProps) {
     protectedWindowFeasible: windowDoorOn(lanes),
     resting: null,
     restingWindowFeasible: undefined,
-  }), [business.open, business.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+  }), [business.open, business.close, hours.open, hours.close, props.guard.bookingStepMin, props.guard.standardSessionMin, props.guard.protectedDurationMin,
        props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
 
   const pendingId = pending?.id ?? null
@@ -9454,7 +9455,7 @@ export function TodayScreen(props: TodayProps) {
                     {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
                     {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}
+                      {hours.labels.map((l) => <span key={l.hour} style={l.edge ? undefined : { left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={`${band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : ''}${l.edge ? ' edge' : ''}`.trim() || undefined}>{l.text}</span>)}
                     </div>
                   </div>
 
