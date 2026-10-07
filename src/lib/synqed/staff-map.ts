@@ -116,12 +116,15 @@ export async function lookupSynqedStaffIdForBusiness(
   // Fallback: match by email (handles teammates created via Settings, where
   // createStaff doesn't populate user_id).
   const service = createServiceClient()
-  const { data: profile } = await service
+  const { data: profile, error } = await service
     .from('profiles')
     .select('email')
     .eq('id', staffProfileId)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // A failed read is an outage, never "no such profile": thrown as-is, so no
+  // caller reads it as the caller's bad input (Greptile pass 1 P2, B2 #1143).
+  if (error) throw error
   const profileEmail = (
     profile as { email?: string | null } | null
   )?.email?.toLowerCase()
@@ -291,12 +294,16 @@ export async function resolveSynqedStaffIdForBusiness(
   // (Re-fetches the profile for name+email — only reached on the rare
   // create path, and the roster list above is already unstable_cache'd.)
   const service = createServiceClient()
-  const { data: profile } = await service
+  const { data: profile, error } = await service
     .from('profiles')
     .select('full_name, email')
     .eq('id', staffProfileId)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // An outage is thrown BEFORE the null check: only a read that succeeded and
+  // found nothing is StaffProfileNotFoundError (the facade's 400). Every other
+  // failure stays the door's generic 5xx / failure line (Greptile pass 1 P2).
+  if (error) throw error
   const typedProfile = profile as
     | { full_name?: string | null; email?: string | null }
     | null

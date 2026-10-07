@@ -44,6 +44,8 @@ function mockDeps(opts: {
   listRejects?: boolean
   /** Force getBusinessId() to reject (models a broken cookie session). */
   businessIdThrows?: boolean
+  /** Force the profiles read to fail (models a Supabase outage). */
+  profileReadFails?: boolean
 }) {
   mockStaff = opts.staff
   mockProfileEmail = opts.profileEmail
@@ -89,7 +91,7 @@ function mockDeps(opts: {
       const builder = {
         select: jest.fn(),
         eq: jest.fn(),
-        maybeSingle: async () => ({
+        maybeSingle: async () => opts.profileReadFails ? { data: null, error: { message: 'profiles read failed' } } : ({
           // A foreign row exists but is invisible when the tenant filter is applied.
           data:
             mockProfileEmail === undefined ||
@@ -612,6 +614,31 @@ describe('resolveSynqedStaffIdForBusiness — a core-only teammate the picker of
     await expect(mod.resolveSynqedStaffIdForBusiness('core-of-another-business', BIZ)).rejects.toBeInstanceOf(
       mod.StaffProfileNotFoundError,
     )
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ Greptile pass 1 P2 (B2 #1143) — a failed profiles read is an outage, never
+// "no such profile": both reads (the email fallback and create-on-miss) throw
+// the read's error before their null check.
+describe('profiles read failure — an outage, never StaffProfileNotFoundError', () => {
+  it('lookupSynqedStaffIdForBusiness rejects with the read error (never resolves null)', async () => {
+    mockDeps({ staff: [{ id: 'staff-A', user_id: 'other', email: 'a@x.com' }], profileReadFails: true })
+    const lookup = await loadLookupForBusinessFn()
+    await expect(lookup('profile-1', BIZ)).rejects.toEqual({ message: 'profiles read failed' })
+  })
+
+  it('both resolvers reject with the read error, not StaffProfileNotFoundError; nothing created', async () => {
+    mockDeps({ staff: [{ id: 'staff-A', user_id: 'other', email: 'a@x.com' }], profileReadFails: true })
+    let mod!: typeof import('@/lib/synqed/staff-map')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/lib/synqed/staff-map')
+    })
+    for (const run of [() => mod.resolveSynqedStaffId('profile-1'), () => mod.resolveSynqedStaffIdForBusiness('profile-1', BIZ)]) {
+      const err = await run().then(() => null, (e: unknown) => e)
+      expect(err).toEqual({ message: 'profiles read failed' })
+      expect(err).not.toBeInstanceOf(mod.StaffProfileNotFoundError)
+    }
     expect(staffCreate).not.toHaveBeenCalled()
   })
 })

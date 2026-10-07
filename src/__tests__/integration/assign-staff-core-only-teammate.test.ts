@@ -210,3 +210,32 @@ describe('P1 — an id the doors cannot resolve is refused', () => {
     expect(staffCreate).not.toHaveBeenCalled()
   })
 })
+
+// ⚖ Greptile pass 1 P2 — a profiles outage is the facade's generic 5xx, never
+// the 400 an ineligible staff gets; a read that succeeded with no row stays 400.
+describe('P2 — a profiles read failure is an outage, not bad input', () => {
+  it('facade: profiles read error → 5xx (not 400 STAFF_NOT_ELIGIBLE), nothing written or created', async () => {
+    profilesResult = { data: null, error: { message: 'profiles read failed', code: '57014' } }
+    const res = await post('profile-unlinked')
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(JSON.stringify(await res.json())).not.toContain(STAFF_NOT_ELIGIBLE)
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('web action: profiles read error → the generic failure, never STAFF_NOT_ELIGIBLE, nothing written', async () => {
+    profilesResult = { data: null, error: { message: 'profiles read failed', code: '57014' } }
+    const result = await assignAppointmentStaff('appt-1', 'profile-unlinked')
+    expect(result).toHaveProperty('error')
+    expect(result).not.toEqual({ error: STAFF_NOT_ELIGIBLE })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('facade: a null row with no error → still 400 STAFF_NOT_ELIGIBLE', async () => {
+    profilesResult = { data: null, error: null }
+    const res = await post('profile-unlinked')
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(await res.json())).toContain(STAFF_NOT_ELIGIBLE)
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
