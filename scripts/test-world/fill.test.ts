@@ -184,6 +184,23 @@ async function main() {
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
   assert.equal(f.t.appts.length, p2.appointments.length - binnedOnly(p2.appointments).length)
 
+  // ⚖ G3 (S87): a store's identities come from its fixed identityIndex, not its place in registry.json — reverse the
+  // stores map and insert a new store first: every existing store's recipe (members, staff, phones) is byte-identical.
+  {
+    const ids = Object.keys(registry.stores)
+    assert.deepEqual(ids.map((sid) => registry.stores[sid].identityIndex), ids.map((_, i) => i), 'today\'s identityIndex = today\'s position (nothing moves for the current registry)')
+    const before = await Promise.all(ids.map(async (sid) => JSON.stringify(await loadRecipe(registry.stores[sid].type, sid))))
+    const saved = registry.stores
+    try {
+      registry.stores = Object.fromEntries([['store-new-first', { type: 'hair_salon', keyPrefix: 'hair_salon@new', namePool: 3, identityIndex: ids.length }], ...ids.reverse().map((sid) => [sid, saved[sid]])])
+      const after = await Promise.all(Object.keys(saved).map(async (sid) => JSON.stringify(await loadRecipe(saved[sid].type, sid))))
+      assert.deepEqual(after, before, 'reordered + a store inserted first: every existing store\'s identities are byte-identical')
+      registry.stores = { ...registry.stores, clash: { type: 'hair_salon', keyPrefix: 'hair_salon@clash', namePool: 4, identityIndex: 0 } }
+      await assert.rejects(loadRecipe('hair_salon', 'clash'), /identityIndex must be an integer no other store carries/, 'a duplicate identityIndex is refused')
+    } finally { registry.stores = saved }
+    console.log(`✓ G3: ${ids.length} stores' recipes byte-identical after reorder + insert-first`)
+  }
+
   // ⚖ G1 (S87): a later apply reconciles TODAY's owned rows to the plan's status (the 13:24 pin → IN_PROGRESS) — exactly
   // the non-legacy, loader-set ones still SCHEDULED; a legacy row and a staff-edited row of the same day stay as they were.
   {

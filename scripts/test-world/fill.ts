@@ -44,7 +44,8 @@ export interface Manifest {
 }
 interface Registry {
   types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null; realism?: Realism }>
-  stores: Record<string, { type: string; keyPrefix: string; namePool: number }>
+  // identityIndex: ⚖ G3 (S87) the store's FIXED identity slot (staff names, member series, phones) — never its position in this map
+  stores: Record<string, { type: string; keyPrefix: string; namePool: number; identityIndex: number }>
   pastDays: number
   futureDays: number
   slotMinutes: Record<string, number>
@@ -63,7 +64,11 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   const data = mod.recipe
   const size = counts.customers
   const original = entry.keyPrefix === id
-  const storeIndex = Object.keys(registry.stores).indexOf(storeId)
+  // ⚖ G3 (S87): identities derive from the store's fixed identityIndex (registry.json), never from its position in the map —
+  // reordering or inserting stores never changes a saved member number, staff name or phone
+  const storeIndex = entry.identityIndex
+  if (!Number.isInteger(storeIndex) || Object.entries(registry.stores).some(([sid, s]) => sid !== storeId && s.identityIndex === storeIndex))
+    throw new Error(`store ${storeId}: registry.json identityIndex must be an integer no other store carries`)
   // ⚖ R6/Q2: an applied store sizes its window AND its 新規 first visits by the pastDays its manifest recorded; registry.json only for a new store
   const pastDays = recordedPastDays ?? registry.pastDays ?? 105
   const legacyCount = original ? data.customers.length : 0
@@ -71,7 +76,7 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   const names = namePoolFor(id).slice(entry.namePool * size, (entry.namePool + 1) * size) // never a hand-written customer's name, of any type
   if (names.length !== size) throw new Error(`recipe ${id}: name pool too short for store ${storeId}`)
   const practitioners = data.staff.filter((s) => s.role !== 'ASSISTANT')
-  // ⚖ R8: a generated store's staff are plain names from its own slice of STAFF_NAMES (disjoint by registry position)
+  // ⚖ R8: a generated store's staff are plain names from its own slice of STAFF_NAMES (disjoint by identityIndex)
   const staffOf = new Map(data.staff.map((s, i) => [s.name, original ? s.name : STAFF_NAMES[storeIndex * data.staff.length + i]]))
   const series = data.customers[0].member.split('-')[0]
   const pad = (n: number, w = 4) => String(n).padStart(w, '0')

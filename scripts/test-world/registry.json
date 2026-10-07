@@ -144,37 +144,44 @@
     "aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f": {
       "type": "beauty_chiropractic",
       "keyPrefix": "beauty_chiropractic",
-      "namePool": 0
+      "namePool": 0,
+      "identityIndex": 0
     },
     "c33e4c43-bc3b-4470-ac22-aa60fecdabe3": {
       "type": "personal_gym",
       "keyPrefix": "personal_gym",
-      "namePool": 0
+      "namePool": 0,
+      "identityIndex": 1
     },
     "0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c": {
       "type": "hair_salon",
       "keyPrefix": "hair_salon",
-      "namePool": 0
+      "namePool": 0,
+      "identityIndex": 2
     },
     "5a171878-4faa-4512-ba07-17ca4e20ab9e": {
       "type": "hair_salon",
       "keyPrefix": "hair_salon@5a171878",
-      "namePool": 1
+      "namePool": 1,
+      "identityIndex": 3
     },
     "a1a26517-33c0-4e73-9ea2-e56e98d99c6f": {
       "type": "hair_salon",
       "keyPrefix": "hair_salon@a1a26517",
-      "namePool": 2
+      "namePool": 2,
+      "identityIndex": 4
     },
     "8ac43a4b-7763-4a10-9f73-a662085460af": {
       "type": "beauty_chiropractic",
       "keyPrefix": "beauty_chiropractic@8ac43a4b",
-      "namePool": 1
+      "namePool": 1,
+      "identityIndex": 5
     },
     "8696b856-11ab-4879-9290-bef40b03ea66": {
       "type": "beauty_chiropractic",
       "keyPrefix": "beauty_chiropractic@8696b856",
-      "namePool": 2
+      "namePool": 2,
+      "identityIndex": 6
     }
   },
   "pastDays": 105,
