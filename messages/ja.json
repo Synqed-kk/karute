@@ -3742,7 +3742,7 @@
     "reasonLogin": "Quick Reserveにログインできませんでした",
     "reasonStore": "Quick Reserveの店舗が登録されていません",
     "reasonLoginFix": "Quick Reserveにログインできませんでした。ログインIDとパスワードをご確認ください。",
-    "reasonStoreFix": "Quick Reserveの店舗が登録されていません。アカウント名と店舗番号をご確認ください。",
+    "reasonStoreFix": "Quick Reserveの店舗が登録されていません。この店舗のログインIDでQuick Reserveに入り、表示中の店舗番号があるかご確認ください。",
     "runFailed": "同期に失敗しました",
     "resultFailed": "同期に失敗しました（{reason}）",
     "runResult": "同期完了：新規{created}件、更新{updated}件、キャンセル{cancelled}件、スキップ{skipped}件",
