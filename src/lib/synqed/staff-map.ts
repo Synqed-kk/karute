@@ -103,8 +103,11 @@ export async function lookupSynqedStaffId(
 export async function lookupSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
+  /** The roster the caller already read (the resolver checks it for a core id
+   *  first) — one roster read per resolve. Omitted = read here. */
+  roster?: StaffEntry[],
 ): Promise<string | null> {
-  const staff = await synqedStaffListByBusiness(businessId)
+  const staff = roster ?? (await synqedStaffListByBusiness(businessId))
 
   // Primary: synqed staff.user_id directly set to this profile id.
   const direct = staff.find((s) => s.user_id === staffProfileId)
@@ -260,12 +263,24 @@ export class StaffProfileNotFoundError extends Error {
 }
 
 /** Bearer-safe twin of resolveSynqedStaffId — businessId from the verified
- *  token, never the cookie session. Same create-on-miss contract. */
+ *  token, never the cookie session. Same create-on-miss contract.
+ *
+ *  ⚖ Greptile pass 1 P1 (B2 #1143): the roster every staff picker offers
+ *  (staffListCore in src/lib/staff.ts) carries an owner-created teammate who
+ *  has not signed up under its CORE staff id — it has no profile id yet. Such
+ *  an id is taken as-is only when it IS a staff card of THIS business's own
+ *  roster: an explicit membership check against the same cached core roster,
+ *  never a guess from the id's shape. A core id of another business is not in
+ *  this roster, so it falls to the profile path and is refused there. Active
+ *  and store are still judged by the write gate on the row returned. */
 export async function resolveSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
 ): Promise<string> {
-  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId)
+  const roster = await synqedStaffListByBusiness(businessId)
+  if (roster.some((s) => s.id === staffProfileId)) return staffProfileId
+
+  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId, roster)
   if (found) return found
 
   // No synqed staff record yet. Staff seeded directly into Supabase profiles

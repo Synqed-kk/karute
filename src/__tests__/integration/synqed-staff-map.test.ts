@@ -577,3 +577,41 @@ describe('lookupProfileIdForSynqedStaffId(ForBusiness) — fail-open on lookup f
 })
 
 export {}
+
+// ⚖ Greptile pass 1 P1 (B2 #1143) — the roster the staff pickers offer carries
+// an owner-created teammate who has not signed up under its CORE staff id. The
+// resolver takes that id only when it is a card of THIS business's roster.
+describe('resolveSynqedStaffIdForBusiness — a core-only teammate the picker offers', () => {
+  it('a core staff id of this business (no profile, user_id null) is returned as-is: no profiles read, no create', async () => {
+    mockDeps({
+      staff: [
+        { id: 'staff-A', user_id: 'profile-1', email: 'a@x.com' },
+        { id: 'core-only-1', user_id: null, email: 'new@x.com' },
+      ],
+    })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('core-only-1', BIZ)).resolves.toBe('core-only-1')
+    expect(mockProfileQueries).toHaveLength(0)
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(staffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('the cookie twin takes the same core id through the same check', async () => {
+    mockDeps({ staff: [{ id: 'core-only-1', user_id: null, email: null }] })
+    const resolve = await loadFn()
+    await expect(resolve('core-only-1')).resolves.toBe('core-only-1')
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('an id that is neither a card of this roster nor a profile of this business → StaffProfileNotFoundError, nothing created', async () => {
+    mockDeps({ staff: [{ id: 'core-only-1', user_id: null, email: null }] })
+    let mod!: typeof import('@/lib/synqed/staff-map')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/lib/synqed/staff-map')
+    })
+    await expect(mod.resolveSynqedStaffIdForBusiness('core-of-another-business', BIZ)).rejects.toBeInstanceOf(
+      mod.StaffProfileNotFoundError,
+    )
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+})

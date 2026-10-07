@@ -85,4 +85,23 @@ describe('assignableStaffIdsByBooking — store-less booking', () => {
     expect(out).toEqual({ 'b-nostore': ['p-ginza', 'p-shibuya', 'p-float'] })
     expect(storeSet).not.toHaveBeenCalled()
   })
+
+  // ⚖ Greptile pass 1 P1 (B2 #1143) — a core-only teammate (no sign-up) is in
+  // the roster under its CORE id; its own is_active decides, matched by that id.
+  it('a core-only teammate is offered by its core id when active, never when inactive', async () => {
+    const c = {
+      staff: {
+        list: jest.fn(async () => {
+          const staff = [
+            { id: 'core-new', user_id: null, is_active: true },
+            { id: 'core-left', user_id: null, is_active: false },
+          ]
+          return { staff, total: staff.length }
+        }),
+      },
+    } as never
+    const roster = [{ id: 'core-new' }, { id: 'core-left' }]
+    const out = await assignableStaffIdsByBooking(rows, roster, c, async () => new Set(['core-new', 'core-left']))
+    expect(out).toEqual({ 'b-ginza': ['core-new'] })
+  })
 })
