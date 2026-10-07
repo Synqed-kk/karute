@@ -16,10 +16,11 @@ const POLICY = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_m
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 const door = setReservePolicy as jest.MockedFunction<typeof setReservePolicy>
 
-function put(opts: { origin?: string | null; expected?: string | null; body?: string } = {}): Promise<Response> {
+function put(opts: { origin?: string | null; expected?: string | null; body?: string; site?: string } = {}): Promise<Response> {
   const headers: Record<string, string> = { host: HOST, 'content-type': 'application/json' }
   const origin = opts.origin === undefined ? `https://${HOST}` : opts.origin
   if (origin !== null) headers.origin = origin
+  if (opts.site) headers['sec-fetch-site'] = opts.site
   const expected = opts.expected === undefined ? TENANT : opts.expected
   if (expected !== null) headers['x-expected-business'] = expected
   return PUT(new Request(`https://${HOST}/api/business/reserve-policy`, { method: 'PUT', headers, body: opts.body ?? JSON.stringify({ storeId: S, policy: POLICY, basedOn: '30|0|null|24|0|0' }) }))
@@ -37,6 +38,27 @@ describe('Reserve S66 — PUT /api/business/reserve-policy', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ ok: true, basedOn: '21|90|15|12|30|100' })
     expect(door.mock.calls).toEqual([[S, POLICY, '30|0|null|24|0|0']])
+  })
+
+  it('200 for Sec-Fetch-Site: same-origin when the browser sent no Origin', async () => {
+    door.mockResolvedValueOnce({ ok: true, row: { ...POLICY, reserve_start_grid_min: 15, updated_at: 'x' }, basedOn: '21|90|15|12|30|100' })
+    expect((await put({ origin: null, site: 'same-origin' })).status).toBe(200)
+    expect(door).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['no Origin and no Sec-Fetch-Site', { origin: null }],
+    ['no Origin, cross-site fetch', { origin: null, site: 'cross-site' }],
+  ])('403 without a same-origin proof (%s), before admission or the door', async (_n, opts) => {
+    expect((await put(opts)).status).toBe(403)
+    expect(admission).not.toHaveBeenCalled()
+    expect(door).not.toHaveBeenCalled()
+  })
+
+  it('a refused reader never learns the route exists: admission’s own refusal propagates (Next answers 404)', async () => {
+    admission.mockRejectedValueOnce(Object.assign(new Error('NEXT_HTTP_ERROR_FALLBACK;404'), { digest: 'NEXT_HTTP_ERROR_FALLBACK;404' }))
+    await expect(put()).rejects.toThrow('NEXT_HTTP_ERROR_FALLBACK;404')
+    expect(door).not.toHaveBeenCalled()
   })
 
   it('a foreign origin → 403, nothing reaches the door', async () => {
