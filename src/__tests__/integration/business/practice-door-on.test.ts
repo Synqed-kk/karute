@@ -1459,7 +1459,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 7, to: TODAY + 7 })).get(TODAY + 1)!
     expect(seated.length).toBeGreaterThan(0)
     expect(seated.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
-    expect((await data.listClosedByDay(STORE.tokyo, { from: TODAY, to: TODAY + 8 })).get(TODAY + 1)).toBeNull()
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY, to: TODAY + 8 })).get(TODAY + 1)).toEqual({ closed: null, window: { open: 660, close: 900 } })
     for (const shownDay of [1, 0]) {
       const c = cellOf(await boardOn(STORE.tokyo, shownDay), 15) // shown, and seen from today
       expect([c.closed, c.fits! > 0]).toEqual([false, true])
@@ -1468,7 +1468,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
   it('S81 F1 (ATTACK S1) — a 臨時休業 TODAY seen from another day: today\'s cell is closed, nobody seated, the same answer as when shown', async () => {
     const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
     withReads({ closedDays: { [STORE.tokyo]: [row] } })
-    expect((await data.listClosedByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)).toBe('closed_date')
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)?.closed).toBe('closed_date')
     const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)!
     expect(await notLive(STORE.tokyo, TODAY, seated)).toEqual([])
     for (const shownDay of [2, 0]) {
@@ -1491,11 +1491,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const plain = await data.readDayPlanes(STORE.yokohama, TODAY + 4)
     expect(plain.shifts.some((x) => x.start < 660 || x.end > 900)).toBe(true)
   })
-  it('S81 F4 (M21) — the door asks core for the SHOWN day\'s 臨時休業 rows (to exclusive), never today\'s', async () => {
-    const spy = withReads()
-    await data.readDayPlanes(STORE.tokyo, TODAY + 3)
-    expect(spy.storePolicyListClosedDays).toHaveBeenCalledWith(STORE.tokyo, { from: '2026-09-17', to: '2026-09-18' })
-    expect(spy.storePolicyListClosedDays).not.toHaveBeenCalledWith(STORE.tokyo, { from: '2026-09-14', to: '2026-09-15' })
+  it('S81 F4 (M21) → S82 G2 — the door asks core for the 臨時休業 rows of the board\'s whole reach (to exclusive), never today\'s alone; the shown day\'s own row closes it', async () => {
+    const row = { id: 'c3', store_id: STORE.tokyo, date: '2026-09-17', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY + 3)).shownDayClosed).toBe('closed_date')
+    expect(spy.storePolicyListClosedDays.mock.calls).toEqual([[STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }]])
   })
   it('S81 F4 (M12) — a 臨時営業日 on an OPEN weekday, shown: the cell counts in ITS window, not the weekday\'s', async () => {
     const spy = withReads()
@@ -1523,15 +1523,132 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(without.fits!).toBeGreaterThan(0)
     expect([withIt.closed, withIt.fits]).toEqual([false, without.fits])
   })
-  it('S81 F1 (N1) — one board render asks core each hours read once per lens (+ range): policy 1 · 臨時休業 2 · org 1; total ≤ 60', async () => {
+  // ⚖ S82 G1/G2/G6 — ONE hours read per store per request over the board's reach, ONE outcome shared by every caller.
+  const cellAt = (b: Awaited<ReturnType<typeof boardOn>>, m: number, d: number) => (b.calendar as Cell[]).find((c) => c.m === m && c.d === d)!
+  const closedRow = (store: string, date: string) => ({ id: `c-${date}`, store_id: store, date, reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' })
+  // total: shown ≠ today adds ONE appointments read (the shown day's rows beside today's, a different day) — not an hours read.
+  it.each([[0, 62], [3, 63], [45, 63]])('S82 G6(a) — one board render, shown = today + %i: policy 1 · 臨時休業 1 · org 1 (total %i)', async (shownDay, expectedTotal) => {
     const spy = withReads()
-    await boardOn(STORE.tokyo, 0)
+    await boardOn(STORE.tokyo, shownDay)
     const n = (k: keyof Spied) => spy[k].mock.calls.length
     const total = (Object.keys(spy) as Array<keyof Spied>).reduce((a, k) => a + n(k), 0)
-    // BEFORE S81 (base 1154b3aec, the attacker's count): 60 = policy 3 · org 1 · 56 others. The hours reads are now 4 (were 7);
-    // the 59 others = the 56 + the new listClosedByDay reader's own practiceActor() admission reads, which React's cache()
-    // dedupes in a real request and this harness does not.
-    expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 2, org: 1, total: 63 })
+    // BEFORE S81: 60 (policy 3 · org 1 · 56 others); S81: 63 (policy 1 · 臨時休業 2 · org 1 · 59). The others include the
+    // per-reader practiceActor() admission reads React's cache() dedupes in a real request and this harness does not.
+    expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 1, org: 1, total: expectedTotal })
+    expect(spy.storePolicyListClosedDays.mock.calls[0]).toEqual([STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }])
+  })
+  it('S82 G6(a) — a 臨時休業 at either end of the reach (today − 45, today + 45) paints its cell closed', async () => {
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-07-31'), closedRow(STORE.tokyo, '2026-10-29')] } })
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed, cellAt(b, 8, 1).closed, cellAt(b, 10, 28).closed]).toEqual([true, true, false, false])
+  })
+  it('S82 G6(c) (M14) — core filters by the range it is asked: the last calendar day\'s row is read; a row one day past `to` (exclusive) is not; a range past the reach gets its own read', async () => {
+    const spy = withReads()
+    const rows = ['2026-07-30', '2026-10-29', '2026-10-30'].map((d) => closedRow(STORE.tokyo, d))
+    spy.storePolicyListClosedDays.mockImplementation(async (_id: string, r?: { from?: string; to?: string }) => ({ closed_days: rows.filter((x) => x.date >= r!.from! && x.date < r!.to!) }))
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed]).toEqual([false, true])
+    expect(spy.storePolicyListClosedDays).toHaveBeenCalledTimes(1)
+    const past = await data.listHoursByDay(STORE.tokyo, { from: TODAY + 45, to: TODAY + 46 })
+    expect([past.get(TODAY + 45)?.closed, past.get(TODAY + 46)?.closed]).toEqual(['closed_date', 'closed_date'])
+    expect(spy.storePolicyListClosedDays.mock.calls[1]).toEqual([STORE.tokyo, { from: '2026-10-29', to: '2026-10-31' }])
+  })
+  it.each([
+    ['rejects', () => Promise.reject(new Error('closed days down'))],
+    ['answers after the bound', () => new Promise((r) => setTimeout(() => r({ closed_days: [] }), 5100))],
+  ])('S82 G6(b) — the 臨時休業 read %s, policy answers: EVERY caller serves the sample set, the mark names 営業時間, one log line', async (_label, closedDays) => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(closedDays)
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const b = (await boardOn(STORE.tokyo, 1)) as unknown as { calendar: Array<Cell & { wd: number; covered?: boolean }>; boardMark: unknown }
+      const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+      const settings = await data.readStoreHours(STORE.tokyo, TODAY)
+      expect([hoursSource(day), hoursSource(settings)]).toEqual(['sample', 'sample'])
+      expect(b.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+      const closedWds = [...new Set(b.calendar.filter((c) => c.covered !== false && c.closed).map((c) => c.wd))]
+      expect(closedWds).toEqual(day.closedWeekdays)
+      expect(quiet.mock.calls.filter((c) => c[0] === '[practice hours] core did not answer:')).toHaveLength(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  }, 15000)
+  it('S82 G6(b) (M6/M6b/M9) — the bound under fake timers: pending at 4,999 ms, the sample set at 5,000 ms; every timer set is cleared', async () => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    jest.useFakeTimers({ now: new Date('2026-09-14T04:24:00Z'), doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+    try {
+      let done = false
+      const pending = data.readDayPlanes(STORE.tokyo, TODAY).then((d) => ((done = true), d))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(hoursSource(await pending)).toBe('sample')
+      expect(jest.getTimerCount()).toBe(0)
+      withReads()
+      expect(hoursSource(await data.readDayPlanes(STORE.tokyo, TODAY))).toBe('core')
+      expect(jest.getTimerCount()).toBe(0) // the answered race cleared its timer
+    } finally {
+      jest.useFakeTimers({
+        now: new Date('2026-09-14T04:24:00Z'),
+        doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+      })
+      quiet.mockRestore()
+    }
+  })
+  it('S82 G6(d) (M7) — two stores in one request, each with its own malformed weekday: two log lines, each naming its store', async () => {
+    const spy = withReads()
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama || id === STORE.tokyo ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (const store of [STORE.tokyo, STORE.yokohama, STORE.tokyo, STORE.yokohama]) await data.readDayPlanes(store, TODAY + 1)
+      const msg = '[practice hours] malformed weekday sent on to the business hours / default:'
+      expect(quiet.mock.calls.filter((c) => c[0] === msg)).toEqual([[msg, STORE.tokyo, '1'], [msg, STORE.yokohama, '1']])
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  const specials = (spy: Spied, days: Array<{ date: string; open: string; close: string }>) =>
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: days } : POLICIES[id]))
+  it('S82 G6(e) (COLD 7(iv)) — a 臨時営業日 on a 定休日 counts in ITS window whatever day is shown: 9/21\'s narrow window never clamps 9/15', async () => {
+    specials(withReads(), [{ date: '2026-09-15', open: '11:00', close: '15:00' }, { date: '2026-09-21', open: '10:00', close: '11:00' }])
+    const fromShown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from21 = cellAt(await boardOn(STORE.tokyo, 7), 9, 15)
+    expect(from21.fits!).toBeGreaterThan(0)
+    expect([from21.closed, from21.fits]).toEqual([false, fromShown.fits])
+  })
+  it('S82 G6(e) (ATTACK SF4(iii)) — an unassigned booking outside a non-shown 臨時営業日\'s window eats nothing: the same count as when shown', async () => {
+    const spy = withReads()
+    specials(spy, [{ date: '2026-09-15', open: '11:00', close: '15:00' }])
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 16:00–17:00 JST on 9/15, nobody's lane: outside the special 11–15
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'sf4-unassigned', staff_id: null, starts_at: '2026-09-15T07:00:00Z', ends_at: '2026-09-15T08:00:00Z' }] } : r
+    })
+    const shown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from14 = cellAt(await boardOn(STORE.tokyo, 0), 9, 15)
+    expect(shown.fits!).toBeGreaterThan(0)
+    expect([from14.closed, from14.fits]).toEqual([false, shown.fits])
+  })
+  it('S82 G6(f) (G4) — today\'s 勤務不可 sits on TODAY\'s own hours: a 臨時休業 today → null; one on another day leaves it; a 臨時営業日 on a 定休日 today keeps it', async () => {
+    const reach = { from: TODAY - 45, to: TODAY + 45 }
+    withReads()
+    const plain = (await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)
+    expect(plain).not.toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-14')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-16')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) =>
+      id === STORE.tokyo ? { ...POLICIES[id], weekly_hours: { ...POLICIES[id].weekly_hours, mon: null }, special_open_days: [{ date: '2026-09-14', open: '10:00', close: '19:00' }] } : POLICIES[id],
+    )
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
   })
 
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
@@ -1816,6 +1933,34 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(live.totals).toEqual(scheduled.totals)
   })
 
+  // ⚖ S82 G6(g) — the same identity on three more screens' prop builders: 予約一覧 · レジ · シフト.
+  it('S82 G6(g) — an IN_PROGRESS row reaches the reservations, register and shifts props exactly as SCHEDULED, but for its status', async () => {
+    const propsWith = async (status: 'SCHEDULED' | 'IN_PROGRESS' | 'CANCELLED') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+      const { registerProps } = await import('@/app/[locale]/(business)/business/register/register-props')
+      const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+      return {
+        reservations: JSON.stringify((await reservationsProps({ locale: 'ja', store: STORE.tokyo })).props),
+        register: JSON.stringify((await registerProps({ locale: 'ja', store: STORE.tokyo })).props),
+        shifts: JSON.stringify(((await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo }) })) as unknown as { props: unknown }).props),
+      }
+    }
+    const booked = await propsWith('SCHEDULED')
+    const live = await propsWith('IN_PROGRESS')
+    expect(booked.reservations).toContain(APT.a14)
+    const asBooked = (json: string) => json.replace(/"in_progress"/g, '"booked"')
+    // the row REACHES 予約一覧 and シフト (taken away as CANCELLED, their props change); レジ reads `done` rows only
+    // (register-props.ts:199-200), so a booked row and an in_progress row alike never reach it — same props all three ways.
+    const gone = await propsWith('CANCELLED')
+    expect([gone.reservations !== booked.reservations, gone.register !== booked.register, gone.shifts !== booked.shifts]).toEqual([true, false, true])
+    expect({ reservations: asBooked(live.reservations), register: asBooked(live.register), shifts: asBooked(live.shifts) }).toEqual(booked)
+  })
   it('S81 R3 — an IN_PROGRESS row with no staff, through the door: carried as in_progress, staff_id null (the 担当未定 read-only sheet decides on staff alone)', async () => {
     const spy = withReads()
     const base = recordedReads().appointmentsList

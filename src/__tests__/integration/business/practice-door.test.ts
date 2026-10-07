@@ -369,7 +369,7 @@ const DOOR_READERS = [
   'readCanManageCardColor', // ⚖ A2 · G5 — may this operator save the card colour (core's sheet)
   'readBookingColors', // 予約の色分け — org settings `booking_colors`, raw (no lens; today's board reads it)
   'readStoreHours', // ⚖ §v11 V11-4 — a store's 営業時間 · 定休日 for one day (設定's read; lens first)
-  'listClosedByDay', // ⚖ S81 F1 — each calendar day's OWN closure (臨時休業 / 臨時営業日 included), same cached reads as listShiftsByDay
+  'listHoursByDay', // ⚖ S81 F1 + S82 G5 — each calendar day's OWN closure and window (臨時休業 / 臨時営業日 included), the one shared hours read
 ] as const
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
@@ -382,8 +382,8 @@ describe('the door', () => {
   })
   // ⚖ S81 N3 — store-hours.ts is the ONE Business file the fence lets reach src/lib/operating-hours: it exports its own
   // adapters only, never the resolver re-exported (a re-export would launder the import for every territory file).
-  it('⚖ S81 N3 — store-hours.ts exports exactly its own seven adapters, never the resolver', () => {
-    expect(Object.keys(storeHours).sort()).toEqual(['closedDaysRange', 'closedWeekdaysOf', 'resolveStoreHours', 'sampleHours', 'usualPairOf', 'weekFromPair', 'weekdayOfKey'])
+  it('⚖ S81 N3 + S82 G2 — store-hours.ts exports exactly its own eight names (seven adapters + the board reach), never the resolver', () => {
+    expect(Object.keys(storeHours).sort()).toEqual(['BOARD_REACH_DAYS', 'closedDaysRange', 'closedWeekdaysOf', 'resolveStoreHours', 'sampleHours', 'usualPairOf', 'weekFromPair', 'weekdayOfKey'])
   })
   it('⚖ R-S39-1 — door-booking-colors.ts exports exactly the one writer', () => {
     expect(Object.keys(doorBookingColors)).toEqual(['writeBookingColors'])
@@ -392,7 +392,7 @@ describe('the door', () => {
 
 describe('the data.ts seam', () => {
   // ⚖ S81 F4 (M17) — OFF: the shown day's closure is the fixture 定休日's, and each calendar day's the same answer.
-  it('S81 — OFF: shownDayClosed + listClosedByDay name the fixture 定休日 only', async () => {
+  it('S81 — OFF: shownDayClosed + listHoursByDay name the fixture 定休日 only, each day the fixture pair', async () => {
     setEnv({})
     const { closedWeekday } = await import('@/business/lib/fixtures-today')
     const { weekdayOfKey } = await import('@/business/lib/practice-door/store-hours')
@@ -400,8 +400,11 @@ describe('the data.ts seam', () => {
     const today = jstDayKey(clockRenderNow())
     const off = today + ((closedWeekday - weekdayOfKey(today) + 7) % 7)
     expect([(await data.readDayPlanes(STORE_A, off)).shownDayClosed, (await data.readDayPlanes(STORE_A, off + 1)).shownDayClosed]).toEqual(['weekday', null])
-    const byDay = await data.listClosedByDay(STORE_A, { from: off, to: off + 7 })
-    expect([byDay.get(off), byDay.get(off + 1), byDay.get(off + 7)]).toEqual(['weekday', null, 'weekday'])
+    const byDay = await data.listHoursByDay(STORE_A, { from: off, to: off + 7 })
+    expect([byDay.get(off)?.closed, byDay.get(off + 1)?.closed, byDay.get(off + 7)?.closed]).toEqual(['weekday', null, 'weekday'])
+    const { operatingHours } = await import('@/business/lib/fixtures-today')
+    expect([...byDay.values()].every((h) => h.window === operatingHours)).toBe(true)
+    expect(data.BOARD_REACH_DAYS).toBe(45) // ⚖ S82 G2 — the board's reach, the page's WINDOW
   })
   it('OFF: the fixture path answers, unchanged', async () => {
     setEnv({})
