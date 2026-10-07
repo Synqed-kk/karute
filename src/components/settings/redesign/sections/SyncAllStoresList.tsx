@@ -99,6 +99,9 @@ export function SyncAllStoresList({
     results: null,
   })
   const [selectFailed, setSelectFailed] = useState(false)
+  // The last list read (or sync-all's first re-read) failed: the generic error
+  // line and a retry show; rows already loaded stay on screen.
+  const [readFailed, setReadFailed] = useState(false)
   // false once the list is unmounted (the sync tab was left): a bulk run that
   // is still going finishes the store in flight (it releases itself) and
   // starts no queued store.
@@ -112,7 +115,11 @@ export function SyncAllStoresList({
 
   const load = useCallback(async () => {
     const fresh = await fetchStoreRows()
-    if (!fresh) return // the per-store form below still works
+    if (!fresh) {
+      setReadFailed(true) // a failed reload never clears the rows; the form below still works
+      return
+    }
+    setReadFailed(false)
     setRows(fresh)
     setNow(Date.now())
   }, [])
@@ -173,6 +180,7 @@ export function SyncAllStoresList({
     const fresh = await fetchStoreRows()
     if (!fresh) {
       setRunAll({ pending: false, results: null })
+      setReadFailed(true)
       return
     }
     setRows(fresh)
@@ -204,7 +212,30 @@ export function SyncAllStoresList({
     await load()
   }
 
-  if (!rows) return null
+  const header = (
+    <div>
+      <h4 id="sync-all-stores-title" className="text-sm font-medium">{t('blockTitle')}</h4>
+      <p className="text-xs text-muted-foreground mt-0.5">{t('blockNote')}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{t('runAllOffNote')}</p>
+    </div>
+  )
+  const readAlert = readFailed && (
+    <div className="flex items-center gap-3">
+      <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+        {tCommon('somethingWentWrong')}
+      </p>
+      <button type="button" onClick={() => void load()} className={OUTLINE_BUTTON}>
+        {tCommon('retry')}
+      </button>
+    </div>
+  )
+  if (!rows)
+    return readFailed ? (
+      <section className="space-y-3" aria-labelledby="sync-all-stores-title">
+        {header}
+        {readAlert}
+      </section>
+    ) : null
   const runAllCount = rows.filter(syncsInRunAll).length
   const reasonText = (r: SyncFailureReason) =>
     r === 'login' ? t('reasonLogin') : r === 'store' ? t('reasonStore') : null
@@ -216,11 +247,7 @@ export function SyncAllStoresList({
 
   return (
     <section className="space-y-3" aria-labelledby="sync-all-stores-title">
-      <div>
-        <h4 id="sync-all-stores-title" className="text-sm font-medium">{t('blockTitle')}</h4>
-        <p className="text-xs text-muted-foreground mt-0.5">{t('blockNote')}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{t('runAllOffNote')}</p>
-      </div>
+      {header}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{t('scopeLine', { n: rows.length })}</span>
         {runAllCount >= 2 && (
@@ -235,6 +262,8 @@ export function SyncAllStoresList({
           {tCommon('somethingWentWrong')}
         </p>
       )}
+
+      {readAlert}
 
       {/* A run that synced no store (all OFF or in flight at re-read) shows nothing. */}
       {runAll.results && runAll.results.length > 0 && (

@@ -315,6 +315,36 @@ describe('viewAll caller', () => {
     await flush()
     expect(runs).toHaveLength(0)
     expect(screen.getByText('runAll').closest('button')!.disabled).toBe(false)
+    // the owner sees why nothing ran: the generic error line, rows still on screen
+    expect(screen.getByRole('alert').textContent).toBe('somethingWentWrong')
+    expect(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).toBeTruthy()
+  })
+
+  it('a failed first list read shows the header, the error line and 再試行; retry reads again and shows the rows', async () => {
+    const real = apiFetch.getMockImplementation()!
+    let failNext = true
+    apiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/sync/quickreserve/configs' && failNext) {
+        failNext = false
+        return Promise.resolve(reply({ error: 'core down' }, 502))
+      }
+      return real(url, init)
+    })
+    try {
+      render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+      await flush()
+      expect(screen.getByText('blockTitle')).toBeTruthy()
+      expect(screen.getByRole('alert').textContent).toBe('somethingWentWrong')
+      expect(screen.queryByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).toBeNull()
+      expect(configsCalls()).toBe(1)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'retry' })) })
+      await flush()
+      expect(configsCalls()).toBe(2)
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).toBeTruthy()
+    } finally {
+      apiFetch.mockImplementation(real)
+    }
   })
 
   it('never two crawls of one store: sync-all skips a store whose row run is in flight, and blocks every row', async () => {
