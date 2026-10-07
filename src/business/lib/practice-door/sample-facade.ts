@@ -304,7 +304,7 @@ const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k
  *  予約の色分け under the door, saved by its writer), so it is LIVE here. */
 export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = { ...every('sample'), bookingColors: 'live' }
 /** The later one-line flip, per live store × plane — here and nowhere else.
- *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures + bookingPolicy in PLANE_MAP_SAYS_LIVE are the open case, PR-4). */
+ *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures in PLANE_MAP_SAYS_LIVE is the open case, PR-4; bookingPolicy left it when Reserve S66 connected its read). */
 export const STORE_PLANE_OVERRIDES: Record<string, Partial<Record<PlaneKey, PlaneState>>> = {}
 // Reserve S66 §9 R1 — 受付's six booking rules read core's per-store row (settings-props.ts, readStoreDays' one
 // `storePolicyGet`) for the Dev Salon's admitted store, テスト東京店; saved by setReservePolicy.
@@ -320,7 +320,7 @@ export function planesOf(storeId: string): Readonly<Record<PlaneKey, PlaneState>
 const anySample = (planes: Readonly<Record<PlaneKey, PlaneState>>) => Object.values(planes).some((s) => s === 'sample')
 
 /** Each plane's CONTRACT-MAP row, by the row's own name — the citation the
- *  table stands on. Every key must name a row the map marks SAMPLE; the two in
+ *  table stands on. Every key must name a row the map marks SAMPLE; the ones in
  *  `PLANE_MAP_SAYS_LIVE` are rows the map already calls LIVE (a core field
  *  exists) while Business still reads the fixture — sample ON SCREEN until the
  *  read is connected. The lane's harness reads the map itself against this. */
@@ -340,7 +340,7 @@ export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
   export: 'exportScopes', auditLog: 'auditLog[].dayOffset', language: 'uiLanguage',
   bookingColors: 'bookingColors[category]', colorTokens: 'colorTokens[token]', billing: 'cardLast4',
 }
-export const PLANE_MAP_SAYS_LIVE: readonly PlaneKey[] = ['closures', 'bookingPolicy']
+export const PLANE_MAP_SAYS_LIVE: readonly PlaneKey[] = ['closures']
 
 const PART = businessStrings.sampleMark.part
 /** The words a part-form mark names its planes by (V3-3): the native-pass

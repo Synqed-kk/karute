@@ -645,6 +645,8 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
     expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
+    // Reserve S66 — bookingPolicy's read is connected (setReservePolicy / settings-props), so it left the list.
+    expect(PLANE_MAP_SAYS_LIVE).toEqual(['closures'])
   })
   it('a borrowed label is the field\'s OWN on-screen name, verbatim from the block that prints it', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/settings-props.ts'), 'utf8')
@@ -751,9 +753,13 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'people-equipment', 'people.business-type').sample).toEqual({ form: 'whole' })
     expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'part', labels: ['本部による一括の管理'] }) // §v5 V5-2 — the store count is live
     // ⚖ §v4 V4-3 — the sample history credits the fixture operator, never the signed-in person.
-    const audits = everyBlock(props).map((b) => b.audit).filter((a): a is string => a !== null)
+    // Reserve S66 R11/R11b — the two LIVE 受付 blocks print core's own date (updated_at) or nothing; every other
+    // block's line is the sample history and names the sample operator.
+    const LIVE_RESERVE = ['reserve.window', 'reserve.cancel']
+    const audits = everyBlock(props).filter((b) => !LIVE_RESERVE.includes(b.id)).map((b) => b.audit).filter((a): a is string => a !== null)
     expect(audits.length).toBeGreaterThan(5)
     expect(audits.every((a) => a.startsWith('最終変更: 見本 あずさ ・'))).toBe(true)
+    for (const id of LIVE_RESERVE) expect(blockOf(props, 'reserve-acceptance', id).audit ?? null).toMatch(/^最終変更: \d+月\d+日\(.\)$/)
     // ⚖ §v3 V3-5 — the dateline drops サンプルデータ under the door (the topbar names the practice world).
     expect(props.dateline).not.toContain('サンプルデータ')
     expect(props.dateline.endsWith(' / テスト東京店')).toBe(true)
