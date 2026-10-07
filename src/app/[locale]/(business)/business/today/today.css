@@ -345,7 +345,12 @@
    S25-15 (2): the floor is a time density, minPxPer30 per 30 minutes of the day (floorSlots) whatever the grid step;
    --board-cells (the step's cells) feeds the strip only. Amended by the lead's ruling S25-15 (2): 「per grid cell」 above
    now reads 33 px per 30 minutes of the day whatever the grid step (--floor-slots). S25-15 (10): .timeline's own
-   min-width: 0 went — the one .timeline on this screen sits in .timeline-scroll, and this child rule sets its min-width. */
+   min-width: 0 went — the one .timeline on this screen sits in .timeline-scroll, and this child rule sets its min-width.
+   S26 (FIX 2, measured on the real gym page 07–22, 1280 sidebar open): --label is NOT the 112 px above on this page —
+   the reskin layer's `.page-today .timeline { --label: 142px }` (136 px at max-width 1320px, below) wins, so min-width
+   = 136 + 30 × 33 = 1126 = scrollWidth; the box is 978 wide, clientWidth 972 (6 px is the scrollbar-gutter), so the
+   overflow is 1126 − 972 = 154 = 990 − (972 − 136): the 「24 px」 is 136 − 112, no bug (no node reaches past the
+   track, the track is exactly 990). 1180: 1126 − 872 = 254. trackOverflows (today-board.ts) takes the track alone. */
 .biz .time-head, .biz .lane { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); }
 .biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }
 .biz .time-head > span {

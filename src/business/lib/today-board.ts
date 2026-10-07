@@ -230,7 +230,10 @@ export function floorSlots(day: Hours): number {
   return day.close > day.open ? Math.ceil((day.close - day.open) / FLOOR_SLOT_MIN) : 0
 }
 
-/** Whether a track `trackPx` wide must scroll sideways to keep the day at the floor (the CSS min-width's arithmetic). */
+/** Whether a track `trackPx` wide must scroll sideways to keep the day at the floor (the CSS min-width's arithmetic).
+ *  `trackPx` is the TRACK alone = the scroll box's clientWidth − --label. Measured on the real gym page 07–22 (S26):
+ *  1280 open 972 − 136 = 836 → 990 − 836 = 154 px of overflow; 1180 open 872 − 136 = 736 → 254 (today.css, the S26
+ *  note under the floor rule: the page's --label is 136, not the 112 default). */
 export function trackOverflows(day: Hours, trackPx: number): boolean {
   return trackPx < floorSlots(day) * minPxPer30
 }
