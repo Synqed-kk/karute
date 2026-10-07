@@ -29,9 +29,17 @@ const STORES = [
 type Run = { storeId: string; resolve: (r: Response) => void }
 let runs: Run[] = []
 let extraRows: unknown[] = []
+// What the form's saves wrote: the next /configs read shows it (store id → row fields).
+let saved: Record<string, Record<string, unknown>> = {}
 const apiFetch = jest.fn((url: string, init?: RequestInit) => {
-  if (url === '/api/sync/quickreserve/configs') return Promise.resolve(reply({ stores: [...STORES, ...extraRows] }))
-  if (url === '/api/sync/quickreserve/config') return Promise.resolve(reply({ username: 'form-login', enabled: true }))
+  if (url === '/api/sync/quickreserve/configs')
+    return Promise.resolve(reply({ stores: [...STORES, ...extraRows].map((s) => ({ ...(s as object), ...saved[(s as { storeId: string }).storeId] })) }))
+  if (url === '/api/sync/quickreserve/config' && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body)) as { storeId?: string; enabled: boolean }
+    if (body.storeId) saved[body.storeId] = { configured: true, enabled: body.enabled, schedule: SCHEDULE, qrStoreSlug: 'ginza', qrStoreId: 300 }
+    return Promise.resolve(reply({ success: true }))
+  }
+  if (url.startsWith('/api/sync/quickreserve/config?')) return Promise.resolve(reply({ username: 'form-login', enabled: true }))
   if (url === '/api/sync/quickreserve' && init?.method === 'POST') {
     const { storeId } = JSON.parse(String(init.body))
     return new Promise<Response>((resolve) => runs.push({ storeId, resolve }))
@@ -47,6 +55,7 @@ const configsCalls = () => apiFetch.mock.calls.filter(([u]) => u === '/api/sync/
 beforeEach(() => {
   runs = []
   extraRows = []
+  saved = {}
   apiFetch.mockClear()
   selectStore.mockClear()
   refresh.mockClear()
@@ -399,6 +408,56 @@ describe('viewAll caller', () => {
     await flush()
     expect(runs.filter((r) => r.storeId === daikanyama)).toHaveLength(1)
     expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy()
+  })
+
+  it('すべての店舗を同期 re-reads before EACH store: an OFF save that lands while an earlier store runs skips that store (0 POSTs)', async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    const ebisu = '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'
+    render(<SyncSection storeId={shibuya} showAllStores selectStore={selectStore} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    // while 代官山 runs, the owner turns 渋谷's auto-sync OFF in the form and saves
+    await act(async () => { fireEvent.click(document.querySelector('button.w-11') as HTMLButtonElement) })
+    await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
+    await flush()
+    expect(saved[shibuya]).toMatchObject({ enabled: false })
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, ebisu])
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(runs.filter((r) => r.storeId === shibuya)).toHaveLength(0)
+    expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy()
+    expect(screen.queryByTestId(`run-all-result-${shibuya}`)).toBeNull()
+  })
+
+  it("after the form's save answers, the list reloads: a first setup's row shows 今すぐ同期 instead of 未設定", async () => {
+    const ginza = '2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5'
+    render(<SyncSection storeId={ginza} showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId(`sync-row-${ginza}`))
+    expect(row().getByText('stateNotSet')).toBeTruthy()
+    expect(row().queryByText('runNow')).toBeNull()
+    const before = configsCalls()
+    await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
+    await flush()
+    expect(configsCalls()).toBe(before + 1)
+    expect(row().queryByText('stateNotSet')).toBeNull()
+    expect(row().getByText('runNow')).toBeTruthy()
+  })
+
+  it("after the form's 今すぐ同期 answers, the list reloads", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    const before = configsCalls()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBe(before + 1)
   })
 
   it("an abandoned loop's store is released when its POST answers (the set is empty afterwards)", async () => {

@@ -76,6 +76,9 @@ export function SyncSection({
   // still shown). A successful save bumps it too, so a load sent before the
   // save answered can never put the old login back (fix round 8, attack A-6).
   const loadGeneration = useRef(0)
+  // Bumped when a store's sync config changed through this form (a save that
+  // succeeded, a 今すぐ同期 that answered): the all-stores list reloads on it.
+  const [listGeneration, setListGeneration] = useState(0)
 
   useEffect(() => {
     // Reset BEFORE the load, and drop a late answer for a store no longer
@@ -178,6 +181,7 @@ export function SyncSection({
         }),
       })
       const parsed = await readSyncResponse(res)
+      if (parsed.ok) setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (parsed.ok) {
         // The saved values are now the store's row: any load sent before this
@@ -216,6 +220,7 @@ export function SyncSection({
         body: JSON.stringify(storeId ? { storeId } : {}),
       })
       const parsed = await readSyncResponse(res)
+      setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
         setLastResult({ text: failureLine(parsed.message), error: true })
@@ -255,7 +260,7 @@ export function SyncSection({
       </div>
 
       {showAllStores && selectStore && (
-        <SyncAllStoresList selectStore={selectStore} inFlight={inFlight} beginSyncing={claimSyncing} endSyncing={endSyncing} />
+        <SyncAllStoresList selectStore={selectStore} inFlight={inFlight} beginSyncing={claimSyncing} endSyncing={endSyncing} listGeneration={listGeneration} />
       )}
 
       <div>

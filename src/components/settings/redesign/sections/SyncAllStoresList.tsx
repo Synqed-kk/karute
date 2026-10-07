@@ -74,6 +74,7 @@ export function SyncAllStoresList({
   inFlight,
   beginSyncing,
   endSyncing,
+  listGeneration = 0,
 }: {
   /** setActiveStore (server action, handed down from the settings page). */
   selectStore: (storeId: string) => Promise<{ ok: true } | { error: string }>
@@ -83,6 +84,8 @@ export function SyncAllStoresList({
   /** Marks a store in flight; false (and nothing marked) when it already is. */
   beginSyncing: (storeId: string) => boolean
   endSyncing: (storeId: string) => void
+  /** Changes when the form below saved or ran a store: the list reloads. */
+  listGeneration?: number
 }) {
   const t = useTranslations('syncAllStores')
   const tCommon = useTranslations('common')
@@ -114,9 +117,10 @@ export function SyncAllStoresList({
     setNow(Date.now())
   }, [])
 
+  // On mount, and again whenever the form below changed a store's sync.
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, listGeneration])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), RETICK_MS)
@@ -153,9 +157,11 @@ export function SyncAllStoresList({
   // never stops the next store. Only stores whose auto-sync is ON: an owner
   // who turned a store OFF is not overridden by a bulk click (the row's own
   // 今すぐ同期 stays, a deliberate single action).
-  // The stores are re-read FIRST and the run uses only that answer: a store
-  // turned OFF after the list loaded (the form below, another session) is
-  // never crawled. A failed re-read runs nothing — no run on stale rows.
+  // The stores are re-read FIRST (a failed re-read runs nothing — no run on
+  // stale rows), and re-read again right before EACH store starts: a store
+  // turned OFF at any point before its turn (the form below, another session)
+  // is never crawled. A failed per-store re-read skips that store (it is not
+  // in the result count).
   async function runAllStores() {
     if (!rows || runAll.pending) return
     setRunAll({ pending: true, results: null })
@@ -167,9 +173,20 @@ export function SyncAllStoresList({
     setRows(fresh)
     setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
-    for (const row of fresh.filter(syncsInRunAll)) {
+    let latest: SyncStoreRow[] | null = fresh
+    for (const queued of fresh.filter(syncsInRunAll)) {
+      // The rows right before this store starts (the first store uses the
+      // re-read just made).
+      if (!latest) latest = await fetchStoreRows()
       // The screen was abandoned: no queued store starts.
       if (!alive.current) return
+      const current = latest
+      latest = null
+      if (!current) continue
+      setRows(current)
+      setNow(Date.now())
+      const row = current.find((r) => r.storeId === queued.storeId)
+      if (!row || !syncsInRunAll(row)) continue
       // A store already in flight (its row run, the form) is skipped, not queued.
       if (!beginSyncing(row.storeId)) continue
       const outcome = await runStoreSync(row.storeId)
