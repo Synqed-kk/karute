@@ -53,6 +53,9 @@ const WeekDayBookingChipDTO = z.object({
  *  any server/bundle skew. Every default is the honest "no capacity" state,
  *  which is exactly what a server that does not send these fields means. */
 const capacityFields = {
+  shiftState: z.enum(['entered', 'partial', 'none', 'nobody', 'solo', 'off', 'unavailable']).default('unavailable'),
+  onShiftNoBooking: z.number().optional(),
+  unassignedOverflow: z.number().optional(),
   /** lanes × the day's declared minutes; null = no honest capacity (see
    *  capacityReason). */
   capacityMinutes: z.number().nullable().default(null),
