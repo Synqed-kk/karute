@@ -61,6 +61,10 @@ function ymdOfKey(dayKey: number, now: Date): string {
  *  as appointments-window.ts) — the day after the range's last day. */
 export const closedDaysRange = (dayKey: number, now: Date, toKey: number = dayKey): { from: string; to: string } => ({ from: ymdOfKey(dayKey, now), to: ymdOfKey(toKey + 1, now) })
 
+/** ⚖ S82 G2 — the board's reach: today ± this many days (the month calendar's window and the ?day= clamp,
+ *  today/page.tsx `WINDOW`). The door reads a store's 臨時休業 rows over the whole reach once per request. */
+export const BOARD_REACH_DAYS = 45
+
 /** The sample (and OFF) week: the one pair on every weekday but the closed ones — the week `weeklyHoursFrom` builds. */
 export const weekFromPair = (pair: Window, closed: number[]): Week => KEYS.map((_, wd) => (closed.includes(wd) ? null : { open: pair.open, close: pair.close }))
 
