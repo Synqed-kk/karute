@@ -41,6 +41,10 @@ const ROSTERS: Record<string, Array<{ id: string; user_id: string | null; email:
   [BIZ]: [
     { id: 'staff-viewer', user_id: 'auth-user-1', email: 'viewer@x.test', name: 'Viewer' },
     { id: 'core-only-1', user_id: null, email: 'new@x.test', name: 'New Teammate' },
+    // F4: cards of THIS business the write gate must still refuse.
+    { id: 'core-store-2', user_id: null, email: null, name: 'Other Branch' },
+    { id: 'core-inactive', user_id: null, email: null, name: 'Departed' },
+    { id: 'core-stores-unreadable', user_id: null, email: null, name: 'Unreadable' },
   ],
   'business-2': [{ id: 'core-of-business-2', user_id: null, email: null, name: 'Elsewhere' }],
 }
@@ -116,6 +120,14 @@ jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: j
 const STAFF_ROWS: Record<string, { is_active: boolean; business_id: string }> = {
   'core-only-1': { is_active: true, business_id: BIZ },
   'core-of-business-2': { is_active: true, business_id: 'business-2' },
+  'core-store-2': { is_active: true, business_id: BIZ },
+  'core-inactive': { is_active: false, business_id: BIZ },
+  'core-stores-unreadable': { is_active: true, business_id: BIZ },
+}
+const STORE_IDS: Record<string, string[]> = {
+  'core-only-1': ['store-1'],
+  'core-store-2': ['store-2'],
+  'core-inactive': ['store-1'],
 }
 const apptGet = jest.fn()
 const apptCreate = jest.fn(async () => ({ id: 'appt-new' }))
@@ -130,7 +142,12 @@ const fakeClient = {
       return { id, ...row }
     }),
   },
-  staffStores: { get: jest.fn(async (id: string) => ({ store_ids: id === 'core-only-1' ? ['store-1'] : [] })) },
+  staffStores: {
+    get: jest.fn(async (id: string) => {
+      if (id === 'core-stores-unreadable') throw new Error('staff_stores read failed')
+      return { store_ids: STORE_IDS[id] ?? [] }
+    }),
+  },
   storePolicies: {},
   stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1', is_primary: true }] })) },
 }
@@ -260,6 +277,36 @@ describe('P2 — a profiles read failure is an outage, not bad input', () => {
     expect(res.status).toBe(400)
     expect(JSON.stringify(await res.json())).toContain(STAFF_NOT_ELIGIBLE)
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// Fix round 6 F4 (attack read #2) — the resolver takes a core id of THIS
+// business as-is; the write gate still judges that core id: store, active,
+// and an unreadable store assignment fail closed. Nothing is written.
+describe('F4 — a core id of this business the write gate refuses', () => {
+  it.each([
+    ['assigned only to store-2, on a store-1 booking', 'core-store-2'],
+    ['inactive (is_active false)', 'core-inactive'],
+    ['whose staffStores.get rejects', 'core-stores-unreadable'],
+  ])('facade: a core-only card %s → the gate refusal { error: STAFF_NOT_ELIGIBLE }, nothing written or created', async (_label, id) => {
+    // The gate's refusal rides the 200 body, the door's house shape (the 400 is
+    // the resolver's unknown-id refusal only).
+    const res = await post(id)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: STAFF_NOT_ELIGIBLE })
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(profileReads).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['assigned only to store-2, on a store-1 booking', 'core-store-2'],
+    ['inactive (is_active false)', 'core-inactive'],
+    ['whose staffStores.get rejects', 'core-stores-unreadable'],
+  ])('web action: a core-only card %s → { error: STAFF_NOT_ELIGIBLE }, nothing written', async (_label, id) => {
+    await expect(assignAppointmentStaff('appt-1', id)).resolves.toEqual({ error: STAFF_NOT_ELIGIBLE })
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 })
 
