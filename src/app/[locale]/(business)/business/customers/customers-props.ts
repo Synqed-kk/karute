@@ -198,7 +198,8 @@ export async function customersProps({
   // fact, so no timezone enters here (JST belongs to the display strings above).
   const nextByCustomer = new Map<string, (typeof appointments)[number]>()
   for (const a of [...appointments].sort((x, y) => x.starts_at.localeCompare(y.starts_at))) {
-    if (a.status !== 'booked' || a.starts_at <= nowIso || nextByCustomer.has(a.customer_id)) continue
+    // ⚖ S81 R2 — an in-progress row (core's IN_PROGRESS, carried) is still a booked slot here, exactly as before.
+    if ((a.status !== 'booked' && a.status !== 'in_progress') || a.starts_at <= nowIso || nextByCustomer.has(a.customer_id)) continue
     nextByCustomer.set(a.customer_id, a)
   }
 

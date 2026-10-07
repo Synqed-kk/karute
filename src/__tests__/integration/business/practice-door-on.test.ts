@@ -212,7 +212,7 @@ describe('(1) OWNER — viewAll', () => {
     expect([by(APT.a03).status, by(APT.a03).board_state]).toEqual(['booked', 'confirmed']) // SCHEDULED
     expect([by(APT.a05).status, by(APT.a05).board_state]).toEqual(['cancelled', null]) // CANCELLED
     expect([by(APT.a09).status, by(APT.a09).board_state]).toEqual(['booked', 'noshow']) // NO_SHOW
-    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['booked', 'confirmed']) // IN_PROGRESS
+    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['in_progress', 'confirmed']) // IN_PROGRESS — ⚖ S81 R1 carried, board_state as SCHEDULED
     expect(by(APT.a14).display_no).toBe('R-4814')
     expect(by(APT.a14).updated_minute).toBe(15 * 60 + 30)
     expect(by(APT.a01).updated_minute).toBeNull()
@@ -935,12 +935,16 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
 })
 
 describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door', () => {
-  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (borrows 東京)', STORE.devSalon]])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
+  // ⚖ S81 F5 — 営業時間 is named only when the hours painted ARE the sample set: 東京's come from its own core week.
+  it.each([
+    ['twin 東京 (hours from core)', STORE.tokyo, ['シフトと休み', '販売可能枠']],
+    ['Dev Salon (borrows 東京; hours sample)', STORE.devSalon, ['シフトと休み', '販売可能枠', '営業時間']],
+  ])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store, labels) => {
     const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
     const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
     const props = (el as unknown as { props: Record<string, unknown> }).props
     // ⚖ §v3 — the grid head names its planes (D2 order); the decisions + 勤務不可 marks are whole.
-    expect(props.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(props.boardMark).toEqual({ form: 'part', labels })
     expect(props.decisionsMark).toEqual({ form: 'whole' })
     expect(props.absenceMark).toEqual({ form: 'whole' })
     expect(props).not.toHaveProperty('marked')
@@ -1378,7 +1382,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
   })
 
-  it('§v11 V11-2a (final 17:5x) — a malformed weekday never takes the week with it and never borrows another world\'s day: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and is drawn with the store\'s OWN usual window, logged', async () => {
+  // ⚖ S81 R8 — V11-2a's own difference is RETIRED: the ONE resolver sends a malformed weekday on to the business hours /
+  // default; with no business hours set, R6 serves that default day the store's usual pair — the same window as before.
+  it('§v11 V11-2a → S81 R8 — a malformed weekday never takes the week with it: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and goes on through the resolver (no business hours here → the usual pair, R6), logged', async () => {
     const spy = withReads()
     // ⚖ §v11 V11-14 P9 (PR-B) — RE-PINNED at a usual pair (Tue + Fri 09:00–20:00) that is NOT the sample default 10:00–19:00:
     // the old pin's usual pair equalled the sample one, so it could not tell the usual-pair path from the sample path.
@@ -1392,10 +1398,257 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
       expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, W, W, null, T, W, null]) // Monday = the usual pair (Tue + Fri)
       expect(day.closedWeekdays).toEqual([3, 6]) // core's own closures only — never a closure the store did not set
-      expect(quiet).toHaveBeenCalledWith("[practice hours] malformed weekday served as the store's usual window:", STORE.yokohama, '1')
+      expect(quiet).toHaveBeenCalledWith('[practice hours] malformed weekday sent on to the business hours / default:', STORE.yokohama, '1')
     } finally {
       quiet.mockRestore()
     }
+  })
+
+  // ⚖ S81 R4/R7 — 臨時休業 and 臨時営業日 through Karute's ONE resolver: the shown day answers for itself, painted exactly as a
+  // closed (or open) weekday is painted today; the 定休日 legend and every other day keep the weekday's answer.
+  const boardOn = async (store: string, day: number) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, day: String(day) }) })
+    return (el as unknown as { props: { calendar: Array<{ m: number; d: number; closed?: boolean }>; closedWeekdayLabel: string | null } }).props
+  }
+  const cell = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => b.calendar.find((c) => c.m === 9 && c.d === d)!.closed
+  it('S81 R7 — a 臨時休業 date closes the shown day alone (shifts none, the cell 休), never a 定休日; a failed 臨時休業 read is never 「no closed days」', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY)
+    expect([day.shownDayClosed, day.closedWeekdays, day.operatingHours, hoursSource(day)]).toEqual(['closed_date', [2], { open: 600, close: 1140 }, 'core'])
+    // as a closed weekday: nobody is seated off the sample roster — only a person with a live row that day keeps a lane
+    const live = new Set((await data.listAppointments(STORE.tokyo, {})).filter((a) => jstDayKey(a.starts_at) === TODAY).map((a) => a.staff_id))
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY, to: TODAY + 7 })).get(TODAY)!
+    expect(seated.filter((x) => !live.has(x.staff_id))).toEqual([])
+    expect((await data.listAbsenceByDay(STORE.tokyo, { from: TODAY, to: TODAY })).get(TODAY)).toBeNull()
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cell(b, 14), cell(b, 21), cell(b, 15), b.closedWeekdayLabel]).toEqual([true, false, true, '火曜'])
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockRejectedValue(new Error('closed days down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const failed = await data.readDayPlanes(STORE.tokyo, TODAY)
+      expect([hoursSource(failed), failed.operatingHours]).toEqual(['sample', operatingHours])
+      expect(quiet).toHaveBeenCalledWith('[practice hours] core did not answer:', 'closed days down')
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  it('S81 R7 — a 臨時営業日 on a 定休日 opens that day with its own window; the next Tuesday stays 定休日', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours, day.closedWeekdays]).toEqual([null, { open: 660, close: 900 }, [2]])
+    const b = await boardOn(STORE.tokyo, 1)
+    expect([cell(b, 15), cell(b, 22), b.closedWeekdayLabel]).toEqual([false, true, '火曜'])
+  })
+
+  // ⚖ S81 F1/F2/F4 — the fold of the cold read + attack: every calendar day resolves through ITS OWN layers.
+  type Cell = { m: number; d: number; closed?: boolean; fits?: number }
+  const cellOf = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => (b.calendar as Cell[]).find((c) => c.m === 9 && c.d === d)!
+  const notLive = async (store: string, dayKey: number, shifts: Array<{ staff_id: string }>) => {
+    const live = new Set((await data.listAppointments(store, {})).filter((a) => jstDayKey(a.starts_at) === dayKey).map((a) => a.staff_id))
+    return shifts.filter((x) => !live.has(x.staff_id))
+  }
+  it('S81 F1 (ATTACK B1) — a 臨時営業日 on a 定休日, shown ≠ today: the window is its own AND the calendar day seats staff (fits > 0, never 満)', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours]).toEqual([null, { open: 660, close: 900 }])
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 7, to: TODAY + 7 })).get(TODAY + 1)!
+    expect(seated.length).toBeGreaterThan(0)
+    expect(seated.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY, to: TODAY + 8 })).get(TODAY + 1)).toEqual({ closed: null, window: { open: 660, close: 900 } })
+    for (const shownDay of [1, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 15) // shown, and seen from today
+      expect([c.closed, c.fits! > 0]).toEqual([false, true])
+    }
+  })
+  it('S81 F1 (ATTACK S1) — a 臨時休業 TODAY seen from another day: today\'s cell is closed, nobody seated, the same answer as when shown', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)?.closed).toBe('closed_date')
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)!
+    expect(await notLive(STORE.tokyo, TODAY, seated)).toEqual([])
+    for (const shownDay of [2, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 14)
+      expect([c.closed, c.fits]).toEqual([true, 0])
+    }
+  })
+  it('S81 F2 (ATTACK S2) — a no-week store (sample hours): the day\'s REAL 臨時休業 seats nobody; its REAL 臨時営業日 clips the sample shifts to its window', async () => {
+    const row = { id: 'c2', store_id: STORE.yokohama, date: '2026-09-16', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.yokohama]: [row] } })
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-17', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const closed = await data.readDayPlanes(STORE.yokohama, TODAY + 2)
+    expect([hoursSource(closed), closed.shownDayClosed]).toEqual(['sample', 'closed_date'])
+    expect(await notLive(STORE.yokohama, TODAY + 2, closed.shifts)).toEqual([])
+    const special = await data.readDayPlanes(STORE.yokohama, TODAY + 3)
+    expect([hoursSource(special), special.shownDayClosed, special.operatingHours]).toEqual(['sample', null, { open: 660, close: 900 }])
+    expect(special.shifts.length).toBeGreaterThan(0)
+    expect(special.shifts.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    // a plain sample day keeps the sample fiction, unclipped (as before)
+    const plain = await data.readDayPlanes(STORE.yokohama, TODAY + 4)
+    expect(plain.shifts.some((x) => x.start < 660 || x.end > 900)).toBe(true)
+  })
+  it('S81 F4 (M21) → S82 G2 — the door asks core for the 臨時休業 rows of the board\'s whole reach (to exclusive), never today\'s alone; the shown day\'s own row closes it', async () => {
+    const row = { id: 'c3', store_id: STORE.tokyo, date: '2026-09-17', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY + 3)).shownDayClosed).toBe('closed_date')
+    expect(spy.storePolicyListClosedDays.mock.calls).toEqual([[STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }]])
+  })
+  it('S81 F4 (M12) — a 臨時営業日 on an OPEN weekday, shown: the cell counts in ITS window, not the weekday\'s', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '11:00' }] } : POLICIES[id]))
+    const shown = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const plain = cellOf(await boardOn(STORE.tokyo, 7), 28)
+    expect(shown.closed).toBe(false)
+    expect(shown.fits!).toBeLessThan(plain.fits!)
+  })
+  it('S81 F4 (M12) — the shown day\'s OWN window is the wall an unassigned booking is clipped to: one outside the 臨時営業日\'s window (inside the weekday\'s) eats nothing', async () => {
+    const special = (spy: Spied) =>
+      spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '13:00' }] } : POLICIES[id]))
+    special(withReads())
+    const without = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const spy = withReads()
+    special(spy)
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 15:00–16:00 JST on 9/21, nobody's lane: inside the weekday's 10–19, outside the special 10–13
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'm12-unassigned', staff_id: null, starts_at: '2026-09-21T06:00:00Z', ends_at: '2026-09-21T07:00:00Z' }] } : r
+    })
+    const withIt = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    expect(without.fits!).toBeGreaterThan(0)
+    expect([withIt.closed, withIt.fits]).toEqual([false, without.fits])
+  })
+  // ⚖ S82 G1/G2/G6 — ONE hours read per store per request over the board's reach, ONE outcome shared by every caller.
+  const cellAt = (b: Awaited<ReturnType<typeof boardOn>>, m: number, d: number) => (b.calendar as Cell[]).find((c) => c.m === m && c.d === d)!
+  const closedRow = (store: string, date: string) => ({ id: `c-${date}`, store_id: store, date, reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' })
+  // total: shown ≠ today adds ONE appointments read (the shown day's rows beside today's, a different day) — not an hours read.
+  it.each([[0, 62], [3, 63], [45, 63]])('S82 G6(a) — one board render, shown = today + %i: policy 1 · 臨時休業 1 · org 1 (total %i)', async (shownDay, expectedTotal) => {
+    const spy = withReads()
+    await boardOn(STORE.tokyo, shownDay)
+    const n = (k: keyof Spied) => spy[k].mock.calls.length
+    const total = (Object.keys(spy) as Array<keyof Spied>).reduce((a, k) => a + n(k), 0)
+    // BEFORE S81: 60 (policy 3 · org 1 · 56 others); S81: 63 (policy 1 · 臨時休業 2 · org 1 · 59). The others include the
+    // per-reader practiceActor() admission reads React's cache() dedupes in a real request and this harness does not.
+    expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 1, org: 1, total: expectedTotal })
+    expect(spy.storePolicyListClosedDays.mock.calls[0]).toEqual([STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }])
+  })
+  it('S82 G6(a) — a 臨時休業 at either end of the reach (today − 45, today + 45) paints its cell closed', async () => {
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-07-31'), closedRow(STORE.tokyo, '2026-10-29')] } })
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed, cellAt(b, 8, 1).closed, cellAt(b, 10, 28).closed]).toEqual([true, true, false, false])
+  })
+  it('S82 G6(c) (M14) — core filters by the range it is asked: the last calendar day\'s row is read; a row one day past `to` (exclusive) is not; a range past the reach gets its own read', async () => {
+    const spy = withReads()
+    const rows = ['2026-07-30', '2026-10-29', '2026-10-30'].map((d) => closedRow(STORE.tokyo, d))
+    spy.storePolicyListClosedDays.mockImplementation(async (_id: string, r?: { from?: string; to?: string }) => ({ closed_days: rows.filter((x) => x.date >= r!.from! && x.date < r!.to!) }))
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed]).toEqual([false, true])
+    expect(spy.storePolicyListClosedDays).toHaveBeenCalledTimes(1)
+    const past = await data.listHoursByDay(STORE.tokyo, { from: TODAY + 45, to: TODAY + 46 })
+    expect([past.get(TODAY + 45)?.closed, past.get(TODAY + 46)?.closed]).toEqual(['closed_date', 'closed_date'])
+    expect(spy.storePolicyListClosedDays.mock.calls[1]).toEqual([STORE.tokyo, { from: '2026-10-29', to: '2026-10-31' }])
+  })
+  it.each([
+    ['rejects', () => Promise.reject(new Error('closed days down'))],
+    ['answers after the bound', () => new Promise((r) => setTimeout(() => r({ closed_days: [] }), 5100))],
+  ])('S82 G6(b) — the 臨時休業 read %s, policy answers: EVERY caller serves the sample set, the mark names 営業時間, one log line', async (_label, closedDays) => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(closedDays)
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const b = (await boardOn(STORE.tokyo, 1)) as unknown as { calendar: Array<Cell & { wd: number; covered?: boolean }>; boardMark: unknown }
+      const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+      const settings = await data.readStoreHours(STORE.tokyo, TODAY)
+      expect([hoursSource(day), hoursSource(settings)]).toEqual(['sample', 'sample'])
+      expect(b.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+      const closedWds = [...new Set(b.calendar.filter((c) => c.covered !== false && c.closed).map((c) => c.wd))]
+      expect(closedWds).toEqual(day.closedWeekdays)
+      expect(quiet.mock.calls.filter((c) => c[0] === '[practice hours] core did not answer:')).toHaveLength(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  }, 15000)
+  it('S82 G6(b) (M6/M6b/M9) — the bound under fake timers: pending at 4,999 ms, the sample set at 5,000 ms; every timer set is cleared', async () => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    jest.useFakeTimers({ now: new Date('2026-09-14T04:24:00Z'), doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+    try {
+      let done = false
+      const pending = data.readDayPlanes(STORE.tokyo, TODAY).then((d) => ((done = true), d))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(hoursSource(await pending)).toBe('sample')
+      expect(jest.getTimerCount()).toBe(0)
+      withReads()
+      expect(hoursSource(await data.readDayPlanes(STORE.tokyo, TODAY))).toBe('core')
+      expect(jest.getTimerCount()).toBe(0) // the answered race cleared its timer
+    } finally {
+      jest.useFakeTimers({
+        now: new Date('2026-09-14T04:24:00Z'),
+        doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+      })
+      quiet.mockRestore()
+    }
+  })
+  it('S82 G6(d) (M7) — two stores in one request, each with its own malformed weekday: two log lines, each naming its store', async () => {
+    const spy = withReads()
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama || id === STORE.tokyo ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (const store of [STORE.tokyo, STORE.yokohama, STORE.tokyo, STORE.yokohama]) await data.readDayPlanes(store, TODAY + 1)
+      const msg = '[practice hours] malformed weekday sent on to the business hours / default:'
+      expect(quiet.mock.calls.filter((c) => c[0] === msg)).toEqual([[msg, STORE.tokyo, '1'], [msg, STORE.yokohama, '1']])
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  const specials = (spy: Spied, days: Array<{ date: string; open: string; close: string }>) =>
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: days } : POLICIES[id]))
+  it('S82 G6(e) (COLD 7(iv)) — a 臨時営業日 on a 定休日 counts in ITS window whatever day is shown: 9/21\'s narrow window never clamps 9/15', async () => {
+    specials(withReads(), [{ date: '2026-09-15', open: '11:00', close: '15:00' }, { date: '2026-09-21', open: '10:00', close: '11:00' }])
+    const fromShown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from21 = cellAt(await boardOn(STORE.tokyo, 7), 9, 15)
+    expect(from21.fits!).toBeGreaterThan(0)
+    expect([from21.closed, from21.fits]).toEqual([false, fromShown.fits])
+  })
+  it('S82 G6(e) (ATTACK SF4(iii)) — an unassigned booking outside a non-shown 臨時営業日\'s window eats nothing: the same count as when shown', async () => {
+    const spy = withReads()
+    specials(spy, [{ date: '2026-09-15', open: '11:00', close: '15:00' }])
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 16:00–17:00 JST on 9/15, nobody's lane: outside the special 11–15
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'sf4-unassigned', staff_id: null, starts_at: '2026-09-15T07:00:00Z', ends_at: '2026-09-15T08:00:00Z' }] } : r
+    })
+    const shown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from14 = cellAt(await boardOn(STORE.tokyo, 0), 9, 15)
+    expect(shown.fits!).toBeGreaterThan(0)
+    expect([from14.closed, from14.fits]).toEqual([false, shown.fits])
+  })
+  it('S82 G6(f) (G4) — today\'s 勤務不可 sits on TODAY\'s own hours: a 臨時休業 today → null; one on another day leaves it; a 臨時営業日 on a 定休日 today keeps it', async () => {
+    const reach = { from: TODAY - 45, to: TODAY + 45 }
+    withReads()
+    const plain = (await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)
+    expect(plain).not.toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-14')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-16')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) =>
+      id === STORE.tokyo ? { ...POLICIES[id], weekly_hours: { ...POLICIES[id].weekly_hours, mon: null }, special_open_days: [{ date: '2026-09-14', open: '10:00', close: '19:00' }] } : POLICIES[id],
+    )
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
   })
 
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
@@ -1652,6 +1905,73 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(props.rows.filter((r) => r.id === row.id).map((r) => ({ dayKey: r.dayKey, shiftWarning: r.shiftWarning }))).toEqual([{ dayKey: last, shiftWarning: null }])
   })
 
+  // ⚖ S81 R3 — IN_PROGRESS is DATA, never a look: the same live row read as SCHEDULED and as IN_PROGRESS builds the
+  // SAME board (every card field, every total) — only the row's own `status` differs.
+  it('S81 R3 — identity: one live row as SCHEDULED and as IN_PROGRESS → the board is deep-equal except the row\'s status', async () => {
+    const boardWith = async (status: 'SCHEDULED' | 'IN_PROGRESS') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const appointments = await data.listAppointments(STORE.tokyo, {})
+      const input = {
+        appointments, customers: await data.listCustomers(STORE.tokyo), menus: await data.listMenus(STORE.tokyo), staff: await data.listStaff(STORE.tokyo),
+        resources: await data.listResources(STORE.tokyo), absence: null, blocks: [], sellSlots: [], decisions: [], dayKey: TODAY,
+      } as unknown as BuildInput
+      return { appointments, cards: dayBookings(input), totals: dayTotals(appointments.filter((a) => jstDayKey(a.starts_at) === TODAY), 0) }
+    }
+    const scheduled = await boardWith('SCHEDULED')
+    const live = await boardWith('IN_PROGRESS')
+    const row = (b: typeof live) => b.appointments.find((a) => a.id === APT.a14)!
+    expect([row(scheduled).status, row(live).status]).toEqual(['booked', 'in_progress'])
+    expect(live.cards.some((c) => c.id === APT.a14)).toBe(true) // the row IS on the board
+    const sansStatus = (b: typeof live) => b.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'X' } : a))
+    expect(sansStatus(live)).toEqual(sansStatus(scheduled))
+    expect(live.cards).toEqual(scheduled.cards)
+    expect(live.totals).toEqual(scheduled.totals)
+  })
+
+  // ⚖ S82 G6(g) — the same identity on three more screens' prop builders: 予約一覧 · レジ · シフト.
+  it('S82 G6(g) — an IN_PROGRESS row reaches the reservations, register and shifts props exactly as SCHEDULED, but for its status', async () => {
+    const propsWith = async (status: 'SCHEDULED' | 'IN_PROGRESS' | 'CANCELLED') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+      const { registerProps } = await import('@/app/[locale]/(business)/business/register/register-props')
+      const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+      return {
+        reservations: JSON.stringify((await reservationsProps({ locale: 'ja', store: STORE.tokyo })).props),
+        register: JSON.stringify((await registerProps({ locale: 'ja', store: STORE.tokyo })).props),
+        shifts: JSON.stringify(((await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo }) })) as unknown as { props: unknown }).props),
+      }
+    }
+    const booked = await propsWith('SCHEDULED')
+    const live = await propsWith('IN_PROGRESS')
+    expect(booked.reservations).toContain(APT.a14)
+    const asBooked = (json: string) => json.replace(/"in_progress"/g, '"booked"')
+    // the row REACHES 予約一覧 and シフト (taken away as CANCELLED, their props change); レジ reads `done` rows only
+    // (register-props.ts:199-200), so a booked row and an in_progress row alike never reach it — same props all three ways.
+    const gone = await propsWith('CANCELLED')
+    expect([gone.reservations !== booked.reservations, gone.register !== booked.register, gone.shifts !== booked.shifts]).toEqual([true, false, true])
+    expect({ reservations: asBooked(live.reservations), register: asBooked(live.register), shifts: asBooked(live.shifts) }).toEqual(booked)
+  })
+  it('S81 R3 — an IN_PROGRESS row with no staff, through the door: carried as in_progress, staff_id null (the 担当未定 read-only sheet decides on staff alone)', async () => {
+    const spy = withReads()
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'IN_PROGRESS' as const, staff_id: null } : a)) }
+    })
+    const a = (await data.listAppointments(STORE.tokyo, {})).find((x) => x.id === APT.a14)!
+    expect([a.status, a.staff_id, a.board_state]).toEqual(['in_progress', null, 'confirmed'])
+  })
+
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
     const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
     const all = await data.listAppointments(VIEW_ALL, {})
@@ -1838,6 +2158,127 @@ describe('R50 — the door per business (P1–P7)', () => {
         expect(await layoutOf()).toContain(who === TENANT ? '"practice":true' : 'サンプル')
         if (who !== TENANT) expect(await layoutOf()).not.toContain('"practice":true')
       }
+    }
+  })
+})
+
+// ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read (orgSettingsOf): no reader of the business settings can
+// hold the page past CORE_READ_BOUND_MS. A timeout rejects that one promise exactly as a failed read does; the org read
+// logs ONE line per request; the board's readers (the shell, the colours, the hours) take their absent-org answer.
+describe('(S82 R2) the shared org read is bounded — the board finishes whatever the business settings read does', () => {
+  const ORG_LINE = '[practice org settings] core did not answer:'
+  const NOW = new Date('2026-09-14T04:24:00Z')
+  const page = async (store: string) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
+    return (el as unknown as { props: Record<string, unknown> }).props
+  }
+  const fakeAll = () => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+  const dateOnly = () => jest.useFakeTimers({
+    now: NOW,
+    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+  })
+  const orgLines = (quiet: jest.SpyInstance) => quiet.mock.calls.filter((c) => c[0] === ORG_LINE).length
+  const SAMPLE_MARK = { form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] }
+  const absentOrgColours = async () => {
+    withReads().orgSettingsGet.mockResolvedValue(null)
+    return (await page(STORE.tokyo)).bookingColors
+  }
+
+  it('H3(a) page-level — the org read NEVER answers: pending at 4,999 ms, resolved at 5,000 ms; hours sample, colours = the absent-org colours, one org log line, no timer left', async () => {
+    const absent = await absentOrgColours()
+    const spy = withReads()
+    spy.orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = page(STORE.tokyo).then((p) => ((done = true), p))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      const props = await pending
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H3(b) page-level — the org read REJECTS: the page resolves; hours sample, colours = the absent-org colours, one org log line', async () => {
+    const absent = await absentOrgColours()
+    withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const props = await page(STORE.tokyo)
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(orgLines(quiet)).toBe(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
+  it.each([
+    ['readShellIdentity', async () => (await data.readShellIdentity()).business, { name: '', storeCount: 7 }],
+    ['readBookingColors', () => data.readBookingColors(), null],
+  ])('H3(c) %s alone — the org read never answers: pending at 4,999 ms, its absent-org answer at 5,000 ms, no timer left', async (_name, read, expected) => {
+    withReads().orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = (read as () => Promise<unknown>)().then((v) => ((done = true), v))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(await pending).toEqual(expected)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H2 census — every reader of the org settings on a REJECTED org read (the board\'s readers degrade; the settings-page readers and the writers keep their failure path)', async () => {
+    const outcome = async (f: () => Promise<unknown>) => {
+      withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+      try {
+        return { ok: await f() }
+      } catch (e) {
+        return { throws: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const census = {
+        readShellIdentity: await outcome(async () => (await data.readShellIdentity()).business.name),
+        readBookingColors: await outcome(() => data.readBookingColors()),
+        readHours: await outcome(async () => (await data.readDayPlanes(STORE.tokyo, TODAY) as { hoursSource?: string }).hoursSource),
+        readReserveCardColor: await outcome(() => data.readReserveCardColor()),
+        readStoreCapabilities: await outcome(() => data.readStoreCapabilities(STORE.tokyo)),
+        readStoreSeedType: await outcome(() => data.readStoreSeedType(STORE.tokyo)),
+        writeReserveCardColor: await outcome(() => data.writeReserveCardColor(null)),
+      }
+      console.log('H2 census', JSON.stringify(census))
+      expect(census).toEqual({
+        readShellIdentity: { ok: '' },
+        readBookingColors: { ok: null },
+        readHours: { ok: 'sample' },
+        readReserveCardColor: { throws: 'core down' },
+        readStoreCapabilities: { throws: 'core down' },
+        readStoreSeedType: { throws: 'core down' },
+        writeReserveCardColor: { ok: { ok: false, reason: 'core' } },
+      })
+    } finally {
+      quiet.mockRestore()
     }
   })
 })
