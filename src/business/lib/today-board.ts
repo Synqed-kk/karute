@@ -71,19 +71,39 @@ export function place(start: number, end: number, hours: Hours): { x: number; w:
 
 /** Minutes in one hour: the ruler's unit and the day's rounding unit (a clock fact, not a duration setting). */
 const HOUR_MIN = 60
+/** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */
+const HOURS_PER_DAY = 24
+/** Minutes in one day (a clock fact): a split piece that covers 0 → DAY_MIN is a whole-day piece, and the board's day
+ *  is bounded to one day either side of the store's hours (`boardDay`). */
+const DAY_MIN = HOURS_PER_DAY * HOUR_MIN
 
 /** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE BOARD'S DAY, the one axis the ruler, every card, the now-line, the
  *  60分配置 strip and the booth rows are placed on: the store's own hours, grown in whole hours FROM its own edges
  *  until every row fits. ⚖ 10/7 S25-2 (Liam) — EVERY DRAWN ROW widens the day (`boardRows`: bookings, shifts and
  *  their 休憩, 勤務不可, blocks, offers; the washes and turnovers end at the store's edges or a shift's by
  *  construction), never only bookings (V11-15(a)'s 「only bookings grow it」 was the lead's rule, DECISIONS S24-2).
- *  It never opens before 0 and MAY close past 1440 — no board clamp (whether settings accept such a day is Q-20).
+ *  It never opens before 0 and MAY close past 1440 (whether settings accept such a day is Q-20), within one day.
+ *  THE EXCEPTION, the lead's ruling S25-15 (3), confirmed by Liam S25-17 (1) (a whole-day block does not widen the day):
+ *  a WHOLE-DAY split piece (start ≤ 0 and end ≥ DAY_MIN; door.ts:187–195 cuts a multi-day block into 0–1440 middle
+ *  days) and a row lying wholly more than a day outside the hours (end ≤ open − DAY_MIN or start ≥ close + DAY_MIN)
+ *  widen nothing; they still DRAW, clamped to the shown day by place() (buildLanes). Every other row widens, but the
+ *  day is BOUNDED to [open − DAY_MIN, close + DAY_MIN], so bad data (a row ending at 99999) cannot draw thousands of
+ *  cells. S25-15 (6): a row whose start or end is not finite is dropped from the widening, with one development
+ *  warning per call (the count and the first bad row's index) — one bad row never blanks the board.
  *  One inside the hours or touching an edge grows nothing. A row whose end wrapped past midnight (end < start)
  *  grows it to its START. Anchored at the business edges, so a whole-hour pair gives whole hours and a fractional
  *  pair keeps today's left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
 export function boardDay({ hours, rows }: { hours: Hours; rows: ReadonlyArray<{ start: number; end: number }> }): Hours {
-  const earliest = Math.min(hours.open, ...rows.map((r) => r.start))
-  const latest = Math.max(hours.close, ...rows.map((r) => Math.max(r.start, r.end)))
+  const finite = rows.filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end))
+  if (finite.length < rows.length && process.env.NODE_ENV !== 'production') {
+    const first = rows.findIndex((r) => !(Number.isFinite(r.start) && Number.isFinite(r.end)))
+    console.warn(`boardDay: ${rows.length - finite.length} row(s) with non-finite minutes left out of the day; first: rows[${first}] { start: ${rows[first].start}, end: ${rows[first].end} }`)
+  }
+  const floor = hours.open - DAY_MIN
+  const ceiling = hours.close + DAY_MIN
+  const widening = finite.filter((r) => !(r.start <= 0 && r.end >= DAY_MIN) && Math.max(r.start, r.end) > floor && r.start < ceiling)
+  const earliest = Math.max(floor, Math.min(hours.open, ...widening.map((r) => r.start)))
+  const latest = Math.min(ceiling, Math.max(hours.close, ...widening.map((r) => Math.max(r.start, r.end))))
   return {
     open: Math.max(0, hours.open - HOUR_MIN * Math.ceil((hours.open - earliest) / HOUR_MIN)),
     close: hours.close + HOUR_MIN * Math.ceil((latest - hours.close) / HOUR_MIN),
@@ -212,8 +232,6 @@ export function trackOverflows(day: Hours, trackPx: number): boolean {
   return trackPx < floorSlots(day) * minPxPer30
 }
 
-/** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */
-const HOURS_PER_DAY = 24
 /** The ruler's word for an hour: the bare number, and 翌 + the hour for one past midnight (D2). */
 export const hourText = (h: number): string => (h >= HOURS_PER_DAY ? `翌${h - HOURS_PER_DAY}` : String(h))
 

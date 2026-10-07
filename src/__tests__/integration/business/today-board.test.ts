@@ -1811,6 +1811,14 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     ['勤務不可 13:00〜閉店', gym, [{ start: 780, end: 780 }], gym, '22', 30, [true, true, false]],
     ['a closed day with no rows (the served pair, no rows)', salon, [], salon, '19', 18, [false, false, false]],
     ['a store-less row (on no lane: widens nothing)', salon, noLaneBlock, salon, '19', 18, [false, false, false]],
+    // S25-15 (3), Liam S25-17 (1) — a whole-day split piece and a row more than a day outside never widen; the rest is bounded.
+    ['a whole-day split piece 0–1440 (widens nothing)', salon, [{ start: 0, end: 1440 }], salon, '19', 18, [false, false, false]],
+    ['a block 18:00 → tomorrow 06:00 (its first piece 1080–1440 widens)', salon, [{ start: 1080, end: 1440 }], { open: 600, close: 1440 }, '24', 28, [true, true, false]],
+    ['a row ending at 99999 (bounded at close + 1440)', salon, [{ start: 1000, end: 99999 }], { open: 600, close: 2580 }, '翌19', 66, [true, true, true]],
+    ['a row at −5000 (more than a day before open: widens nothing)', salon, [{ start: -5000, end: -4970 }], salon, '19', 18, [false, false, false]],
+    ['a row ending at open − 1439 (inside a day: widens, never before 0)', salon, [{ start: -869, end: -839 }], { open: 0, close: 1140 }, '19', 38, [true, true, true]],
+    ['a row starting at close + 1439 (widens, bounded at close + 1440)', salon, [{ start: 2579, end: 2609 }], { open: 600, close: 2580 }, '翌19', 66, [true, true, true]],
+    ['a row starting at close + 1440 (more than a day after close: widens nothing)', salon, [{ start: 2580, end: 2610 }], salon, '19', 18, [false, false, false]],
   ]
   it.each(shapes)('%s', (_name, hours, rows, day, edge, cells, overflow) => {
     const got = boardDay({ hours, rows })
@@ -1833,6 +1841,22 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     expect(css).toContain('min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px))')
     expect(css).not.toContain('var(--board-cells, 0) * var(--cell-floor')
+  })
+  it('S25-15 (6) — rows with non-finite minutes are dropped from the widening with one development warning; never a blank board', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const bad = [{ start: NaN, end: 500 }, { start: undefined as unknown as number, end: 450 }]
+      expect(boardDay({ hours: gym, rows: [...bad, { start: 390, end: 450 }, { start: 600, end: 660 }] })).toEqual({ open: 360, close: 1320 })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toMatch(/^boardDay: 2 row\(s\) with non-finite minutes .*first: rows\[0\]/)
+      expect(boardDay({ hours: gym, rows: bad })).toEqual(gym)
+      expect(boardDay({ hours: gym, rows: [{ start: 600, end: Infinity }] })).toEqual(gym)
+      expect(warn).toHaveBeenCalledTimes(3)
+      expect(boardDay({ hours: gym, rows: [{ start: 390, end: 450 }] })).toEqual({ open: 360, close: 1320 })
+      expect(warn).toHaveBeenCalledTimes(3) // good rows only: no warning
+    } finally {
+      warn.mockRestore()
+    }
   })
   it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 53 = max(26, 「07:00〜」 46) + 7 · WIDE from 95 = max(26, 46, menu/price 77) + 18 (the lines stack: the widest line, not the sum); the CSS @container rules mirror them in content-box px', () => {
     expect([FAMILY_NAME_PX, CARD_TIGHT_PAD_PX, minPxPer30, CARD_TIME_PX, CARD_PAD_PX]).toEqual([26, 7, 33, 46, 18])
