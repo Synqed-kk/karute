@@ -2503,6 +2503,17 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(label(ids[0])).toMatch(/^12:30まで/)
     expect(label(ids[1])).toBe('期限なし')
   })
+  it('S86 P1 a seated thread on a live booking with no fixture twin links 予約一覧 (display_no \'\'); a twin keeps its href exactly', async () => {
+    const [liveId] = pick('s86-h', true)
+    const twinId = liveIdOf('appointments', 'apt-31')!
+    serve([liveId, twinId].map((id) => row(id, { customer_id: seed.customer_id, status: 'SCHEDULED', starts_at: '2026-09-14T06:00:00Z', ends_at: '2026-09-14T07:00:00Z' })))
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const thread = (id: string) => props.threads.find((t) => t.id === `smp-thr-${id}`)!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(thread(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(thread(twinId).bookingNo).toBeTruthy()
+    expect(thread(twinId).bookingHref).toBe(href)
+  })
   it('R5 one id served twice → one thread, one transaction', async () => {
     // The id CARRIES a thread (hash % 23 < 5), so the floor alone cannot make the inbox half pass.
     const [dup] = pick('s85-dup', true)

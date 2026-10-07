@@ -142,7 +142,10 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
       // 予約一覧で事実を確認 — a real link, but only where there IS a booking
       // to confirm. A 空き待ち has none, so the control refuses with its
       // reason rather than sending the reader to a list that cannot answer.
-      bookingHref: t.bookingNo ? `/${locale}/business/reservations${storeQuery}` : null,
+      // Keyed on the booking's PRESENCE (bookingNo is null only when the thread
+      // names no booking): a door-seated booking with no fixture twin has
+      // display_no '' and is still a real booking to confirm.
+      bookingHref: t.bookingNo !== null ? `/${locale}/business/reservations${storeQuery}` : null,
       // ⚠SETTINGS-BATCH / registry: 返信 and 対応の完了 are WRITES. Both ship
       // refused with the reason on the control itself, and the reply the room
       // WOULD send is shown above them — refusing to send is honest, hiding
