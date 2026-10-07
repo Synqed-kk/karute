@@ -873,7 +873,8 @@ async function planeBookings(actor: PracticeActor, lens: StoreLens, reach: numbe
 export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  return inboxFor(await planeBookings(actor, lens, INBOX_WINDOW_DAYS - 1, rows))
+  const today = jstDayKey(renderNow())
+  return inboxFor(await planeBookings(actor, lens, INBOX_WINDOW_DAYS - 1, rows), (b) => jstDayKey(b.starts_at) === today)
 }
 
 export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {

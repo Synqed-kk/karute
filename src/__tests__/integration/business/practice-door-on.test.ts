@@ -2447,7 +2447,7 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect((await registerProps({ locale: 'ja', store: STORE_A })).props.rows.map(fact)).toContain('予約なし・店頭販売')
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
   })
-  it('S86 TEST 1 door ON on a NON-twin store: seated threads carry a deadline, 要対応 moves, 配信失敗 counts, an exception seat keeps none', async () => {
+  it('S86 TEST 1 planes on Dev 銀座, props on the Tokyo lens with ids that have no 予約一覧 row: today\'s seats carry a deadline, 要対応 moves, 配信失敗 counts; an exception seat, a later day and a no-show keep none', async () => {
     const store = STORE.devGinza
     expect([STORE.tokyo, STORE.yokohama]).not.toContain(store) // not a registry twin: none of its own bookings has a 予約一覧 row
     const at = (id: string, hourUtc: number) => row(id, { store_id: store, customer_id: seed.customer_id, status: 'SCHEDULED',
@@ -2456,18 +2456,25 @@ describe('S84 — live-keyed inbox and register planes', () => {
     const late = pick('s86-l', true, 6).map((id) => at(id, 6)) // 15:00 JST — after it
     const record = fixtureReservations.find((r) => r.appointment_id === fixtureThreads.find((t) => t.category === 'change' && t.appointment_id)!.appointment_id)!
     const exceptionId = liveIdOf('appointments', record.appointment_id)!
-    serve([...early, ...late, at(exceptionId, 2)])
+    const [tomorrowId] = pick('s86-t', true)
+    const tomorrow = { ...at(tomorrowId, 1), starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' } // 10:00 JST tomorrow
+    const [absentId] = pick('s86-n', false)
+    const absent = { ...at(absentId, 1), status: 'NO_SHOW' as const }
+    const extra = [tomorrow, absent]
+    serve([...early, ...late, at(exceptionId, 2), ...extra])
     const planes = (await door.readInboxPlanes(store)).threads
+    expect(planes.find((t) => t.appointment_id === tomorrowId)!.due).toBeNull()
+    expect(planes.find((t) => t.appointment_id === absentId)).toMatchObject({ category: 'noshow', due: null })
     const exceptionSeat = planes.find((t) => t.appointment_id === exceptionId)!
     expect(exceptionSeat.due).toBeNull()
-    const seated = planes.filter((t) => t.appointment_id !== null && t.appointment_id !== exceptionId)
+    const seated = planes.filter((t) => t.appointment_id !== null && ![exceptionId, tomorrowId, absentId].includes(t.appointment_id))
     expect(seated.length).toBe(12)
     for (const t of seated) expect(t.due).toBe(jstMinuteOfDay([...early, ...late].find((r) => r.id === t.appointment_id)!.starts_at))
     const records = (await data.readReservationPlanes(store)).reservations.map((r) => r.appointment_id)
     expect(seated.filter((t) => records.includes(t.appointment_id!))).toEqual([])
     // The props half on the Tokyo lens: the recorded harness lists no customers for Dev 銀座, and buildThreads drops
     // a thread whose customer the lens cannot read. These s86-* ids have no fixture twin, so no 予約一覧 row either.
-    serve([...early, ...late, at(exceptionId, 2)].map((r) => ({ ...r, store_id: STORE.tokyo })))
+    serve([...early, ...late, at(exceptionId, 2), ...extra].map((r) => ({ ...r, store_id: STORE.tokyo })))
     const tokyoRecords = (await data.readReservationPlanes(STORE.tokyo)).reservations.map((r) => r.appointment_id)
     expect(seated.filter((t) => tokyoRecords.includes(t.appointment_id!))).toEqual([])
     const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
@@ -2477,6 +2484,7 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(props.summary.attention).toBeGreaterThan(0)
     expect(shown.filter((t) => early.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'attention' && t.overdue)).toBe(true)
     expect(shown.filter((t) => late.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'new' && !t.overdue)).toBe(true)
+    expect(props.threads.find((t) => t.id === `smp-thr-${tomorrowId}`)).toMatchObject({ dueLabel: '期限なし', status: 'new', overdue: false })
     const failed = shown.filter((t) => t.category === 'delivery')
     expect(failed.length).toBeGreaterThan(0)
     expect(failed.every((t) => t.deliveryState === 'undelivered')).toBe(true)
@@ -2508,7 +2516,8 @@ describe('S84 — live-keyed inbox and register planes', () => {
     // the door hands core the exclusive day bound after it, 2026-09-20T15:00:00.000Z — that is the call pinned here.
     const spy = serve([row(pick('s86-w', true)[0])])
     await inboxProps({ locale: 'ja', store: STORE.tokyo })
-    expect(spy.appointmentsList.mock.calls[0][0]).toMatchObject({ from: '2026-09-13T15:00:00.000Z', to: '2026-09-20T15:00:00.000Z', store_id: STORE.tokyo })
+    const window = spy.appointmentsList.mock.calls.map(([q]) => q as { from?: string; to?: string; store_id?: string }).find((q) => q.from === '2026-09-13T15:00:00.000Z')
+    expect(window).toMatchObject({ to: '2026-09-20T15:00:00.000Z', store_id: STORE.tokyo })
   })
   it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
     const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!

@@ -170,6 +170,18 @@ const build = (store: string | null, override: Partial<ThreadInput> = {}) =>
   buildThreads(inputFor(store, override))
 const byId = (rows: ThreadModel[], id: string) => rows.find((t) => t.id === id)!
 
+describe('S86 R5 — 期限 for a booking with and without a 予約一覧 row', () => {
+  const booking = appointments().find((a) => a.status !== 'cancelled' && a.settlement !== 'awaiting' && !reservations.some((r) => r.appointment_id === a.id))!
+  const template = threadPlane.find((t) => t.category === 'change')!
+  const thread = { ...template, id: 's86-unit', appointment_id: booking.id, customer_id: booking.customer_id, due: 600 }
+  const run = (over: Partial<ThreadInput>) => byId(buildThreads(inputFor(null, { threads: [thread], decisions: [], reservations: [], ...over })), 's86-unit').dueMinute
+  it('no record → the thread\'s own due; awaiting settlement → 閉店; a record with a null deadline → null', () => {
+    expect(run({})).toBe(600)
+    expect(run({ appointments: [{ ...booking, settlement: 'awaiting' }] })).toBe(operatingHours.close)
+    expect(run({ reservations: [{ ...reservations[0], appointment_id: booking.id, pending: false, deadline: null }] })).toBeNull()
+  })
+})
+
 beforeEach(() => {
   supabase.mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },

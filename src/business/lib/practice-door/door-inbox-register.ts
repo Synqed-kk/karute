@@ -28,7 +28,11 @@ const firstChange = bookingTemplates.find((t) => t.category === 'change')!
 /** One rule per booking, from its own hash only — inserting or removing another
  *  booking never relabels this one. Cancelled → none; 無断キャンセル → the noshow
  *  template; else a thread iff hash % 23 < 5, its template by (hash >>> 8). */
-export function inboxFor(bookings: FixtureAppointment[]): { threads: FixtureThread[] } {
+export function inboxFor(
+  bookings: FixtureAppointment[],
+  /** True for a booking on TODAY (JST). The 期限 model holds a minute-of-day only, so only today's seat gets a deadline. */
+  isToday: (booking: FixtureAppointment) => boolean = () => true,
+): { threads: FixtureThread[] } {
   const customerOnly = threads.filter((t) => t.appointment_id === null).flatMap((t) => {
     const customer = liveIdOf('customers', t.customer_id)
     return customer && bookings.some((b) => b.customer_id === customer)
@@ -58,8 +62,9 @@ export function inboxFor(bookings: FixtureAppointment[]): { threads: FixtureThre
       delivery_detail: decision ? null : template.delivery_detail,
       // A templated seat never carries the fixture's own source proof (its names belong to the fixture world).
       source_proof: !own || decision || exception ? null : template.source_proof,
-      // A seated reply is wanted before the customer arrives: with no template deadline, the deadline is the booking's own start.
-      due: exception ? null : (template.due ?? jstMinuteOfDay(booking.starts_at)),
+      // A seated reply is wanted before the customer arrives: with no template deadline, the deadline is the booking's own
+      // start — today only (a later day cannot be said in a minute-of-day), and never on a no-show record.
+      due: exception || template.category === 'noshow' ? null : (template.due ?? (isToday(booking) ? jstMinuteOfDay(booking.starts_at) : null)),
       events: template.events.filter((event) => !audit.some((row) => row.every((s, i) => s === event[i]))),
     }]
   })
