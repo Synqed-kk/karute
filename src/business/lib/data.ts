@@ -27,7 +27,7 @@ import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import { readStoreCapabilities as doorReadStoreCapabilities, readStoreSeedType as doorReadStoreSeedType, writeStoreCapabilities as doorWriteStoreCapabilities, type BusinessTypeKey, type CapRecord, type WriteStoreCapabilitiesResult } from './practice-door/door-store-capabilities'
 import * as doorWrites from './practice-door/door-writes'
-import { weekFromPair } from './practice-door/store-hours'
+import { BOARD_REACH_DAYS, weekdayOfKey, weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
   business,
@@ -436,6 +436,22 @@ export async function listResources(lens: StoreLens): Promise<FixtureResource[]>
  *  page.tsx holds up that end: a key this map has no entry for never becomes a
  *  `calendar` row at all (page.tsx :208-238), so nothing downstream can invent
  *  a count for it. */
+/** ⚖ S82 G2 — the board's reach (today ± days), ONE home in store-hours.ts; today/page.tsx's WINDOW reads it. */
+export { BOARD_REACH_DAYS }
+
+/** ⚖ S81 F1 + S82 G5 — each day of the range's OWN hours: its closure (null = open; 'weekday' = 定休日, 'closed_date' =
+ *  臨時休業) and its window — the calendar's 定休 and unassigned-booking wall for a day it is not showing. OFF: the
+ *  fixture 定休日 and the fixture pair, the same answer offWeek paints. */
+export async function listHoursByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, { closed: null | 'weekday' | 'closed_date'; window: { open: number; close: number } }>> {
+  if (await doorOn()) return door.listHoursByDay(lens, range)
+  assertLens(lens)
+  const keys = Array.from({ length: range.to - range.from + 1 }, (_, i) => range.from + i)
+  return new Map(keys.map((k) => [k, { closed: weekdayOfKey(k) === closedWeekday ? ('weekday' as const) : null, window: operatingHours }]))
+}
+
 export async function listShiftsByDay(
   lens: StoreLens,
   range: { from: number; to: number },
@@ -546,6 +562,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     staffQualifications,
     staffListPrice,
     ...offWeek(),
+    /** ⚖ S81 R7 — OFF: the shown day is closed only on the fixture 定休日. */
+    shownDayClosed: weekdayOfKey(dayKey) === closedWeekday ? ('weekday' as const) : null,
     opsConfig,
     absence: inLens(today ? [absence] : [], lens, false)[0] ?? null,
     blocks: inLens(blocks, lens, false),

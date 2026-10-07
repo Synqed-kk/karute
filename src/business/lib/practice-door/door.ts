@@ -16,7 +16,7 @@ import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeAct
 import { fixtureIdOf, samplePolicyFor } from './registry'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
-import { closedWeekdaysOf, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type StoreHours, type WeeklyHours, type Window } from './store-hours'
+import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
 import {
   appointments,
   customers,
@@ -117,7 +117,9 @@ async function coreAppointments(actor: PracticeActor, lens: StoreLens, q: CoreQu
 }
 
 /** Core row → FixtureAppointment (§5). LIVE fields from core; the fixture-only
- *  fields from the twin fixture row when one exists, else honest defaults. */
+ *  fields from the twin fixture row when one exists, else honest defaults.
+ *  ⚖ S81 R12 — TWIN FIELDS STILL CARRIED (sample, unmarked on the card — marking them is the queued next piece):
+ *  kind_id · display_no · settlement · requires_private_room · source · reassigned_from · board_state (when a twin exists). */
 function toAppointment(row: CoreAppointment, fixtureRows: FixtureAppointment[], now: Date): FixtureAppointment {
   const twinId = fixtureIdOf('appointments', row.id)
   const twin = twinId === null ? undefined : fixtureRows.find((a) => a.id === twinId)
@@ -130,7 +132,8 @@ function toAppointment(row: CoreAppointment, fixtureRows: FixtureAppointment[], 
         ? ['cancelled', null]
         : row.status === 'NO_SHOW'
           ? ['booked', 'noshow']
-          : ['booked', twin?.board_state ?? 'confirmed'] // SCHEDULED | IN_PROGRESS
+          : // ⚖ S81 R1 — IN_PROGRESS is CARRIED as data; its board_state is exactly a SCHEDULED row's (the board paints it as 'booked').
+            [row.status === 'IN_PROGRESS' ? 'in_progress' : 'booked', twin?.board_state ?? 'confirmed'] // SCHEDULED | IN_PROGRESS
   return {
     id: row.id,
     store_id: row.store_id,
@@ -417,10 +420,34 @@ export async function listVisits(
  *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
  *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
 const ORG_ONCE = Symbol('org-settings, once per actor')
+/** ⚖ S81 F3 · S82 R2 — the bound on a core read the page waits for: no answer within it = a failed read, never a hung
+ *  page. The SDK client sets no timeout of its own; 5 s = door-writes.ts's AUDIT_LOG_BOUND_MS, this folder's one other
+ *  bound on a core call. ONE definition, both races: the shared org read (orgSettingsOf) and the hours reads (readHours). */
+const CORE_READ_BOUND_MS = 5000
+/** ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read itself, so no reader of the business settings can
+ *  hold the page past CORE_READ_BOUND_MS: a timeout REJECTS the one promise exactly as a failed read does, every
+ *  consumer takes the failure path it already has, and the failure is logged HERE, once per request. */
 export function orgSettingsOf(actor: PracticeActor) {
   const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
-  return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
+  return (reads[ORG_ONCE] ??= boundedOrgRead(reads))
 }
+function boundedOrgRead(reads: PracticeActor['reads']): ReturnType<PracticeActor['reads']['orgSettingsGet']> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    reads.orgSettingsGet(),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
+    }),
+  ])
+    .catch((e: unknown) => {
+      console.error('[practice org settings] core did not answer:', e instanceof Error ? e.message : String(e))
+      throw e
+    })
+    .finally(() => clearTimeout(timer))
+}
+/** The board's readers of the settings (the shell's name, the booking colours): a failed or unanswered org read is
+ *  the absent org (null) — the answer they already give with no org row — never a board that cannot open. Already logged. */
+const orgOrAbsent = (actor: PracticeActor) => orgSettingsOf(actor).catch(() => null)
 
 export async function readShellIdentity(): Promise<{
   business: { name: string; storeCount: number }
@@ -429,7 +456,7 @@ export async function readShellIdentity(): Promise<{
 }> {
   const actor = await practiceActor()
   const now = renderNow()
-  const org = await orgSettingsOf(actor)
+  const org = await orgOrAbsent(actor)
   return {
     // FOLD F-1: the count of stores THIS actor may see, never the tenant total.
     business: { name: org?.name ?? '', storeCount: actor.visible.length },
@@ -473,7 +500,7 @@ export async function readReserveCardColor(): Promise<string | null> {
  *  `bookingColorsFor` there is the one place that resolves them. */
 export async function readBookingColors(): Promise<Record<string, unknown> | null> {
   const actor = await practiceActor()
-  const settings: unknown = (await orgSettingsOf(actor))?.settings
+  const settings: unknown = (await orgOrAbsent(actor))?.settings
   if (settings === null || settings === undefined || typeof settings !== 'object') return null
   return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
@@ -656,44 +683,98 @@ export async function listShiftsByDay(lens: StoreLens, range: DayRange): Promise
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
-  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()), s), liveRowsOf(actor, lens, range)])
+  // ⚖ S81 F1 — every day of the range its OWN hours (a 臨時営業日 seats staff on its window, a 臨時休業 seats nobody).
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursForRange(actor, lens, range, s), liveRowsOf(actor, lens, range)])
   const on: Record<number, CoreAppointment[]> = {}
   for (const r of day) for (let k = Math.max(range.from, jstDayKey(r.starts_at)); k <= Math.min(range.to, jstDayKey(untilOf(r))); k += 1) (on[k] ??= []).push(r)
-  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours, s.operatingHours, k).shifts]))
+  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours.get(k)!, s.operatingHours, k).shifts]))
 }
 
+/** ⚖ S81 F1 + S82 G5 — each day of the range's OWN hours, as the ONE resolver names them: its closure (null = open) and
+ *  its window — the calendar's 定休 and its unassigned-booking wall for a day it is not showing (a 臨時休業 date closes
+ *  its cell, a 臨時営業日 on a 定休日 opens it with ITS window). The same shared hours read as every other caller (G1). */
+export async function listHoursByDay(lens: StoreLens, range: DayRange): Promise<Map<number, { closed: StoreHours['shownDayClosed']; window: Window }>> {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  const hours = await storeHoursForRange(actor, lens, range)
+  return new Map(dayKeys(range).map((k) => [k, { closed: hours.get(k)!.shownDayClosed, window: hours.get(k)!.operatingHours }]))
+}
+
+/** ⚖ S82 G4 — today's 勤務不可, seated on TODAY's own hours from the shared read of the range (a 臨時休業 today → null; a
+ *  臨時営業日 on a 定休日 today keeps it). Only today carries an absence: the map holds today's key, or nothing. */
 export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureAbsence | null>> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const todayKey = jstDayKey(renderNow())
   if (todayKey < range.from || todayKey > range.to) return new Map()
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
-  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, todayKey, s), liveRowsOf(actor, lens, { from: todayKey, to: todayKey })])
-  return new Map([[todayKey, servedDay(seats, day, hours, s.operatingHours, todayKey).absence]])
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursForRange(actor, lens, range, s), liveRowsOf(actor, lens, { from: todayKey, to: todayKey })])
+  return new Map([[todayKey, servedDay(seats, day, hours.get(todayKey)!, s.operatingHours, todayKey).absence]])
 }
 
-/** ⚖ §v11 V11-1/V11-2/V11-7 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
- *  store's OWN week (`weeklyHours` + `closedWeekdays`) and the day shown's pair (a closed weekday: the store's usual
- *  window); no core week (null, {}, no day that opens, a failed read — logged) and the all-stores view keep the
- *  shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00. */
-async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
-  const sample: StoreHours = { operatingHours: s.operatingHours, weeklyHours: weekFromPair(s.operatingHours, [s.closedWeekday]), closedWeekdays: [s.closedWeekday], hoursSource: 'sample' }
-  if (typeof lens !== 'string') return sample
-  let weekly: WeeklyHours | null
+/** ⚖ S82 G1/G2 — ONE hours read per store per request, ONE outcome shared by every caller (readDayPlanes ·
+ *  listShiftsByDay · listAbsenceByDay · listHoursByDay · readStoreHours), as ROWS_ONCE / ORG_ONCE keep theirs (a keyed
+ *  slot, never a Map). The slot holds the OUTCOME — the three reads raced once against the bound, caught once — so a
+ *  partial failure can never mix core and sample on one board, a late answer can never reach one caller and not another,
+ *  and one outage logs one line per store per request. Keyed by the store alone for every range inside the board's reach
+ *  (today ± BOARD_REACH_DAYS: the 臨時休業 rows are read for the whole reach); a range outside it gets its own key and read.
+ *  Per store ONE memo: its 臨時営業日 parsed once, a malformed weekday named once. */
+const HOURS_ONCE = Symbol('hours reads, once per lens (+ an outside range)')
+type HoursSlots = {
+  reads: Record<string, Promise<HoursReads | null>>
+  memo: Record<string, NonNullable<Parameters<typeof resolveStoreHours>[5]>>
+}
+function hoursSlots(actor: PracticeActor): HoursSlots {
+  const reads: PracticeActor['reads'] & { [HOURS_ONCE]?: HoursSlots } = actor.reads
+  return (reads[HOURS_ONCE] ??= { reads: {}, memo: {} })
+}
+
+/** The three reads together — the store policy (weekly_hours + special_open_days), the 臨時休業 rows over `window`, the
+ *  business's operating_hours — raced ONCE against the bound and caught ONCE: resolves (never rejects) to the reads, or
+ *  null when any failed or none answered in time (one log line). The timer is cleared once, either way. */
+async function readHours(actor: PracticeActor, storeId: string, window: { from: string; to: string }): Promise<HoursReads | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    weekly = (await actor.reads.storePolicyGet(lens))?.weekly_hours ?? null
+    const [policy, closedDays, org] = await Promise.race([
+      Promise.all([actor.reads.storePolicyGet(storeId), actor.reads.storePolicyListClosedDays(storeId, window), orgSettingsOf(actor)]),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
+      }),
+    ])
+    return { policy: policy ?? null, closedDays, org: org ?? null }
   } catch (e) {
     console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
-    weekly = null
+    return null
+  } finally {
+    clearTimeout(timer)
   }
-  const core = weekOf(weekly)
-  const usual = core && usualPairOf(core.week)
-  if (!core || !usual) return sample
-  // ⚖ V11-2a (final 17:5x) — a malformed weekday never takes the other days with it and never borrows another world's
-  // day: it is served the store's OWN usual window (never a closure it did not set). Logged once per read.
-  if (core.malformed.length > 0) console.error("[practice hours] malformed weekday served as the store's usual window:", lens, core.malformed.join(','))
-  const week = core.week.map((d, wd) => (core.malformed.includes(wd) ? usual : d))
-  return { operatingHours: week[weekdayOfKey(dayKey)] ?? usual, weeklyHours: week, closedWeekdays: closedWeekdaysOf(week), hoursSource: 'core' }
+}
+
+/** ⚖ §v11 V11-1/V11-2/V11-7, ⚖ S81 R4–R9 + F1, ⚖ S82 G1/G2 — THE one place a plane's 営業時間 · 定休日 · 臨時休業 · 臨時営業日
+ *  come from, for EVERY day of a range: the store's ONE shared hours outcome (above), and Karute's ONE resolver answering
+ *  each day with THAT day's layers (./store-hours). No hours set anywhere (R6), a failed or unanswered read (R9 + F3; a
+ *  failed 臨時休業 read is never 「no closed days」) and the all-stores view keep the shared sample set (§v9 V9-2) in the
+ *  same shape, marked 'sample' — never a silent 10:00.
+ *  ⚖ S81 R12 — the hours plane still carries from the sample singletons: opsConfig (and the sample set when R6/R9 apply). */
+async function storeHoursForRange(actor: PracticeActor, lens: StoreLens, range: DayRange, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<Map<number, StoreHours>> {
+  const sampleOf = (dayKey: number) => sampleHours(s.operatingHours, s.closedWeekday, dayKey)
+  if (typeof lens !== 'string') return new Map(dayKeys(range).map((k) => [k, sampleOf(k)]))
+  const now = renderNow()
+  const today = jstDayKey(now)
+  const reach = { from: today - BOARD_REACH_DAYS, to: today + BOARD_REACH_DAYS }
+  const inside = range.from >= reach.from && range.to <= reach.to
+  const span = inside ? reach : range
+  const window = closedDaysRange(span.from, now, span.to)
+  const once = hoursSlots(actor)
+  const reads = await (once.reads[inside ? lens : JSON.stringify([lens, window.from, window.to])] ??= readHours(actor, lens, window))
+  if (reads === null) return new Map(dayKeys(range).map((k) => [k, sampleOf(k)]))
+  const days = resolveStoreHours(reads, range, now, sampleOf, lens, (once.memo[lens] ??= {}))
+  return new Map(days.map((h) => [h.shownDayKey, h]))
+}
+
+/** The one-day case of storeHoursForRange (from = to = dayKey). */
+async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
+  return (await storeHoursForRange(actor, lens, { from: dayKey, to: dayKey }, s)).get(dayKey)!
 }
 
 /** ⚖ §v11 V11-4 — 設定's light read: the store's 営業時間 · 定休日 for one day through the same resolver as the board. */
@@ -721,6 +802,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     weeklyHours: hours.weeklyHours,
     closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
+    /** ⚖ S81 R7 — the shown day's own closure (null = open): a 臨時休業 date closes this day alone, never a weekday. */
+    shownDayClosed: hours.shownDayClosed,
     opsConfig: s.opsConfig,
     absence: served.absence,
     blocks: day.blocksByDay.get(dayKey) ?? [],
