@@ -420,10 +420,34 @@ export async function listVisits(
  *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
  *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
 const ORG_ONCE = Symbol('org-settings, once per actor')
+/** ⚖ S81 F3 · S82 R2 — the bound on a core read the page waits for: no answer within it = a failed read, never a hung
+ *  page. The SDK client sets no timeout of its own; 5 s = door-writes.ts's AUDIT_LOG_BOUND_MS, this folder's one other
+ *  bound on a core call. ONE definition, both races: the shared org read (orgSettingsOf) and the hours reads (readHours). */
+const CORE_READ_BOUND_MS = 5000
+/** ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read itself, so no reader of the business settings can
+ *  hold the page past CORE_READ_BOUND_MS: a timeout REJECTS the one promise exactly as a failed read does, every
+ *  consumer takes the failure path it already has, and the failure is logged HERE, once per request. */
 export function orgSettingsOf(actor: PracticeActor) {
   const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
-  return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
+  return (reads[ORG_ONCE] ??= boundedOrgRead(reads))
 }
+function boundedOrgRead(reads: PracticeActor['reads']): ReturnType<PracticeActor['reads']['orgSettingsGet']> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    reads.orgSettingsGet(),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
+    }),
+  ])
+    .catch((e: unknown) => {
+      console.error('[practice org settings] core did not answer:', e instanceof Error ? e.message : String(e))
+      throw e
+    })
+    .finally(() => clearTimeout(timer))
+}
+/** The board's readers of the settings (the shell's name, the booking colours): a failed or unanswered org read is
+ *  the absent org (null) — the answer they already give with no org row — never a board that cannot open. Already logged. */
+const orgOrAbsent = (actor: PracticeActor) => orgSettingsOf(actor).catch(() => null)
 
 export async function readShellIdentity(): Promise<{
   business: { name: string; storeCount: number }
@@ -432,7 +456,7 @@ export async function readShellIdentity(): Promise<{
 }> {
   const actor = await practiceActor()
   const now = renderNow()
-  const org = await orgSettingsOf(actor)
+  const org = await orgOrAbsent(actor)
   return {
     // FOLD F-1: the count of stores THIS actor may see, never the tenant total.
     business: { name: org?.name ?? '', storeCount: actor.visible.length },
@@ -476,7 +500,7 @@ export async function readReserveCardColor(): Promise<string | null> {
  *  `bookingColorsFor` there is the one place that resolves them. */
 export async function readBookingColors(): Promise<Record<string, unknown> | null> {
   const actor = await practiceActor()
-  const settings: unknown = (await orgSettingsOf(actor))?.settings
+  const settings: unknown = (await orgOrAbsent(actor))?.settings
   if (settings === null || settings === undefined || typeof settings !== 'object') return null
   return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
@@ -688,11 +712,6 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
   return new Map([[todayKey, servedDay(seats, day, hours.get(todayKey)!, s.operatingHours, todayKey).absence]])
 }
 
-/** ⚖ S81 F3 — the bound on the three hours reads together: no answer within it = a failed read (R9: the sample set +
- *  one log line), never a hung board. The SDK client sets no timeout of its own; 5 s = door-writes.ts's AUDIT_LOG_BOUND_MS,
- *  this folder's one other bound on a core call. Kept here, beside the race, so store-hours.ts's imports stay sealed. */
-const HOURS_READ_BOUND_MS = 5000
-
 /** ⚖ S82 G1/G2 — ONE hours read per store per request, ONE outcome shared by every caller (readDayPlanes ·
  *  listShiftsByDay · listAbsenceByDay · listHoursByDay · readStoreHours), as ROWS_ONCE / ORG_ONCE keep theirs (a keyed
  *  slot, never a Map). The slot holds the OUTCOME — the three reads raced once against the bound, caught once — so a
@@ -719,7 +738,7 @@ async function readHours(actor: PracticeActor, storeId: string, window: { from: 
     const [policy, closedDays, org] = await Promise.race([
       Promise.all([actor.reads.storePolicyGet(storeId), actor.reads.storePolicyListClosedDays(storeId, window), orgSettingsOf(actor)]),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`no answer within ${HOURS_READ_BOUND_MS} ms`)), HOURS_READ_BOUND_MS)
+        timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
       }),
     ])
     return { policy: policy ?? null, closedDays, org: org ?? null }

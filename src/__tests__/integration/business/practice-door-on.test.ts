@@ -2161,3 +2161,124 @@ describe('R50 — the door per business (P1–P7)', () => {
     }
   })
 })
+
+// ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read (orgSettingsOf): no reader of the business settings can
+// hold the page past CORE_READ_BOUND_MS. A timeout rejects that one promise exactly as a failed read does; the org read
+// logs ONE line per request; the board's readers (the shell, the colours, the hours) take their absent-org answer.
+describe('(S82 R2) the shared org read is bounded — the board finishes whatever the business settings read does', () => {
+  const ORG_LINE = '[practice org settings] core did not answer:'
+  const NOW = new Date('2026-09-14T04:24:00Z')
+  const page = async (store: string) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
+    return (el as unknown as { props: Record<string, unknown> }).props
+  }
+  const fakeAll = () => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+  const dateOnly = () => jest.useFakeTimers({
+    now: NOW,
+    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+  })
+  const orgLines = (quiet: jest.SpyInstance) => quiet.mock.calls.filter((c) => c[0] === ORG_LINE).length
+  const SAMPLE_MARK = { form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] }
+  const absentOrgColours = async () => {
+    withReads().orgSettingsGet.mockResolvedValue(null)
+    return (await page(STORE.tokyo)).bookingColors
+  }
+
+  it('H3(a) page-level — the org read NEVER answers: pending at 4,999 ms, resolved at 5,000 ms; hours sample, colours = the absent-org colours, one org log line, no timer left', async () => {
+    const absent = await absentOrgColours()
+    const spy = withReads()
+    spy.orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = page(STORE.tokyo).then((p) => ((done = true), p))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      const props = await pending
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H3(b) page-level — the org read REJECTS: the page resolves; hours sample, colours = the absent-org colours, one org log line', async () => {
+    const absent = await absentOrgColours()
+    withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const props = await page(STORE.tokyo)
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(orgLines(quiet)).toBe(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
+  it.each([
+    ['readShellIdentity', async () => (await data.readShellIdentity()).business, { name: '', storeCount: 7 }],
+    ['readBookingColors', () => data.readBookingColors(), null],
+  ])('H3(c) %s alone — the org read never answers: pending at 4,999 ms, its absent-org answer at 5,000 ms, no timer left', async (_name, read, expected) => {
+    withReads().orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = (read as () => Promise<unknown>)().then((v) => ((done = true), v))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(await pending).toEqual(expected)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H2 census — every reader of the org settings on a REJECTED org read (the board\'s readers degrade; the settings-page readers and the writers keep their failure path)', async () => {
+    const outcome = async (f: () => Promise<unknown>) => {
+      withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+      try {
+        return { ok: await f() }
+      } catch (e) {
+        return { throws: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const census = {
+        readShellIdentity: await outcome(async () => (await data.readShellIdentity()).business.name),
+        readBookingColors: await outcome(() => data.readBookingColors()),
+        readHours: await outcome(async () => (await data.readDayPlanes(STORE.tokyo, TODAY) as { hoursSource?: string }).hoursSource),
+        readReserveCardColor: await outcome(() => data.readReserveCardColor()),
+        readStoreCapabilities: await outcome(() => data.readStoreCapabilities(STORE.tokyo)),
+        readStoreSeedType: await outcome(() => data.readStoreSeedType(STORE.tokyo)),
+        writeReserveCardColor: await outcome(() => data.writeReserveCardColor(null)),
+      }
+      console.log('H2 census', JSON.stringify(census))
+      expect(census).toEqual({
+        readShellIdentity: { ok: '' },
+        readBookingColors: { ok: null },
+        readHours: { ok: 'sample' },
+        readReserveCardColor: { throws: 'core down' },
+        readStoreCapabilities: { throws: 'core down' },
+        readStoreSeedType: { throws: 'core down' },
+        writeReserveCardColor: { ok: { ok: false, reason: 'core' } },
+      })
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+})
