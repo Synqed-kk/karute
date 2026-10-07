@@ -44,6 +44,11 @@ export async function listStaffShiftRows(
     if (new Set(rows.map(r => r.id)).size !== rows.length || rows.some(r => r.business_id !== businessId || r.store_id !== storeId || r.date < early || r.date >= to)) throw new Error('Invalid shift scope')
     return rows.map(rowFromCore)
   }
+  // On timeout the race rejects but the page requests already sent keep
+  // running: the installed client's staffShifts.list(options) takes no
+  // AbortSignal, so they cannot be aborted. Their results are discarded —
+  // nothing awaits read() after the race settles, and a late rejection is
+  // swallowed by the settled race.
   try {
     return await Promise.race([
       read(),
