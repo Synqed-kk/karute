@@ -27,7 +27,7 @@ import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import { readStoreCapabilities as doorReadStoreCapabilities, readStoreSeedType as doorReadStoreSeedType, writeStoreCapabilities as doorWriteStoreCapabilities, type BusinessTypeKey, type CapRecord, type WriteStoreCapabilitiesResult } from './practice-door/door-store-capabilities'
 import * as doorWrites from './practice-door/door-writes'
-import { weekFromPair } from './practice-door/store-hours'
+import { weekdayOfKey, weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
   business,
@@ -546,6 +546,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     staffQualifications,
     staffListPrice,
     ...offWeek(),
+    /** ⚖ S81 R7 — OFF: the shown day is closed only on the fixture 定休日. */
+    shownDayClosed: weekdayOfKey(dayKey) === closedWeekday ? ('weekday' as const) : null,
     opsConfig,
     absence: inLens(today ? [absence] : [], lens, false)[0] ?? null,
     blocks: inLens(blocks, lens, false),

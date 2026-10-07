@@ -16,7 +16,7 @@ import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeAct
 import { fixtureIdOf, samplePolicyFor } from './registry'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
-import { closedWeekdaysOf, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type StoreHours, type WeeklyHours, type Window } from './store-hours'
+import { closedDaysRange, resolveStoreHours, sampleHours, type StoreHours, type Window } from './store-hours'
 import {
   appointments,
   customers,
@@ -117,7 +117,9 @@ async function coreAppointments(actor: PracticeActor, lens: StoreLens, q: CoreQu
 }
 
 /** Core row → FixtureAppointment (§5). LIVE fields from core; the fixture-only
- *  fields from the twin fixture row when one exists, else honest defaults. */
+ *  fields from the twin fixture row when one exists, else honest defaults.
+ *  ⚖ S81 R12 — TWIN FIELDS STILL CARRIED (sample, unmarked on the card — marking them is the queued next piece):
+ *  kind_id · display_no · settlement · requires_private_room · source · reassigned_from · board_state (when a twin exists). */
 function toAppointment(row: CoreAppointment, fixtureRows: FixtureAppointment[], now: Date): FixtureAppointment {
   const twinId = fixtureIdOf('appointments', row.id)
   const twin = twinId === null ? undefined : fixtureRows.find((a) => a.id === twinId)
@@ -672,28 +674,29 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
   return new Map([[todayKey, servedDay(seats, day, hours, s.operatingHours, todayKey).absence]])
 }
 
-/** ⚖ §v11 V11-1/V11-2/V11-7 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
- *  store's OWN week (`weeklyHours` + `closedWeekdays`) and the day shown's pair (a closed weekday: the store's usual
- *  window); no core week (null, {}, no day that opens, a failed read — logged) and the all-stores view keep the
- *  shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00. */
+/** ⚖ §v11 V11-1/V11-2/V11-7, ⚖ S81 R4–R9 — THE one place a plane's 営業時間 · 定休日 · 臨時休業 · 臨時営業日 come from.
+ *  A single-store lens asks core THREE reads together — the store policy (weekly_hours + special_open_days), the
+ *  shown day's 臨時休業 rows, the business's operating_hours — and Karute's ONE resolver answers (./store-hours).
+ *  No hours set anywhere (R6), a failed read (R9, logged; a failed 臨時休業 read is never 「no closed days」) and the
+ *  all-stores view keep the shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00.
+ *  ⚖ S81 R12 — the hours plane still carries from the sample singletons: opsConfig (and the sample set when R6/R9 apply). */
 async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
-  const sample: StoreHours = { operatingHours: s.operatingHours, weeklyHours: weekFromPair(s.operatingHours, [s.closedWeekday]), closedWeekdays: [s.closedWeekday], hoursSource: 'sample' }
+  const sample = sampleHours(s.operatingHours, s.closedWeekday, dayKey)
   if (typeof lens !== 'string') return sample
-  let weekly: WeeklyHours | null
+  const now = renderNow()
+  let reads: Parameters<typeof resolveStoreHours>[0]
   try {
-    weekly = (await actor.reads.storePolicyGet(lens))?.weekly_hours ?? null
+    const [policy, closedDays, org] = await Promise.all([
+      actor.reads.storePolicyGet(lens),
+      actor.reads.storePolicyListClosedDays(lens, closedDaysRange(dayKey, now)),
+      orgSettingsOf(actor),
+    ])
+    reads = { policy: policy ?? null, closedDays, org: org ?? null }
   } catch (e) {
     console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
-    weekly = null
+    return sample
   }
-  const core = weekOf(weekly)
-  const usual = core && usualPairOf(core.week)
-  if (!core || !usual) return sample
-  // ⚖ V11-2a (final 17:5x) — a malformed weekday never takes the other days with it and never borrows another world's
-  // day: it is served the store's OWN usual window (never a closure it did not set). Logged once per read.
-  if (core.malformed.length > 0) console.error("[practice hours] malformed weekday served as the store's usual window:", lens, core.malformed.join(','))
-  const week = core.week.map((d, wd) => (core.malformed.includes(wd) ? usual : d))
-  return { operatingHours: week[weekdayOfKey(dayKey)] ?? usual, weeklyHours: week, closedWeekdays: closedWeekdaysOf(week), hoursSource: 'core' }
+  return resolveStoreHours(reads, dayKey, now, sample, lens)
 }
 
 /** ⚖ §v11 V11-4 — 設定's light read: the store's 営業時間 · 定休日 for one day through the same resolver as the board. */
@@ -721,6 +724,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     weeklyHours: hours.weeklyHours,
     closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
+    /** ⚖ S81 R7 — the shown day's own closure (null = open): a 臨時休業 date closes this day alone, never a weekday. */
+    shownDayClosed: hours.shownDayClosed,
     opsConfig: s.opsConfig,
     absence: served.absence,
     blocks: day.blocksByDay.get(dayKey) ?? [],
