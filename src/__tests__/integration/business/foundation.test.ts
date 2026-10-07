@@ -910,6 +910,8 @@ describe('the fixture data door', () => {
       'src/app/api/business/booking-colors/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       // S49 P2 — お店ページ's switches route, the booking-colours route's twin: admission and the data seam, nothing else.
       'src/app/api/business/store-capabilities/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
+      // Reserve S66 — 受付ルール's route, the booking-colours route's twin: admission and the data seam, nothing else.
+      'src/app/api/business/reserve-policy/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
