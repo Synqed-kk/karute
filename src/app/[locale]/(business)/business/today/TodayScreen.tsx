@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { boardCells, bookingColorHex, familyNameOf, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -9456,7 +9456,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, '--board-cells': boardCells(hours, props.guard.bookingStepMin), '--cell-floor': `${minPxPer30}px`, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, '--board-cells': boardCells(hours, props.guard.bookingStepMin), '--floor-slots': floorSlots(hours), '--cell-floor': `${minPxPer30}px`, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).

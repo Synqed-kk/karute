@@ -129,7 +129,8 @@ export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
 export interface RulerLabel { hour: number; text: string; leftPct: number; widthPct: number; edge?: true }
 
 /** ⚖ 10/7 S25-1 (Liam: 「we do compress it as far as we can, but when it just becomes impossible, we introduce
- *  scrolling」) — THE READABLE FLOOR, px per grid cell (one opsConfig.bookingStepMin): the width at which a one-cell
+ *  scrolling」) — THE READABLE FLOOR, px per 30 minutes of the day (S25-15 (2): a time density whatever the grid
+ *  step, `floorSlots`; it was per grid cell, one opsConfig.bookingStepMin, until then): the width at which a one-cell
  *  card still shows a two-kanji family name whole at the card's OWN type. RE-MEASURED 10/7 (the lead's ruling, round 2
  *  item 3) in Playwright's own headless Chromium 148: a blank page, no app code, `font-family` = today.css's stack byte
  *  for byte ("Hiragino Sans", "Hiragino Kaku Gothic ProN", … sans-serif; the computed family read back), at the card
@@ -193,14 +194,22 @@ export function labelTier(px: number): LabelTier {
   return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.mid ? 'narrow' : px < LABEL_TIER_PX.wide ? 'mid' : 'wide'
 }
 
-/** The cells of the board's day on its grid unit — the strip's cell count and the CSS floor's multiplier. */
+/** The cells of the board's day on its grid unit — the strip's cell count (the CSS floor multiplies `floorSlots`). */
 export function boardCells(day: Hours, stepMin: number): number {
   return stepMin > 0 && day.close > day.open ? Math.ceil((day.close - day.open) / stepMin) : 0
 }
 
-/** Whether a track `trackPx` wide must scroll sideways to keep every cell at the floor (the CSS min-width's arithmetic). */
-export function trackOverflows(day: Hours, stepMin: number, trackPx: number): boolean {
-  return trackPx < boardCells(day, stepMin) * minPxPer30
+/** The minutes one `minPxPer30` floor covers (its name's 30): the floor's time unit, never the store's grid step. */
+const FLOOR_SLOT_MIN = 30
+/** S25-15 (2) — the floor is a time density — 33 px per 30 minutes of the day whatever the grid step; the strip's
+ *  cells stay `boardCells` on the step. The CSS floor's multiplier (`--floor-slots`, today.css) and `trackOverflows`. */
+export function floorSlots(day: Hours): number {
+  return day.close > day.open ? Math.ceil((day.close - day.open) / FLOOR_SLOT_MIN) : 0
+}
+
+/** Whether a track `trackPx` wide must scroll sideways to keep the day at the floor (the CSS min-width's arithmetic). */
+export function trackOverflows(day: Hours, trackPx: number): boolean {
+  return trackPx < floorSlots(day) * minPxPer30
 }
 
 /** Hours in one day: an hour at or past it belongs to the next calendar day (a clock fact). */

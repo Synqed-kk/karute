@@ -264,10 +264,10 @@ it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 2
     // The floor is CSS: the day model's cells × the floor ride the timeline's style; the rule turns them into its min-width
     // (here calc(112px + 30 × 33px) = 1102 px) and the scroll box, not the page, takes the overflow.
     const timeline = host.querySelector<HTMLElement>('.timeline-scroll > .timeline')!
-    expect([timeline.style.getPropertyValue('--board-cells'), timeline.style.getPropertyValue('--cell-floor')]).toEqual(['30', `${minPxPer30}px`])
+    expect([timeline.style.getPropertyValue('--board-cells'), timeline.style.getPropertyValue('--floor-slots'), timeline.style.getPropertyValue('--cell-floor')]).toEqual(['30', '30', `${minPxPer30}px`]) // S25-15 (2): the floor is per 30 minutes (--floor-slots), the strip per step
     const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
     expect(css).toContain('.biz .timeline-scroll { overflow-x: auto;')
-    expect(css).toContain('.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); }')
+    expect(css).toContain('.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px)); }')
     const held = Array.from(host.querySelectorAll('.cell-held'))
     expect(held.length).toBeGreaterThan(0) // the gym's recorded day draws 確保 boxes, else the next line tests nothing
     expect(held.filter((h) => !h.getAttribute('title')).length).toBe(0)

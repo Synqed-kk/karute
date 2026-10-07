@@ -69,6 +69,7 @@ import {
   CARD_MENU_PX,
   minPxPer30,
   trackOverflows,
+  floorSlots,
   edgeText,
   FAMILY_NAME_PX,
   CARD_TIGHT_PAD_PX,
@@ -1817,7 +1818,21 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     expect(rulerLabels(got).filter((l) => l.edge).map((l) => l.text)).toEqual([edge])
     expect(boardCells(got, step)).toBe(cells)
     expect(labelTier(minPxPer30)).toBe('narrow') // a one-cell card at the floor shows its family name
-    expect(FRAMES.map((px) => trackOverflows(got, step, px))).toEqual(overflow)
+    expect(FRAMES.map((px) => trackOverflows(got, px))).toEqual(overflow)
+  })
+  it('S25-15 (2) — the floor is a time density: per 30 minutes of the day at every grid step (5 · 10 · 15 · 30 · 60) — salon 18 × 33 = 594, gym 30 × 33 = 990 — and trackOverflows flips at that same width; the strip keeps its step cells', () => {
+    for (const [day, slots, px] of [[salon, 18, 594], [gym, 30, 990]] as const) {
+      for (const s of [5, 10, 15, 30, 60]) {
+        expect([s, floorSlots(day), floorSlots(day) * minPxPer30, boardCells(day, s)]).toEqual([s, slots, px, Math.ceil((day.close - day.open) / s)])
+        expect([s, trackOverflows(day, px - 1), trackOverflows(day, px)]).toEqual([s, true, false])
+      }
+    }
+    expect(labelTier(minPxPer30 / 2)).toBe('sliver') // a 15-minute card at the floor is SLIVER (D5) — the design
+    const screen = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(screen).toContain("'--board-cells': boardCells(hours, props.guard.bookingStepMin), '--floor-slots': floorSlots(hours), '--cell-floor'")
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px))')
+    expect(css).not.toContain('var(--board-cells, 0) * var(--cell-floor')
   })
   it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 53 = max(26, 「07:00〜」 46) + 7 · WIDE from 95 = max(26, 46, menu/price 77) + 18 (the lines stack: the widest line, not the sum); the CSS @container rules mirror them in content-box px', () => {
     expect([FAMILY_NAME_PX, CARD_TIGHT_PAD_PX, minPxPer30, CARD_TIME_PX, CARD_PAD_PX]).toEqual([26, 7, 33, 46, 18])
@@ -1839,8 +1854,8 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
       expect([boardCells(day, step), columns * perHour, (day.close - day.open) / step]).toEqual([cells, cells, cells])
     }
     // the gym at the floor: 30 × 33 = 990 px → 150 px over at 840, 250 over at 740, fits at 1028; the salon 18 × 33 = 594 never.
-    const over = (day: { open: number; close: number }) => FRAMES.map((px) => [px, Math.max(0, boardCells(day, step) * minPxPer30 - px), trackOverflows(day, step, px)])
-    expect([boardCells(gym, step) * minPxPer30, over(gym)]).toEqual([990, [[840, 150, true], [740, 250, true], [1028, 0, false]]])
-    expect([boardCells(salon, step) * minPxPer30, over(salon)]).toEqual([594, [[840, 0, false], [740, 0, false], [1028, 0, false]]])
+    const over = (day: { open: number; close: number }) => FRAMES.map((px) => [px, Math.max(0, floorSlots(day) * minPxPer30 - px), trackOverflows(day, px)])
+    expect([floorSlots(gym) * minPxPer30, over(gym)]).toEqual([990, [[840, 150, true], [740, 250, true], [1028, 0, false]]])
+    expect([floorSlots(salon) * minPxPer30, over(salon)]).toEqual([594, [[840, 0, false], [740, 0, false], [1028, 0, false]]])
   })
 })
