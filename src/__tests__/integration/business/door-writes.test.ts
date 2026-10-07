@@ -939,10 +939,14 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     expectWrites()
   })
 
-  it('the R5 note condition: cutoff shorter than the free deadline', () => {
+  it('the R5/R5b note condition: cutoff shorter than the free deadline AND a late-cancel fee above 0', () => {
     const { lateFromBooking } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
-    expect(lateFromBooking(PROOF)).toBe(true) // 90 min < 12 h
-    expect(lateFromBooking({ ...PROOF, cutoff_minutes: 720 })).toBe(false)
+    expect(lateFromBooking(PROOF)).toBe(true) // 90 min < 12 h, 30 %
+    expect(lateFromBooking({ ...PROOF, cutoff_minutes: 719 })).toBe(true) // one minute short of 12 h
+    expect(lateFromBooking({ ...PROOF, cutoff_minutes: 720 })).toBe(false) // equal: not shorter
+    expect(lateFromBooking({ ...PROOF, cancel_late_pct: 0 })).toBe(false) // R5b: no fee, nothing late that costs
+    expect(lateFromBooking({ ...PROOF, cancel_late_pct: 1 })).toBe(true)
+    expect(lateFromBooking(RESERVE_POLICY_DEFAULTS)).toBe(false) // core's defaults: 0 < 24 h, but 0 % → no note
     expect(data.LATE_FROM_BOOKING_NOTE).toContain('最初からキャンセル料の対象')
   })
 })
