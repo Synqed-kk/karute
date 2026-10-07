@@ -223,8 +223,8 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     act(() => { host.querySelector('.lane[data-group="staff"] .track')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(closes(argsOf(guardVerdictAt), ([, , , o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
     // B4 — the helpers that seed a start read the pixel on the axis but bound it by the store's hours.
-    // TodayScreen.tsx slotStartAt(e.currentTarget, e.clientX, hours, business) — the empty-slot click above:
-    expect(closes(argsOf(slotStartAt), ([, , axis, b]) => `${(axis as { close: number }).close}|${(b as { open: number }).open}-${(b as { close: number }).close}`)).toEqual([true, ['1440|420-1320']])
+    // TodayScreen.tsx slotStartAt(e.currentTarget, e.clientX, hours, business, props.guard.bookingStepMin) — the empty-slot click above:
+    expect(closes(argsOf(slotStartAt), ([, , axis, b, step]) => `${(axis as { close: number }).close}|${(b as { open: number }).open}-${(b as { close: number }).close}|${step}`)).toEqual([true, ['1440|420-1320|30']])
     // TodayScreen.tsx seedSpanIn(lane, start, …, business, …) — the same click:
     expect(closes(argsOf(seedSpanIn), ([, , , b]) => `${(b as { open: number }).open}-${(b as { close: number }).close}`)).toEqual([true, ['420-1320']])
     // …and its 配置モード twin (placeNextVisit) plus nearestFreeStarts (a refusal's alternatives) never run on a static

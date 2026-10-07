@@ -482,6 +482,17 @@ describe('drag wiring — a pointer event becomes canon geometry', () => {
     expect(slotStartAt(track, 899, HOURS)).toBe(1110) // 18:30
   })
 
+  it('Q-25 — empty-slot clicks floor on the supplied booking step and clamp before closing', () => {
+    const hours = { open: 420, close: 1320 } // 07:00–22:00
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    const clientX = 445 - 420 // fraction (445 − 420) / 900 lands at 07:25
+    expect(slotStartAt(track, clientX, hours, hours, 20)).toBe(440)
+    expect(slotStartAt(track, clientX, hours)).toBe(420)
+    expect(slotStartAt(track, 900, hours, hours, 20)).toBe(1300)
+    expect(slotStartAt(track, 900, hours, hours, 15)).toBe(1305)
+  })
+
   it('⚖ 62 — the whole half hour floors to its own start, canon-style', () => {
     const track = document.createElement('div')
     // 900px over 9 hours: one hour is 100px, one 30-minute step is 50px.

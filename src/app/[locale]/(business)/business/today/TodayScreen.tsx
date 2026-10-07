@@ -8030,7 +8030,8 @@ export function TodayScreen(props: TodayProps) {
                 return
               }
             }
-            const start = slotStartAt(e.currentTarget, e.clientX, hours, business)
+            // ⚖ Q-25 (2026-10-07) — the click snaps on the store's booking step (opsConfig.bookingStepMin), never slotStartAt's default 30.
+            const start = slotStartAt(e.currentTarget, e.clientX, hours, business, props.guard.bookingStepMin)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
             // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
             // proposing a start that does not exist yet, so the guard's better
