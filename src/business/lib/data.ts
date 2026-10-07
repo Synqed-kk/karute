@@ -436,12 +436,12 @@ export async function listResources(lens: StoreLens): Promise<FixtureResource[]>
  *  page.tsx holds up that end: a key this map has no entry for never becomes a
  *  `calendar` row at all (page.tsx :208-238), so nothing downstream can invent
  *  a count for it. */
-/** ⚖ S81 F1 + S82 G5 — each day of the range's OWN hours: its closure (null = open; 'weekday' = 定休日, 'closed_date' =
- *  臨時休業) and its window — the calendar's 定休 and unassigned-booking wall for a day it is not showing. OFF: the
- *  fixture 定休日 and the fixture pair, the same answer offWeek paints. */
 /** ⚖ S82 G2 — the board's reach (today ± days), ONE home in store-hours.ts; today/page.tsx's WINDOW reads it. */
 export { BOARD_REACH_DAYS }
 
+/** ⚖ S81 F1 + S82 G5 — each day of the range's OWN hours: its closure (null = open; 'weekday' = 定休日, 'closed_date' =
+ *  臨時休業) and its window — the calendar's 定休 and unassigned-booking wall for a day it is not showing. OFF: the
+ *  fixture 定休日 and the fixture pair, the same answer offWeek paints. */
 export async function listHoursByDay(
   lens: StoreLens,
   range: { from: number; to: number },
