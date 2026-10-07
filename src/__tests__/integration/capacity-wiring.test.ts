@@ -77,6 +77,7 @@ type WeekOpts = {
   soloMode?: boolean
   appointments?: Appointment[]
   facts?: ReadonlyMap<string, DayHoursFact>
+  shiftCapacity?: Reservation.CapacityInputs['shiftCapacity']
 }
 
 function weekRows(opts: WeekOpts = {}) {
@@ -95,6 +96,7 @@ function weekRows(opts: WeekOpts = {}) {
     {
       rosterHeadcount: opts.rosterHeadcount === undefined ? 1 : opts.rosterHeadcount,
       laneKind: opts.laneKind ?? 'staff',
+      ...(opts.shiftCapacity ? { shiftCapacity: opts.shiftCapacity } : {}),
     },
   )
 }
@@ -242,7 +244,10 @@ describe('shiftLanes ON alone', () => {
     for (const row of rows) {
       expect(row.shiftState).toBe('unavailable')
       expect(row.occupancyPct).toBeNull()
-      expect(row.capacityReason).toBe('roster-unknown')
+      // The hours facts come first: the 定休日 and the unsaved day keep their
+      // own reason even when the shift read is incomplete.
+      const hoursReason = row.dateIso === YMD.sat ? 'closed' : row.dateIso === YMD.sun ? 'hours-not-saved' : null
+      expect(row.capacityReason).toBe(hoursReason ?? 'roster-unknown')
     }
     expect(rows).not.toEqual(weekRows({ switches: ALL_OFF }))
   })
@@ -578,6 +583,70 @@ describe('mutant pins', () => {
     expect(row.occupancyPct).toBe(10)
     expect(row.band).toBe('light')
     expect(row.freeMinutes).toBeNull() // E21 — a business default is not this store's word
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// shiftLanes ON — the same three hours guards, with a COMPLETE shift read
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('shiftLanes ON — closed / unsaved / unresolved hours never carry a percent', () => {
+  const ON: Partial<Switches> = { ...ALL_OFF, shiftLanes: true }
+  const jstMinute = (ymd: string, m: number) => Date.parse(`${ymd}T00:00:00+09:00`) + m * 60_000
+  const person = (id: string) => ({ id, active: true, stores: [{ storeId: 'store' }] })
+  const shiftRows: Reservation.CapacityInputs['shiftCapacity'] = {
+    storeId: 'store',
+    readComplete: true,
+    roster: [person('s1'), person('s2')],
+    rows: Object.values(YMD).flatMap((date) =>
+      ['s1', 's2'].map((staffId) => ({
+        staffId, storeId: 'store', date, startMs: jstMinute(date, 600), endMs: jstMinute(date, 1200), breaks: [], blocks: [],
+      })),
+    ),
+  }
+  const soloStore: Reservation.CapacityInputs['shiftCapacity'] = {
+    storeId: 'store', readComplete: true, roster: [person('s1')], rows: [],
+  }
+  const cases: [string, Reservation.CapacityInputs['shiftCapacity']][] = [
+    ['shift rows', shiftRows],
+    ['solo store', soloStore],
+  ]
+
+  it.each(cases)('%s: a closed day carries its bookings and its reason, never a number', (_name, shiftCapacity) => {
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, shiftCapacity })).get(YMD.sat)!
+    expect(row.closed).toBe(true)
+    expect(row.capacityReason).toBe('closed')
+    expect(row.count).toBe(1) // ⚖ the bookings on a 定休日 are real
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBeDefined()
+    expect(row.occupancyPct).toBeNull()
+    expect(row.band).toBeNull()
+    expect(row.capacityMinutes).toBeNull()
+  })
+
+  it.each(cases)('%s: an unsaved day says so, and says it is the HOURS that are missing', (_name, shiftCapacity) => {
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, shiftCapacity })).get(YMD.sun)!
+    expect(row.hoursSaved).toBe(false)
+    expect(row.hoursSource).toBe('default')
+    expect(row.capacityReason).toBe('hours-not-saved')
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBeDefined()
+    expect(row.occupancyPct).toBeNull()
+    expect(row.band).toBeNull()
+  })
+
+  it.each(cases)('%s: no hours at all — the week degrades honestly, it does not lie', (_name, shiftCapacity) => {
+    const rows = weekRows({ switches: ON, facts: new Map(), rosterHeadcount: 2, shiftCapacity })
+    for (const row of rows) {
+      expect(row.capacityMinutes).toBeNull()
+      expect(row.capacityReason).toBe('hours-unresolved')
+      expect(row.occupancyPct).toBeNull()
+      expect(row.band).toBeNull()
+      expect(row.shiftState).toBeDefined()
+      expect(typeof row.count).toBe('number')
+    }
+    // R-G still holds: Thursday's two overlapping rows on one staffer = 180.
+    expect(byDay(rows).get(YMD.thu)!.bookedMinutes).toBe(180)
   })
 })
 

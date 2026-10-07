@@ -251,7 +251,22 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   if (input.shift) {
     const totals = shiftTotals(input, input.shift)
     const { shiftState, onShiftNoBooking, unassignedOverflow, bookedMinutes, lanes } = totals
-    const capacityMinutes = input.laneKind === 'staff' ? totals.capacityMinutes : null
+    // Withheld before any shift math, in the legacy branch's own order: the
+    // lane kind, then the hours facts (missing → closed → unsaved → not running
+    // forward). The hours come BEFORE the shift state, so a 定休日 with an
+    // incomplete shift read still says 'closed'. Only a day these all pass
+    // falls through to the shift totals, whose none / nobody / unavailable /
+    // off states keep the neutral 'roster-unknown'. receivableIntervals is
+    // empty on such hours, so without this the divisor equals the booked time
+    // and the day reads 100%.
+    const withheld: NoCapacityReason | null =
+      input.laneKind === 'none' ? 'kind-none'
+        : hours == null ? 'hours-unresolved'
+          : hours.closed ? 'closed'
+            : hours.source === 'default' ? 'hours-not-saved'
+              : !hoursRunForward(hours.openMs, hours.closeMs) ? 'hours-unresolved'
+                : null
+    const capacityMinutes = withheld == null ? totals.capacityMinutes : null
     const rounded = capacityMinutes == null ? null : roundedCapacity(capacityMinutes, bookedMinutes)
     return {
       capacityMinutes, bookedMinutes, lanes, laneKind: input.laneKind,
@@ -260,8 +275,9 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
       full: rounded?.full ?? false,
       band: rounded ? bandFor(rounded.percent) : null,
       availableMinutes: hours?.source === 'store' ? rounded?.free ?? null : null,
-      // Existing neutral fallback: never the hours-not-saved/未設定 promise.
-      reason: capacityMinutes == null ? 'roster-unknown' : null,
+      // Existing neutral fallback for the shift states: never the
+      // hours-not-saved/未設定 promise unless the hours really are unsaved.
+      reason: withheld ?? (capacityMinutes == null ? 'roster-unknown' : null),
       shiftState, onShiftNoBooking, unassignedOverflow,
     }
   }
