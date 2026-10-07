@@ -320,6 +320,36 @@ describe('viewAll caller', () => {
     expect(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).toBeTruthy()
   })
 
+  it('a stale read alert clears when the bulk re-read succeeds: gone during the run, before the POST answers', async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    apiFetch.mockImplementationOnce((() => Promise.resolve(reply({ error: 'core down' }, 502))) as never)
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(screen.getByRole('alert').textContent).toBe('somethingWentWrong')
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4']) // still pending
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('the bulk loop starts no store while an unnamed form request is in flight (claimed mid-run)', async () => {
+    saved['4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'] = { enabled: false } // two ON stores: 代官山, 渋谷
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
+    act(() => { claim('') })
+    try {
+      await act(async () => { runs[0].resolve(ok) })
+      await flush()
+      expect(runs).toHaveLength(1) // 渋谷 is NOT posted
+    } finally {
+      act(() => { release('') })
+    }
+  })
+
   it('a failed first list read shows the header, the error line and 再試行; retry reads again and shows the rows', async () => {
     const real = apiFetch.getMockImplementation()!
     let failNext = true

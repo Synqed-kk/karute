@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import type { SyncStoreRow } from '@/app/api/sync/quickreserve/configs/route'
 import { syncFailureReason, syncStoreState, type SyncFailureReason, type SyncStoreState } from '@/lib/sync/sync-store-state'
 import { readSyncResponse } from '@/lib/sync/read-sync-response'
+import * as syncInFlight from '@/lib/sync/in-flight'
 
 type RunOutcome =
   | { ok: true; created: number; updated: number; cancelled: number; skipped: number }
@@ -184,6 +185,7 @@ export function SyncAllStoresList({
       return
     }
     setRows(fresh)
+    setReadFailed(false)
     setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
     let latest: SyncStoreRow[] | null = fresh
@@ -200,6 +202,8 @@ export function SyncAllStoresList({
       setNow(Date.now())
       const row = current.find((r) => r.storeId === queued.storeId)
       if (!row || !syncsInRunAll(row)) continue
+      // The route's default store is unclaimed while a request names no store, so no list store starts until it answers.
+      if (syncInFlight.has('')) continue
       // A store already in flight (its row run, the form) is skipped, not queued.
       if (!beginSyncing(row.storeId)) continue
       const outcome = await runStoreSync(row.storeId)
