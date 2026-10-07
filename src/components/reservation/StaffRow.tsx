@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl'
 
 import { AppointmentCard } from '@/components/reservation/AppointmentCard'
+import { packOverlapping } from '@/components/reservation/pack-overlapping'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColorByKey, type StaffColorKey } from '@/lib/staff-colors'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,11 @@ interface StaffRowProps {
   /** Distinct staff color, assigned by the parent grid over the full roster
    *  (assignStaffColors). Resolved here via getStaffColorByKey. */
   staffColorKey: StaffColorKey | 'neutral'
+  /** False for the 担当未定 lane: no staff, so no avatar disc. */
+  showAvatar?: boolean
+  /** True for the 担当未定 lane only: bookings there may overlap in time, so
+   *  they are packed side by side (packOverlapping). Staffed lanes: false. */
+  packOverlaps?: boolean
   reservations: ReservationView[]
   startHour: number
   ppm: number
@@ -30,25 +36,37 @@ interface StaffRowProps {
   onSelect?: (view: ReservationView) => void
 }
 
-export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
+/** A booking's own span in minutes since midnight: start + its duration. */
+function spanOf(r: ReservationView) {
+  const [h, m] = r.startTimeHm.split(':').map(Number)
+  const start = h * 60 + m
+  return { start, end: start + r.durationMin }
+}
+
+export function StaffRow({ staff, staffColorKey, showAvatar = true, packOverlaps = false, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
   const t = useTranslations('reservation')
   const color = getStaffColorByKey(staffColorKey)
+  const placed: { item: ReservationView; slot?: { col: number; cols: number } }[] = packOverlaps
+    ? packOverlapping(reservations, spanOf).map(({ item, col, cols }) => ({ item, slot: { col, cols } }))
+    : reservations.map((item) => ({ item }))
   return (
     <div className="flex border-b border-border last:border-b-0">
       <div
         className="flex shrink-0 items-center gap-2 border-r border-border px-3"
         style={{ width: STAFF_COL_WIDTH, height: STAFF_ROW_HEIGHT }}
       >
-        <div
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
-            staff.takesBookings
-              ? cn(color.bg, color.text)
-              : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {staff.initials}
-        </div>
+        {showAvatar && (
+          <div
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+              staff.takesBookings
+                ? cn(color.bg, color.text)
+                : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {staff.initials}
+          </div>
+        )}
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{staff.name}</div>
           <div className="truncate text-xs text-muted-foreground">
@@ -70,13 +88,14 @@ export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, t
         {!staff.takesBookings ? (
           <span className="text-xs text-muted-foreground">{t('grid.blockOwner')}</span>
         ) : (
-          reservations.map((r) => (
+          placed.map((p) => (
             <AppointmentCard
-              key={r.id}
-              view={r}
+              key={p.item.id}
+              view={p.item}
               variant="grid"
               ppm={ppm}
               startHour={startHour}
+              slot={p.slot}
               onSelect={onSelect}
             />
           ))

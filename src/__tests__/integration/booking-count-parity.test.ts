@@ -56,8 +56,7 @@ const ROWS = [
   appt({ id: 'noshow-1', customer_id: 'c4', status: 'NO_SHOW' }),
   appt({ id: 'noshow-2', customer_id: 'c6', status: 'NO_SHOW', starts_at: '2026-09-15T06:00:00Z' }),
   appt({ id: 'block-1', kind: 'BLOCK', customer_id: null, title: 'オーナー業務' }),
-  // NOTE: the day LIST drops this unassigned row (it has no lane to draw), which
-  // is existing rendering behaviour and out of scope here. The COUNT keeps it.
+  // The day LIST shows this unassigned row too (担当未定, PR-B); the COUNT keeps it.
   appt({ id: 'no-staff-1', customer_id: 'c5', staff_id: null }),
 ]
 
@@ -168,15 +167,16 @@ describe('the day LIST and the 件 number — one BLOCK rule, one declared gap',
     expect(rows.filter(isCountedBooking).map((a) => a.id)).toEqual(['ok-1'])
   })
 
-  it('DECLARED DIVERGENCE: an unassigned booking counts in 件 but draws no lane', async () => {
-    // Staff is optional for the COUNT (spec §8) and required by the day list,
-    // which draws one lane per staffer. Out of scope for 1a — pinned so 1b
-    // inherits a known number instead of a surprise.
+  it('an unassigned booking is in BOTH the day list and 件 (担当未定, no divergence left)', async () => {
+    // Was the declared divergence: the list hid a staff-less booking that 件
+    // counted, so staff saw 「2件」 over one row while the customer stood at the
+    // counter. The list now keeps it with staff_profile_id null.
     const rows = [appt({ id: 'ok-1' }), appt({ id: 'no-staff-1', customer_id: 'c5', staff_id: null })]
     const list = await getAppointmentsByDateWithClient(dayClient(rows), '2026-09-15', {
       nameById: new Map(),
     })
-    expect(list.map((r) => r.id)).toEqual(['ok-1'])
-    expect(rows.filter(isCountedBooking)).toHaveLength(2)
+    expect(list.map((r) => r.id)).toEqual(['ok-1', 'no-staff-1'])
+    expect(list.find((r) => r.id === 'no-staff-1')!.staff_profile_id).toBeNull()
+    expect(rows.filter(isCountedBooking)).toHaveLength(list.length)
   })
 })

@@ -63,8 +63,10 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // dedupe for free.
   useEffect(() => {
     if (ymdInJst(new Date(dto.selectedDateIso)) !== ymdInJst(new Date())) return
+    // A 担当未定 booking (falsy staffId) is never a recording target: it has no
+    // brief or 録音 screen to warm, so both warms skip it (PR-B X5).
     const bookings = dto.reservationViews
-      .filter((r) => !r.isCancelled && !r.isNoShow)
+      .filter((r) => !!r.staffId && !r.isCancelled && !r.isNoShow)
       .map((r) => ({ customerId: r.clientId, appointmentId: r.id }))
     warmBriefsForToday(bookings)
 
@@ -86,6 +88,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     const upcoming = dto.reservationViews
       .filter(
         (r) =>
+          !!r.staffId &&
           !r.isCancelled &&
           !r.isNoShow &&
           r.displayStatus !== 'completed' &&

@@ -408,8 +408,13 @@ export function appointmentsToWeekData(
    *  BOOKING_SWITCHES.multiStaffCapacity is OFF. */
   soloMode?: boolean,
   /** The store's lane kind and booking roster. Absent = no roster known, so
-   *  no day claims a capacity (fail closed). */
-  capacity: Omit<CapacityInputs, 'hoursFacts' | 'soloMode'> = {},
+   *  no day claims a capacity (fail closed).
+   *
+   *  `workedRows` — the rows whose minutes are somebody's WORK (予約時間, 稼働,
+   *  空き). Absent = `appointments` itself. The caller narrows it under a staff
+   *  filter (screen.ts `workedRowsOf`); 件 and the chips always read
+   *  `appointments`. */
+  capacity: Omit<CapacityInputs, 'hoursFacts' | 'soloMode'> & { workedRows?: Appointment[] } = {},
 ): WeekDayRowData[] {
   // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
   // WeekDayCard renders this verbatim, so it has to be localized at the source.
@@ -424,6 +429,15 @@ export function appointmentsToWeekData(
     const arr = buckets.get(key)
     if (arr) arr.push(a)
     else buckets.set(key, [a])
+  }
+
+  const { workedRows, ...capacityInputs } = capacity
+  const workedBuckets = new Map<string, Appointment[]>()
+  for (const a of workedRows ?? []) {
+    const key = isoDay(new Date(a.starts_at))
+    const arr = workedBuckets.get(key)
+    if (arr) arr.push(a)
+    else workedBuckets.set(key, [a])
   }
 
   const cancelledByDay = countByDay(terminal?.cancelled)
@@ -446,8 +460,8 @@ export function appointmentsToWeekData(
   // compares them. capacityFactsFor indexes by INTERSECTION for exactly that
   // reason. Counting and bookedMinutes stay start-day bucketed — that is the
   // app's rule on every other surface.
-  const capacityFacts = capacityFactsFor(appointments, dayKeys, {
-    ...capacity,
+  const capacityFacts = capacityFactsFor(workedRows ?? appointments, dayKeys, {
+    ...capacityInputs,
     hoursFacts,
     soloMode,
   })
@@ -463,13 +477,18 @@ export function appointmentsToWeekData(
       .filter(isCountedBooking)
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
 
-    const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
+    // 予約時間 and the fallback denominator are minutes somebody WORKS, so they
+    // read the worked rows (the same counted predicate); 件 reads dayAppts.
+    const workedAppts = workedRows
+      ? (workedBuckets.get(key) ?? []).filter(isCountedBooking)
+      : dayAppts
+    const bookedMinutes = workedAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
     // Capacity = open hours × the staff who actually worked that day (≥1), so
     // utilization is salon-wide and can't read >100% the way a single-chair
     // denominator did (a 6-staff day was showing "117% utilized"). Approximation:
     // a working staffer is treated as open the full business hours — refine when
     // per-staff schedules exist.
-    const staffOnDay = new Set(dayAppts.map((a) => a.staff_id)).size
+    const staffOnDay = new Set(workedAppts.map((a) => a.staff_id)).size
 
     const visible = dayAppts.slice(0, VISIBLE_BOOKING_LIMIT).map((a) => ({
       id: a.id,

@@ -24,7 +24,12 @@ import {
   type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
-import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
+import {
+  countedClientIds,
+  isRecordingTarget,
+  isShownBooking,
+  type AppointmentWindow,
+} from '@/lib/appointments/by-date'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
@@ -103,10 +108,11 @@ export interface AppointmentsScreenInputs {
    *  picker may be generous, a denominator may not. null = no store to ask or
    *  the assignment read failed → no capacity at all. */
   divisorStaffIds?: Set<string> | null
-  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
-   *  the caller shipped an EMPTY window on purpose (resolveFetchStaffId's
-   *  `unknown`). Zero rows is honest about the bookings and a lie about the
-   *  store, so the day gets no capacity rather than one lane at 0 %. */
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place
+   *  (resolveFetchStaffId's `unknown`), so the window holds only the 担当未定
+   *  rows. None of it is that person's work: honest about the bookings and a
+   *  lie about the store, so the day gets no capacity rather than one lane at
+   *  0 %. */
   staffFilterUnknown?: boolean
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
@@ -225,19 +231,20 @@ export interface AppointmentsScreen {
 }
 
 /**
- * Which CORE staff id should the window fetch filter on?
+ * Which CORE staff id does the window keep (`shownUnder`)?
  *
  * `appointments.staff_id` is a CORE staff id; the app's roster, the ?staff=
- * param and the viewer's own id are PROFILE (auth) ids. Sending a profile id as
- * `staff_id` would filter to nothing and read as "an empty week".
+ * param and the viewer's own id are PROFILE (auth) ids. Matching rows on a
+ * profile id would keep nothing and read as "an empty week". Core itself is
+ * never sent a staff filter; the store window is kept in the app.
  *
  *   'all'                        → no filter
  *   'self' with a viewer id      → that viewer's core id
  *   'self' with no viewer id     → no filter (exactly the day path's behaviour)
  *   a profile id in the map      → its core id
  *   an UNLINKED core id (a map VALUE, i.e. already core-side) → itself
- *   anything else                → unknown: the caller ships an EMPTY window,
- *                                  never an unfiltered one
+ *   anything else                → unknown: the caller's window keeps only
+ *                                  the 担当未定 rows, never an unfiltered one
  */
 export function resolveFetchStaffId(
   staffFilter: string,
@@ -418,14 +425,14 @@ export function buildAppointmentsScreen(
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
   // the back button restores the scope and links can deep-link a specific
   // staff's day (?staff=<id>).
-  const reservationViews = (() => {
-    if (staffFilter === 'all') return allReservationViews
-    if (staffFilter === 'self') {
-      if (!activeStaffId) return allReservationViews
-      return allReservationViews.filter((r) => r.staffId === activeStaffId)
-    }
-    return allReservationViews.filter((r) => r.staffId === staffFilter)
-  })()
+  // A booking with no staff (担当未定, staffId null) belongs to nobody yet, so
+  // no filter value hides it: the manager never loses it, and a stylist on
+  // 自分 still sees 「10:00 担当未定」 and can take it.
+  // ONE predicate with the day 件 (isShownBooking; the day window is kept by
+  // it too), so 件 == rows under every filter.
+  const listFilterId =
+    staffFilter === 'all' ? null : staffFilter === 'self' ? activeStaffId || null : staffFilter
+  const reservationViews = allReservationViews.filter((r) => isShownBooking(r, listFilterId))
 
   const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)
   const businessHours = {
@@ -536,16 +543,18 @@ export function buildAppointmentsScreen(
   // as unknown.
   const rosterHeadcount = divisorStaffIds?.size ? divisorStaffIds.size : null
   // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
-  // (a)), and the window was already filtered at the fetch. The exception is
-  // 'self' with no resolvable viewer id: that fetch is NOT filtered and the
-  // views below fall back to the whole salon, so the day keeps the store's
-  // roster rather than dividing a salon by one person.
+  // (a)); that person's minutes are the window's own rows for them only
+  // (`workedRowsOf` below; the window also holds the 担当未定 rows, for 件).
+  // The exception is 'self' with no resolvable viewer id: that window is NOT
+  // filtered and the views below fall back to the whole salon, so the day
+  // keeps the store's roster rather than dividing a salon by one person.
   const filteredToOnePerson =
     staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
   // ⚖ R1-9 — except when the filter names somebody the roster cannot place.
-  // That fetch is replaced with an EMPTY window by construction, so "one lane,
-  // nothing booked" would print 稼働 0 % and 空き = the whole declared day for a
-  // person nobody can find. Honest about the rows, a lie about the store.
+  // That window holds only the 担当未定 rows by construction (shownUnder), so
+  // "one lane, none of it theirs" would print 稼働 0 % and 空き = the whole
+  // declared day for a person nobody can find. Honest about the rows, a lie
+  // about the store, so no capacity at all.
   const capacityRoster = staffFilterUnknown
     ? null
     : filteredToOnePerson
@@ -564,6 +573,27 @@ export function buildAppointmentsScreen(
   const laneKind: LaneKind =
     !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
+  // The week/month per-day 件 (weekData, monthData, and dayTotals when no day
+  // window was read) come from windows read WITHOUT a core staff filter and
+  // kept by the day list's own predicate (fetchAppointmentWindow `shownUnder`
+  // = isShownBooking), so under a 担当 or 自分 filter they count the 担当未定
+  // bookings the list shows: 件 == rows under every filter.
+  //
+  // ⚖ Liam 10/6 — never a number that counts someone not working. Under a
+  // placed 担当/自分 filter X that window holds X's own rows AND the 担当未定
+  // ones; a 担当未定 booking is nobody's work yet, so X's 予約時間/稼働/空き read
+  // only X's rows, exactly as before the window collapse. Under such a window a
+  // row with a staff IS X's (shownUnder kept nothing else), so "X's rows" is
+  // the window's staffed rows: isRecordingTarget, the one staff-less rule.
+  // That equality needs a shownUnder-scoped window; the legacy raw-array
+  // weekRangeAppts/monthRangeAppts shape is unscoped, and no production
+  // caller passes it (both doors send null).
+  // THE one place a window's rows are handed to the minutes; 件 and the list
+  // never pass through it. 全員 (and 自分 with no viewer id) is unchanged.
+  const workedRowsOf = (win: AppointmentWindow): Appointment[] =>
+    filteredToOnePerson
+      ? win.counted.filter((a) => isRecordingTarget({ staff_profile_id: a.staff_id }))
+      : win.counted
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
       win.counted,
@@ -576,7 +606,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded, workedRows: workedRowsOf(win) },
     )
 
   let weekData: WeekDayRowData[] | null = null
@@ -607,7 +637,7 @@ export function buildAppointmentsScreen(
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.
       monthFacts = appointmentsToMonthFacts(
-        monthWin.counted,
+        workedRowsOf(monthWin),
         monthRange.monthStart,
         monthRange.monthEnd,
         { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },

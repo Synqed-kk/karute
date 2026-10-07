@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { UnassignedBookingSheet } from '@/components/appointments/UnassignedBookingSheet'
 
 interface BookingActionSheetWrapperProps {
   /** Currently selected booking — `null` keeps the sheet closed. */
@@ -96,38 +97,50 @@ export function BookingActionSheetWrapper({
     firstTimeNote: ta('firstTimeNote'),
   }
 
-  if (!selected) {
-    // Render the sheet closed so transitions don't snap.
-    return (
-      <BookingActionSheet
-        open={false}
-        onOpenChange={(o) => {
-          if (!o) onClose()
-        }}
-        customerName=""
-        hasExistingKarute={false}
-        isFirstTimeVisit={false}
-        isMobile={forceMobile ?? isMobile}
-        copy={copy}
-      />
-    )
-  }
+  // 担当未定 (PR-B Q2): a booking with no staff opens Karute's own sheet —
+  // the staff picker for bookings.manage, a read-only note otherwise. The ui
+  // sheet below only ever sees a booking that has a staff. Falsy, not
+  // `=== null`: an undefined or '' staffId routes here too, never to 録音開始.
+  const unassigned = selected != null && !selected.staffId
+  const sheetSelected = unassigned ? null : selected
 
   return (
-    <BookingActionSheet
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
-      customerName={selected.customerName}
-      karuteNumber={undefined}
-      hasExistingKarute={canViewKarute}
-      isFirstTimeVisit={selected.isFirstTimeVisit}
-      isMobile={forceMobile ?? isMobile}
-      onViewKarute={onViewKarute}
-      onNewKarute={goToRecord}
-      onStartRecording={goToRecord}
-      copy={copy}
-    />
+    <>
+      <UnassignedBookingSheet
+        booking={unassigned ? selected : null}
+        isMobile={forceMobile ?? isMobile}
+        onClose={onClose}
+      />
+      {sheetSelected ? (
+        <BookingActionSheet
+          open={open}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName={sheetSelected.customerName}
+          karuteNumber={undefined}
+          hasExistingKarute={canViewKarute}
+          isFirstTimeVisit={sheetSelected.isFirstTimeVisit}
+          isMobile={forceMobile ?? isMobile}
+          onViewKarute={onViewKarute}
+          onNewKarute={goToRecord}
+          onStartRecording={goToRecord}
+          copy={copy}
+        />
+      ) : (
+        // Rendered closed so transitions don't snap.
+        <BookingActionSheet
+          open={false}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName=""
+          hasExistingKarute={false}
+          isFirstTimeVisit={false}
+          isMobile={forceMobile ?? isMobile}
+          copy={copy}
+        />
+      )}
+    </>
   )
 }

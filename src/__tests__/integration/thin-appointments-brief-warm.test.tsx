@@ -20,6 +20,12 @@ jest.mock('@/components/appointments/AppointmentsView', () => ({
 jest.mock('../../../thin/data/brief-warm', () => ({
   warmBriefsForToday: jest.fn(),
 }))
+// ⚖ PR-B X5 — the record warm is spied (the rest of screen-prefetch stays
+// real) so the staff-less test below can pin what it is asked to warm.
+jest.mock('../../../thin/data/screen-prefetch', () => ({
+  ...jest.requireActual('../../../thin/data/screen-prefetch'),
+  warmRecordForBookings: jest.fn(),
+}))
 // AppointmentsScreen → screen-prefetch.ts now statically imports
 // global-recorder.ts (blind-round fix, recorder guard) — same two
 // 'use server'/take-store seam stubs thin-foreground-revalidate.test.tsx
@@ -35,6 +41,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 import { render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { warmBriefsForToday } from '../../../thin/data/brief-warm'
+import { warmRecordForBookings } from '../../../thin/data/screen-prefetch'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
 
@@ -101,6 +108,7 @@ beforeEach(() => {
   jest.useFakeTimers().setSystemTime(new Date('2026-07-23T12:00:00+09:00'))
   dtoCache.clear()
   jest.mocked(warmBriefsForToday).mockClear()
+  jest.mocked(warmRecordForBookings).mockClear()
 })
 
 afterEach(() => {
@@ -138,4 +146,54 @@ it('a non-today settle never calls the warmer', async () => {
   await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
 
   expect(warmBriefsForToday).not.toHaveBeenCalled()
+})
+
+// ⚖ PR-B X5 — a 担当未定 booking (staffId null) has no record screen to warm:
+// its record lookup returns null, and a warm must never pre-fetch a
+// substitute. Neither the brief warm nor the record warm is handed its id.
+it('a staff-less booking is skipped by both warms; the staffed ones still warm', async () => {
+  const dto = {
+    ...baseDto,
+    selectedDateIso: jstMidnightIso('2026-07-23'),
+    reservationViews: [
+      reservation('c1', { startTimeHm: '10:00' }),
+      reservation('c2', { staffId: null, startTimeHm: '11:00' }),
+      reservation('c3', { startTimeHm: '12:00' }),
+    ],
+  }
+  mountWithDto(dto, '/appointments?date=2026-07-23')
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+  expect(warmBriefsForToday).toHaveBeenCalledTimes(1)
+  expect(warmBriefsForToday).toHaveBeenCalledWith([
+    { customerId: 'c1', appointmentId: 'r-c1' },
+    { customerId: 'c3', appointmentId: 'r-c3' },
+  ])
+  expect(warmBriefsForToday).not.toHaveBeenCalledWith(
+    expect.arrayContaining([expect.objectContaining({ appointmentId: 'r-c2' })]),
+  )
+  expect(warmRecordForBookings).toHaveBeenCalledTimes(1)
+  expect(warmRecordForBookings).toHaveBeenCalledWith(['r-c1', 'r-c3'])
+  expect(warmRecordForBookings).not.toHaveBeenCalledWith(expect.arrayContaining(['r-c2']))
+})
+
+// Fix round 3 (B1-4): staff-less = a FALSY staffId, the wrapper's own rule —
+// a row with staffId '' is never handed to either warm.
+it("a staffId '' booking is skipped by both warms (falsy = staff-less)", async () => {
+  const dto = {
+    ...baseDto,
+    selectedDateIso: jstMidnightIso('2026-07-23'),
+    reservationViews: [
+      reservation('c1', { startTimeHm: '10:00' }),
+      reservation('c2', { staffId: '', startTimeHm: '11:00' }),
+    ],
+  }
+  mountWithDto(dto, '/appointments?date=2026-07-23')
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+  expect(warmBriefsForToday).toHaveBeenCalledTimes(1)
+  expect(warmBriefsForToday).toHaveBeenCalledWith([{ customerId: 'c1', appointmentId: 'r-c1' }])
+  expect(warmRecordForBookings).toHaveBeenCalledTimes(1)
+  expect(warmRecordForBookings).toHaveBeenCalledWith(['r-c1'])
+  expect(warmRecordForBookings).not.toHaveBeenCalledWith(expect.arrayContaining(['r-c2']))
 })

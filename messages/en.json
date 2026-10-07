@@ -3709,5 +3709,10 @@
     "title": "Removed from the staff list",
     "body": "Your manager has removed this account from the staff list, so customer and karute details are not shown. Please log out. If you think this is a mistake, contact your manager.",
     "logout": "Log out"
+  },
+  "unassignedStaff": {
+    "mark": "Unassigned",
+    "recordBlockedReadOnly": "Recording opens once staff is assigned",
+    "sheetSubtitleReadOnly": "No staff assigned yet."
   }
 }
