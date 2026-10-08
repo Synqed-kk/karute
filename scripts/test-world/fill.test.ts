@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
+import { apply, jstToday, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -246,11 +246,24 @@ async function main() {
     {
       const pin = moving.find((r) => byKey.get(tagOf(r))!.status === 'IN_PROGRESS')!
       const pinP = byKey.get(tagOf(pin))!
-      const fresh = { id: pin.id as string, staff_id: pin.staff_id as string, starts_at: pin.starts_at as string, status: 'SCHEDULED' as const, status_set_by: null, status_reason: null }
+      const fresh = { id: pin.id as string, staff_id: pin.staff_id as string, starts_at: pin.starts_at as string, ends_at: pin.ends_at as string, status: 'SCHEDULED' as const, status_set_by: null, status_reason: null }
       assert.equal(todayStatusFixes([{ row: fresh, planned: pinP }], recipe, day).length, 1, 'the untouched pin session is picked')
       const moved = { ...fresh, starts_at: new Date(Date.parse(fresh.starts_at) + 86_400_000).toISOString() }
       assert.deepEqual(todayStatusFixes([{ row: moved, planned: pinP }], recipe, day), [], 'a booking staff moved to another day is never picked')
       assert.deepEqual(todayStatusFixes([{ row: fresh, planned: { ...pinP, member: recipe.legacyMembers![0] } }], recipe, day), [], 'a legacy member\'s booking is never picked')
+      // ⚖ G-P1 (S88): the row must still BE the planned booking (stillPlanned) — a same-day move, a re-staff or a new
+      // duration is a person's edit: never picked, one skipped line each; the untouched row with its staff id still is
+      const shift = (ms: number) => (t: string) => new Date(Date.parse(t) + ms).toISOString()
+      const later = { ...fresh, starts_at: shift(3 * 3_600_000)(fresh.starts_at), ends_at: shift(3 * 3_600_000)(fresh.ends_at) }
+      assert.equal(jstToday(new Date(later.starts_at)), day, 'the fixture: the moved row is still today')
+      const restaffed = { ...fresh, staff_id: 'another-staff' }
+      const longer = { ...fresh, ends_at: shift(30 * 60_000)(fresh.ends_at) }
+      const moveLines: string[] = []
+      assert.deepEqual(todayStatusFixes([later, restaffed, longer].map((row) => ({ row, planned: pinP, staffId: fresh.staff_id })), recipe, day, moveLines), [], '(a)(b) a row moved later today, re-staffed or re-timed is never picked')
+      assert.deepEqual(moveLines, [later, restaffed, longer].map((r) => `appointments ${pinP.key}: booking ${r.id}'s time, duration or staff differs from the plan (a person moved it), left alone`), '(a)(b) one skipped line per moved row')
+      const keep: string[] = []
+      assert.deepEqual(todayStatusFixes([{ row: fresh, planned: pinP, staffId: fresh.staff_id }], recipe, day, keep).map((x) => x.row), [fresh], '(c) the unchanged row, its staff id known, is still picked')
+      assert.deepEqual(keep, [], '(c) no skipped line for the unchanged row')
     }
     console.log(`✓ G1: today's reconcile updated ${want.length} rows (${want.filter((w) => w.status === 'IN_PROGRESS').length} IN_PROGRESS); legacy + staff-edited untouched`)
   }

@@ -300,7 +300,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
     }
     const apptRow = new Map<string, { id: string; status: string }>()
-    const ownedRows: { row: Appointment; planned: Plan['appointments'][number] }[] = []
+    const ownedRows: { row: Appointment; planned: Plan['appointments'][number]; staffId: string }[] = []
     await pool(p.appointments, async (a) => {
       const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
@@ -310,7 +310,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id}'s customer differs from the planned customer, left alone`)
       if (have) {
         if (!dry) (st.created.appointments ??= {})[a.key] = have.id
-        ownedRows.push({ row: have, planned: a })
+        ownedRows.push({ row: have, planned: a, staffId: sid })
         return void apptRow.set(a.key, have)
       }
       const other = clash(a, sid, rid)
@@ -326,7 +326,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
 
     // ⚖ G1 (S87): today's owned rows still SCHEDULED take the plan's status, on EVERY run (the board's live session is
     // not a first-fill-only state). The write is close-out.ts's one status write; this file still has no update call.
-    for (const { row, planned } of todayStatusFixes(ownedRows, recipe, today)) {
+    for (const { row, planned } of todayStatusFixes(ownedRows, recipe, today, run.skipped)) {
       run.created.todayStatus = (run.created.todayStatus ?? 0) + 1
       if (dry) continue
       try {

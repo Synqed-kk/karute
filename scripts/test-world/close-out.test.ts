@@ -21,7 +21,7 @@ async function main() {
   const p = plan(recipe, { storeId: STORE, weeklyHours: recipe.policy.weekly_hours }, TODAY, EPOCH)
   const rows = p.appointments.map((a) => ({
     id: `a-${a.key}`, key: a.key, date: a.date, want: a.status, store_id: STORE, customer_id: `c-${a.member}`, staff_id: `s-${a.staff}`,
-    starts_at: a.startsAt, notes: `テストデータ [${a.key}]` as string | null, status: a.date >= EPOCH ? 'SCHEDULED' : a.status,
+    starts_at: a.startsAt, ends_at: a.endsAt, notes: `テストデータ [${a.key}]` as string | null, status: a.date >= EPOCH ? 'SCHEDULED' : a.status,
   }))
   const stale = rows.filter((r) => r.date >= EPOCH && r.date < TODAY) // made SCHEDULED at the epoch, their day now past
   const [future, untagged, done, foreign, ghost, twin, elsewhere, owned, lone] = stale
@@ -38,10 +38,15 @@ async function main() {
   const [copy, twinCopy] = [{ ...owned, id: 'copy-row' }, { ...twin, id: 'twin-row' }]
   const loneAbroad = { ...lone, id: 'lone-abroad', store_id: 'store-other' } // lone's tag in another store; lone has no recorded id
   rows.push(probe, copy, twinCopy, loneAbroad)
+  // ⚖ G-P1 (S88): a past SCHEDULED row staff moved an hour earlier is no longer the planned booking (stillPlanned): skipped
+  const shifted = stale[stale.length - 1]
+  assert.ok(stale.length > 10 && shifted.status === 'SCHEDULED', 'the fixture: a spare stale SCHEDULED row')
+  shifted.starts_at = new Date(Date.parse(shifted.starts_at) - 3_600_000).toISOString()
+  shifted.ends_at = new Date(Date.parse(shifted.ends_at) - 3_600_000).toISOString()
   stale[7].status = 'IN_PROGRESS' // ⚖ R2: a row the loader wrote 施術中 on a day now past is closed out too
   // ⚖ R2: today's started rows the plan already calls over are closed; a planned SCHEDULED or IN_PROGRESS one is left alone
   const overToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime() && !['SCHEDULED', 'IN_PROGRESS'].includes(r.want))
-  const want = [...stale.slice(7), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
+  const want = [...stale.slice(7).filter((r) => r !== shifted), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
   assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0 && startedToday.some((r) => r.want === 'IN_PROGRESS') && overToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
@@ -76,6 +81,7 @@ async function main() {
   const twinLines = [twin.id, twinCopy.id].map((id) => `skipped: appointments ${twin.key}: booking ${id} carries a tag seen on 2 bookings, left alone`)
   assert.deepEqual([touched(twin.id), touched(twinCopy.id), ap.lines.filter((l) => l.includes(twin.key))], [false, false, twinLines], '(m) one tag on two bookings, no recorded id: both skipped with a line, 0 writes')
   assert.deepEqual([touched(lone.id), touched(loneAbroad.id), ap.lines.filter((l) => l.includes(lone.key))], [true, false, []], '(p) the same tag in another store is not ambiguity: this store\'s row is written, no line')
+  assert.deepEqual(only(shifted.id), [false, [`skipped: appointments ${shifted.key}: booking ${shifted.id}'s time, duration or staff differs from the plan (a person moved it), left alone`]], '(q) a past SCHEDULED row moved to another time: one skipped line, no write')
   const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x.id.localeCompare(y.id))
   assert.deepEqual(byId(ap.calls), byId(want), '(b) apply: exactly the tagged + SCHEDULED + past + owned rows, with plan() status and the exact input')
   assert.deepEqual([ap.code, head(ap.lines)], [0, table('apply', true)], '(b) apply: written = planned per status')

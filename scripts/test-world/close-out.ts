@@ -4,7 +4,8 @@
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.ts <store-id> --manifest <path> [--apply]
 // DRY-RUN IS THE DEFAULT: every read, no write. Liam's word before a live --apply.
 // Scope: fill-tagged ([tw:…], fill.ts's regex) · this store · SCHEDULED · started before now · owned (its customer = the
-// live customer of the plan's member number, fill.ts's rule; else one skipped line). New status = plan()'s for the key
+// live customer of the plan's member number, fill.ts's rule; else one skipped line) · still the planned booking (stillPlanned, plan.ts: same start + end; else
+// one skipped line). New status = plan()'s for the key
 // (not in the plan, or still SCHEDULED there → one skipped line). The write = status + acting_staff_id + status_reason
 // only: no delete, no new row, notes untouched. Pin (fill.ts's): the hard Dev Salon id + assertDevSalon before any
 // booking is read; the store in registry.json; the manifest (Dev Salon id, type = registry type, epoch + hours) read,
@@ -14,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, type FillCore, type Manifest } from './fill'
 import type { Appointment } from '@synqed-kk/client'
-import { addDays, isLegacyMember, jstIso, loaderSet, plan, type PlannedAppointment, type Recipe } from './plan'
+import { addDays, isLegacyMember, jstIso, loaderSet, plan, stillPlanned, type PlannedAppointment, type Recipe } from './plan'
 
 /** The status_reason every loader status write carries (loaderSet() reads its prefix: the row stays the loader's). */
 export const CLOSE_OUT_REASON = 'テストデータ close-out'
@@ -26,10 +27,21 @@ export const setPlannedStatus = (core: Pick<FillCore, 'appointments'>, r: Pick<A
 /** ⚖ G1 (S87): apply's today reconcile. Of the rows apply already owns (its own ownership rule), the ones dated TODAY that
  *  are still SCHEDULED take the status the plan gives them (across the 13:24 pin → IN_PROGRESS, earlier → as planned) —
  *  never a legacy member's row (isLegacyMember), never one a person set (loaderSet), never another day (the plan's date AND the row's own
- *  start: a booking staff moved off today is left alone; future rows stay SCHEDULED, past rows are closeOut's). Only SCHEDULED moves, so realism's future cancels are never undone. */
-export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' | 'status' | 'status_set_by' | 'status_reason' | 'starts_at'>>(
-  owned: readonly { row: R; planned: PlannedAppointment }[], recipe: Pick<Recipe, 'legacyMembers'>, today: string,
-) => owned.filter(({ row, planned: p }) => p.date === today && jstToday(new Date(row.starts_at)) === today && row.status === 'SCHEDULED' && p.status !== 'SCHEDULED' && !isLegacyMember(recipe, p.member) && loaderSet(row))
+ *  start: a booking staff moved off today is left alone; future rows stay SCHEDULED, past rows are closeOut's). Only SCHEDULED moves, so realism's future cancels are never undone.
+ *  ⚖ G-P1 (S88): and only while the row still IS the planned booking (stillPlanned: same start, same end, same staff when
+ *  the caller passes the planned staff's id) — a booking staff moved within today, re-staffed or re-timed is a person's
+ *  edit: left alone, one skipped line (movedLine) pushed to `skipped` when given. closeOut asks the same predicate. */
+export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' | 'status' | 'status_set_by' | 'status_reason' | 'starts_at' | 'ends_at'>>(
+  owned: readonly { row: R; planned: PlannedAppointment; staffId?: string | null }[], recipe: Pick<Recipe, 'legacyMembers'>, today: string, skipped?: string[],
+) => owned.filter(({ row, planned: p, staffId }) => {
+  if (!(p.date === today && jstToday(new Date(row.starts_at)) === today && row.status === 'SCHEDULED' && p.status !== 'SCHEDULED' && !isLegacyMember(recipe, p.member) && loaderSet(row))) return false
+  if (stillPlanned(row, p, staffId)) return true
+  skipped?.push(movedLine(p.key, row.id))
+  return false
+})
+
+/** The one skipped line for a row stillPlanned() rejects (apply's today reconcile and closeOut print the same text). */
+export const movedLine = (key: string, id: string) => `appointments ${key}: booking ${id}'s time, duration or staff differs from the plan (a person moved it), left alone`
 
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
   if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
@@ -59,6 +71,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
     const a = planned.get(tag)
     if (!a || a.status === 'SCHEDULED' || a.status === 'IN_PROGRESS') { skipped.push(`appointments ${tag}: booking ${r.id} is ${a ? `still ${a.status} in the plan` : 'not in the plan'}, left alone`); continue }
     if (r.customer_id !== custId.get(a.member)) { skipped.push(`appointments ${tag}: booking ${r.id}'s customer differs from the planned customer, left alone`); continue }
+    if (!stillPlanned(r, a)) { skipped.push(movedLine(tag, r.id)); continue } // ⚖ G-P1: the planned staff's id is not resolved here; time + duration are
     counts[a.status][0]++
     if (!apply) continue
     try {

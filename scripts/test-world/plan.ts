@@ -185,6 +185,15 @@ export const isLegacyMember = (recipe: Pick<Recipe, 'legacyMembers'>, member: st
 export const loaderSet = (a: { status_set_by?: string | null; status_reason?: string | null }): boolean =>
   a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 
+/** ⚖ G-P1 (S88): the ONE 「is this row still the planned booking?」 check — its saved interval is the planned one (starts_at
+ *  and ends_at on the planned startsAt / endsAt minute, so the planned duration too) and, when the caller knows the
+ *  planned staff's id, the same staff_id. A row whose time, duration or staff differs was moved by a person: the loader
+ *  leaves its status alone. apply's today reconcile (todayStatusFixes) and close-out.ts both ask this, never their own copy. */
+export const stillPlanned = (row: { starts_at: string; ends_at?: string | null; staff_id?: string | null }, p: Pick<PlannedAppointment, 'startsAt' | 'endsAt'>, staffId?: string | null): boolean =>
+  Math.floor(Date.parse(row.starts_at) / 60_000) === Math.floor(Date.parse(p.startsAt) / 60_000)
+  && Math.floor(Date.parse(row.ends_at ?? '') / 60_000) === Math.floor(Date.parse(p.endsAt) / 60_000)
+  && (staffId == null || row.staff_id === staffId)
+
 /** A loader booking's notes: the tag first (every reader matches /\[(tw:[^\]]+)\]/ or '[tw:'), then the ご要望 line. */
 /** ⚖ R17: the cancel reason in notes is the app's own Japanese label (messages/ja.json), never the slug; realism.ts stays the status_reason writer. */
 export const CANCEL_LABELS: Record<string, string> = { 'cancel-advance-contact': '事前連絡あり', 'cancel-same-day-contact': '当日連絡あり', 'cancel-salon-initiated': '店舗都合' }
