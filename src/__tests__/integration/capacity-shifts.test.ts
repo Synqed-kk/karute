@@ -3,14 +3,18 @@ import { DATE, input, minute, span, t4Spans } from './__fixtures__/kadou-fixture
 
 const roster = Array.from({ length: 5 }, (_, i) => ({ id: `s${i + 1}`, active: true, stores: [{ storeId: 'store' }] }))
 const row = (staffId = 's1', over: Partial<ShiftRow> = {}): ShiftRow => ({ staffId, storeId: 'store', date: DATE, startMs: minute(600), endMs: minute(1140), breaks: [{ startMs: minute(900), endMs: minute(960) }], blocks: [], ...over })
-const shifts = (over: Partial<ShiftCapacityInput> = {}): ShiftCapacityInput => ({ storeId: 'store', date: DATE, rows: [row('s1'), row('s2'), row('s3')], roster, readComplete: true, ...over })
+const shifts = (over: Partial<ShiftCapacityInput> = {}): ShiftCapacityInput => ({ storeId: 'store', date: DATE, rows: [row('s1'), row('s2'), row('s3')], roster, readComplete: true, breakMinutes: 60, ...over })
 const fact = (over: Partial<ShiftCapacityInput> = {}, spans = input().spans) => capacityForDay({ ...input(spans), shift: shifts(over) })
 
 test('T1: 15 booked hours / 24 on-shift hours = 63%, not 30%', () => {
   expect(fact()).toMatchObject({ capacityMinutes: 1440, bookedMinutes: 900, occupancyPct: 63, shiftState: 'entered', availableMinutes: 540 })
 })
-test('T2: no rows with multiple staff is none, retaining union booked time', () => {
-  expect(fact({ rows: [] }, [span('s1', 600, 720), span('s1', 660, 780)])).toMatchObject({ occupancyPct: null, band: null, full: false, shiftState: 'none', bookedMinutes: 180 })
+test('T2 (re-pinned PR-2): no rows with multiple staff guesses from the bookings, union booked time once', () => {
+  // Pre-PR-2: shiftState 'none', no number. Guess mode: s1 is booked → s1 works 600 − 60 = 540.
+  expect(fact({ rows: [] }, [span('s1', 600, 720), span('s1', 660, 780)])).toMatchObject({ occupancyPct: 33, capacityMinutes: 540, shiftState: 'inferred', bookedMinutes: 180 })
+})
+test('T2b: no rows and no bookings with multiple staff is still none', () => {
+  expect(fact({ rows: [] }, [])).toMatchObject({ occupancyPct: null, band: null, full: false, shiftState: 'none', bookedMinutes: 0 })
 })
 test('T3: one-person roster or explicit solo uses store hours', () => {
   expect(fact({ rows: [], roster: [roster[0]] }, [span('s1', 600, 900)])).toMatchObject({ occupancyPct: 50, shiftState: 'solo' })
@@ -103,8 +107,9 @@ describe('S110-1: the solo lane needs a named owner (store 10:00–20:00 = 600 m
     expect(solo({ personId: 'B' }, [span('B', 780, 1080)])).toMatchObject({ occupancyPct: 50, shiftState: 'solo' })
     expect(solo({ personId: 'A' }, [span('B', 780, 1080)])).toMatchObject({ shiftState: 'off', capacityMinutes: null })
   })
-  test('T-S3: bookings on two people contradict the solo claim: none, booked time kept', () => {
-    expect(solo({}, [span('A', 600, 720), span('B', 780, 900)])).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 240 })
+  test('T-S3 (re-pinned PR-2): bookings on two people contradict the solo claim: guess mode, both inferred', () => {
+    // Pre-PR-2: 'none', no number, bookedMinutes 240. Ruling S110-1 (d): guess mode takes the day.
+    expect(solo({}, [span('A', 600, 720), span('B', 780, 900)])).toMatchObject({ shiftState: 'inferred', capacityMinutes: 1080, occupancyPct: 22, bookedMinutes: 240, lanes: 2 })
   })
   test('T-S4: two eligible and no booking name no owner: none', () => {
     expect(solo({}, [])).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 0 })

@@ -12,7 +12,7 @@ function adapter(on: boolean): typeof Reservation {
   return jest.requireActual('@/lib/adapters/reservation')
 }
 const shiftCapacity = {
-  storeId: 'store', readComplete: true,
+  storeId: 'store', readComplete: true, breakMinutes: 60,
   roster: ['s1', 's2', 's3', 's4', 's5'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] })),
   rows: ['s1', 's2', 's3'].map(staffId => ({ staffId, storeId: 'store', date: DATE, startMs: minute(600), endMs: minute(1140), breaks: [span(staffId, 900, 960)], blocks: [] })),
 }
@@ -34,7 +34,7 @@ test('ON produces the new 63% figure regardless of legacy layer switches', () =>
 })
 test('R-G: displayed booked time uses unions even on none/unavailable days', () => {
   const rows = appointments([span('s1', 600, 720), span('s1', 660, 780)])
-  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'none' })
+  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'inferred' }) // PR-2: a booked zero-row day is guessed
   expect(week(true, rows, { ...shiftCapacity, readComplete: false })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'unavailable' })
   expect(week(false, rows)[0].bookedMinutes).toBe(240)
 })

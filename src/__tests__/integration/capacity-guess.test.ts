@@ -1,0 +1,76 @@
+import { capacityForDay, type ShiftCapacityInput, type ShiftRow } from '@/lib/capacity/capacity'
+import { DATE, input, minute, span } from './__fixtures__/kadou-fixture'
+
+const roster = ['A', 'B', 'C', 'D', 'E'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] }))
+const rowA: ShiftRow = { staffId: 'A', storeId: 'store', date: DATE, startMs: minute(600), endMs: minute(1140), breaks: [{ startMs: minute(900), endMs: minute(960) }], blocks: [] }
+const shifts = (over: Partial<ShiftCapacityInput> = {}) => ({ storeId: 'store', date: DATE, rows: [], roster, readComplete: true, breakMinutes: 60, ...over }) as ShiftCapacityInput
+const fact = (over: Partial<ShiftCapacityInput>, spans: ReturnType<typeof span>[]) => capacityForDay({ ...input(spans), shift: shifts(over) })
+const pick = (f: ReturnType<typeof capacityForDay>) => ({ capacityMinutes: f.capacityMinutes, bookedMinutes: f.bookedMinutes, occupancyPct: f.occupancyPct, shiftState: f.shiftState, lanes: f.lanes, onShiftNoBooking: f.onShiftNoBooking, reason: f.reason })
+
+test('T-G4: real rows win — the pre-PR-2 values (pinned before guess mode) are unchanged', () => {
+  expect(pick(fact({ rows: [rowA] }, [span('A', 600, 900), span('B', 600, 900)]))).toMatchInlineSnapshot(`
+{
+  "bookedMinutes": 600,
+  "capacityMinutes": 780,
+  "lanes": 2,
+  "occupancyPct": 77,
+  "onShiftNoBooking": 0,
+  "reason": null,
+  "shiftState": "partial",
+}
+`)
+})
+test('NIT-2 (re-pinned by guess mode): per-person view of a contradicted-solo day', () => {
+  // Pre-PR-2 (fix round 2) this read shiftState 'none', bookedMinutes 120,
+  // no number. Ruling S110-1 (d) hands such days to guess mode: A is inferred.
+  const two = [roster[0], roster[1]]
+  expect(pick(fact({ roster: two, soloMode: true, personId: 'A' }, [span('A', 600, 720), span('B', 780, 900)]))).toMatchObject({ shiftState: 'inferred', bookedMinutes: 120, capacityMinutes: 540, occupancyPct: 22, lanes: 1 })
+})
+const three = [span('A', 600, 900), span('B', 600, 900), span('C', 600, 900)]
+test('T-G1 worked example: 3 of 5 booked, 900 min, open 600, break 60 → 1620, 56%', () => {
+  const f = fact({}, three)
+  expect(pick(f)).toMatchObject({ capacityMinutes: 1620, bookedMinutes: 900, occupancyPct: 56, shiftState: 'inferred', lanes: 3, onShiftNoBooking: 0 })
+  expect(f.shiftState).not.toBe('partial')
+})
+test('T-G2 part-timer: one 2-h booking → 540, 120, 22%', () => {
+  expect(pick(fact({}, [span('A', 600, 720)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 120, occupancyPct: 22, shiftState: 'inferred', lanes: 1 })
+})
+test('T-G3 zero-booking staff are not counted: 5 on the roster, 1 booked 300 → 540 (not 2700), 56%', () => {
+  expect(pick(fact({}, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 300, occupancyPct: 56, shiftState: 'inferred', onShiftNoBooking: 0 })
+})
+test('T-G5 breakMinutes is the setting: 30 → 570, 0 → 600, 700 (≥ open) floors at the booked 300', () => {
+  expect(fact({ breakMinutes: 30 }, [span('A', 600, 900)]).capacityMinutes).toBe(570)
+  expect(fact({ breakMinutes: 0 }, [span('A', 600, 900)]).capacityMinutes).toBe(600)
+  expect(pick(fact({ breakMinutes: 700 }, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 300, bookedMinutes: 300, occupancyPct: 100 })
+})
+test('T-G6 unassigned booking on an inferred day fills into A (R-E): 540, 240, 44%', () => {
+  expect(pick(fact({}, [span('A', 600, 720), span(null, 840, 960)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 240, occupancyPct: 44, shiftState: 'inferred', lanes: 1 })
+})
+test('T-G6b only unassigned bookings name nobody: none, booked time kept', () => {
+  expect(pick(fact({}, [span(null, 840, 960)]))).toMatchObject({ shiftState: 'none', capacityMinutes: null, bookedMinutes: 120 })
+})
+test('T-G7 incomplete read never guesses: unavailable', () => {
+  expect(pick(fact({ readComplete: false }, three))).toMatchObject({ shiftState: 'unavailable', capacityMinutes: null, occupancyPct: null, bookedMinutes: 900 })
+})
+test("T-G8 per-person view: A's own 300/540 = 56%; C with no booking → off", () => {
+  const spans = [span('A', 600, 900), span('B', 600, 900)]
+  expect(pick(fact({ personId: 'A' }, spans))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 300, occupancyPct: 56, shiftState: 'inferred', lanes: 1 })
+  expect(pick(fact({ personId: 'C' }, spans))).toMatchObject({ shiftState: 'off', capacityMinutes: null, occupancyPct: null })
+})
+test('T-G9 withheld days are never guessed: no number, the legacy reason, bookedMinutes carried', () => {
+  const base = input(three)
+  const day = (over: Partial<typeof base>) => pick(capacityForDay({ ...base, ...over, shift: shifts() }))
+  expect(day({ hours: { ...base.hours!, closed: true } })).toMatchObject({ capacityMinutes: null, occupancyPct: null, reason: 'closed', bookedMinutes: 900, shiftState: 'none' })
+  expect(day({ hours: { ...base.hours!, source: 'default' } })).toMatchObject({ capacityMinutes: null, occupancyPct: null, reason: 'hours-not-saved', bookedMinutes: 900, shiftState: 'none' })
+  expect(day({ hours: null })).toMatchObject({ capacityMinutes: null, occupancyPct: null, reason: 'hours-unresolved', bookedMinutes: 900, shiftState: 'none' })
+  expect(day({ hours: { ...base.hours!, closeMs: base.hours!.openMs } })).toMatchObject({ capacityMinutes: null, occupancyPct: null, reason: 'hours-unresolved', bookedMinutes: 900 })
+  expect(day({ laneKind: 'none' })).toMatchObject({ capacityMinutes: null, occupancyPct: null, reason: 'kind-none', bookedMinutes: 900, shiftState: 'none' })
+})
+test('no rows and nobody booked stays none (no number)', () => {
+  expect(pick(fact({}, []))).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 0 })
+})
+test('an inferred day crossing JST midnight counts only the in-day part (spans clipped to the JST day)', () => {
+  // DAY is JST midnight (+09:00) regardless of the jest TZ=UTC process zone:
+  // the module takes epoch ms, no timezone argument.
+  expect(pick(fact({}, [span('A', 1380, 1500)]))).toMatchObject({ bookedMinutes: 60, shiftState: 'inferred' })
+})
