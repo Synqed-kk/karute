@@ -42,6 +42,19 @@ test('timeout withholds the figure', async () => {
     expect(await pending).toEqual({ rows: [], readComplete: false })
   } finally { jest.useRealTimers() }
 })
+test('a timeout during page 1 never sends pages 2..N', async () => {
+  jest.useFakeTimers()
+  try {
+    let resolveFirst: (value: ReturnType<typeof page>) => void = () => {}
+    const list = jest.fn(() => new Promise(resolve => { resolveFirst = resolve }))
+    const pending = readStaffShifts(client(list), 'business', 'store', DATE, '2026-10-10')
+    await jest.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toEqual({ rows: [], readComplete: false })
+    resolveFirst(page(1, 401))
+    await jest.advanceTimersByTimeAsync(0)
+    expect(list).toHaveBeenCalledTimes(1)
+  } finally { jest.useRealTimers() }
+})
 test('new text state defaults on an old payload without extending capacityReason', () => {
   expect(WeekDayCardDataDTO.shape.shiftState.parse(undefined)).toBe('unavailable')
   expect(WeekDayCardDataDTO.shape.capacityReason.safeParse('none').success).toBe(false)

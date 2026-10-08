@@ -27,12 +27,14 @@ export async function listStaffShiftRows(
   to: string,
 ): Promise<ShiftRow[]> {
   let timer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
   const read = async () => {
     const early = new Date(Date.parse(`${from}T00:00:00+09:00`) - 86_400_000)
       .toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
     const options = { store_id: storeId, from: early, to, page_size: PAGE_SIZE }
     const first = await client.staffShifts.list({ ...options, page: 1 })
     if (!Number.isSafeInteger(first.total) || first.total < 0) throw new Error('Invalid shift total')
+    if (timedOut) throw new Error('Shift read timed out')
     const count = Math.max(1, Math.ceil(first.total / PAGE_SIZE))
     const rest = await Promise.all(Array.from({ length: count - 1 }, (_, i) => client.staffShifts.list({ ...options, page: i + 2 })))
     const pages = [first, ...rest]
@@ -44,15 +46,16 @@ export async function listStaffShiftRows(
     if (new Set(rows.map(r => r.id)).size !== rows.length || rows.some(r => r.business_id !== businessId || r.store_id !== storeId || r.date < early || r.date >= to)) throw new Error('Invalid shift scope')
     return rows.map(rowFromCore)
   }
-  // On timeout the race rejects but the page requests already sent keep
-  // running: the installed client's staffShifts.list(options) takes no
-  // AbortSignal, so they cannot be aborted. Their results are discarded —
-  // nothing awaits read() after the race settles, and a late rejection is
-  // swallowed by the settled race.
+  // On timeout the race rejects and `timedOut` is set. A page request already
+  // sent keeps running: the installed client's staffShifts.list(options)
+  // takes no AbortSignal, so it cannot be aborted. If page 1 is still in
+  // flight, pages 2..N are never sent — read() stops when page 1 returns. Any
+  // late result is discarded (nothing awaits read() after the race settles)
+  // and a late rejection is swallowed by the settled race.
   try {
     return await Promise.race([
       read(),
-      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Shift read timed out')), TIMEOUT_MS) }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => { timedOut = true; reject(new Error('Shift read timed out')) }, TIMEOUT_MS) }),
     ])
   } finally {
     clearTimeout(timer)
