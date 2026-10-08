@@ -69,8 +69,33 @@ test('T-G9 withheld days are never guessed: no number, the legacy reason, booked
 test('no rows and nobody booked stays none (no number)', () => {
   expect(pick(fact({}, []))).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 0 })
 })
-test('an inferred day crossing JST midnight counts only the in-day part (spans clipped to the JST day)', () => {
+// Day 2 of the fixture (the JST day after DATE), same 10:00–20:00 hours.
+const D2 = 86_400_000
+const day2 = (spans: ReturnType<typeof span>[], over: Partial<ShiftCapacityInput> = {}) => {
+  const base = input(spans)
+  return pick(capacityForDay({ ...base, dayStartMs: base.dayStartMs + D2, dayEndMs: base.dayEndMs + D2, hours: { ...base.hours!, openMs: base.hours!.openMs + D2, closeMs: base.hours!.closeMs + D2 }, shift: shifts({ date: '2026-10-09', ...over }) }))
+}
+test('S111-4 midnight: a 23:00–01:00 booking gives no lane on either day (outside hours both sides)', () => {
   // DAY is JST midnight (+09:00) regardless of the jest TZ=UTC process zone:
   // the module takes epoch ms, no timezone argument.
-  expect(pick(fact({}, [span('A', 1380, 1500)]))).toMatchObject({ bookedMinutes: 60, shiftState: 'inferred' })
+  expect(pick(fact({}, [span('A', 1380, 1500)]))).toMatchObject({ bookedMinutes: 60, shiftState: 'none', capacityMinutes: null })
+  expect(day2([span('A', 1380, 1500)])).toMatchObject({ bookedMinutes: 60, shiftState: 'none', capacityMinutes: null })
+})
+test('S111-4 B1: a 23:30–00:30 overrun → day 2: B contributes her 30 min only, C (in-hours) 540', () => {
+  expect(day2([span('B', 1410, 1470), span('C', 1440 + 600, 1440 + 660)])).toMatchObject({ capacityMinutes: 570, bookedMinutes: 90, occupancyPct: 16, shiftState: 'inferred', lanes: 2 })
+})
+test('S111-4 C6: a 60-min booking entirely after close → that person contributes 60, no lane', () => {
+  expect(pick(fact({}, [span('A', 1200, 1260), span('C', 600, 660)]))).toMatchObject({ capacityMinutes: 600, bookedMinutes: 120, occupancyPct: 20, shiftState: 'inferred' })
+})
+test('S111-4 C7: before open (early 着付け) → 60, no lane', () => {
+  expect(pick(fact({}, [span('A', 420, 480), span('C', 600, 660)]))).toMatchObject({ capacityMinutes: 600, bookedMinutes: 120, occupancyPct: 20, shiftState: 'inferred' })
+})
+test('S111-4 C8: a previous-night tail 00:00–01:00 → 60, no lane', () => {
+  expect(pick(fact({}, [span('A', 0, 60), span('C', 600, 660)]))).toMatchObject({ capacityMinutes: 600, bookedMinutes: 120, occupancyPct: 20, shiftState: 'inferred' })
+})
+test('S111-4: a day whose only bookings are outside hours is not guessed: none, no number', () => {
+  expect(pick(fact({}, [span('A', 1200, 1260), span('B', 420, 480), span('C', 0, 60)]))).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 180 })
+})
+test('S111-4: an out-of-hours roster person never makes a guessed day partial', () => {
+  expect(fact({}, [span('A', 1200, 1260), span('C', 600, 660)]).shiftState).toBe('inferred')
 })
