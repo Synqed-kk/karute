@@ -1,5 +1,6 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
+import { resolveBreakMinutes } from '@/lib/capacity/break-minutes'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import type { WeekStart } from '@/lib/date/week-start'
 import { isCountedBooking } from '@/lib/appointments/by-date'
@@ -291,7 +292,7 @@ function capacityFactsFor(
       capacityForDay({
         ...(BOOKING_SWITCHES.shiftLanes ? {
           shift: {
-            storeId: '', rows: [], roster: null,
+            storeId: '', rows: [], roster: null, breakMinutes: resolveBreakMinutes(null),
             ...inputs.shiftCapacity,
             readComplete: !inputs.storeRowDegraded && (inputs.shiftCapacity?.readComplete ?? false),
             soloMode: inputs.soloMode,

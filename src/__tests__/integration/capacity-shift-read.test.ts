@@ -15,7 +15,7 @@ test('T16: page two failure withholds the entire range', async () => {
   const result = await readStaffShifts(client(list), 'business', 'store', DATE, '2026-10-10')
   expect(result).toEqual({ rows: [], readComplete: false })
   for (const date of [DATE, '2026-10-09']) {
-    expect(capacityForDay({ ...input(), shift: { ...result, storeId: 'store', date, roster: [] } })).toMatchObject({ shiftState: 'unavailable', occupancyPct: null, band: null })
+    expect(capacityForDay({ ...input(), shift: { ...result, storeId: 'store', date, roster: [], breakMinutes: 60 } })).toMatchObject({ shiftState: 'unavailable', occupancyPct: null, band: null })
   }
 })
 test('page 1 first, remaining pages parallel, scoped cache and JST conversion', async () => {

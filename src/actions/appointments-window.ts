@@ -17,6 +17,7 @@
 //     around this call, so a failed read surfaces as an error.
 
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveBreakMinutes } from '@/lib/capacity/break-minutes'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { readStaffShifts } from '@/lib/appointments/staff-shifts'
 import type { ShiftCapacityInput } from '@/lib/capacity/capacity'
@@ -204,7 +205,7 @@ export async function getAppointmentWindow(
           shiftRosterForBusiness(businessId, storeId),
         ])
       : [{ rows: [], readComplete: false }, null]
-    shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown }
+    shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown, breakMinutes: resolveBreakMinutes(policy) }
   }
   return {
     ...window,
