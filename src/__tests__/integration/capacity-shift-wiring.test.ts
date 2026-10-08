@@ -82,3 +82,9 @@ test('a failed store read still prints unioned booked time and withholds shift c
   const output = a.appointmentsToWeekData(rows, new Date(DAY), new Date(DAY), 600, new Date(DAY), 'ja', undefined, undefined, hoursFacts, false, { shiftCapacity, storeRowDegraded: true })
   expect(output[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'unavailable', occupancyPct: null })
 })
+
+test('T-S8: ON, explicit solo, booking on the second roster person reads 50%, never 33%', () => {
+  const pair = { storeId: 'store', readComplete: true, rows: [], roster: ['A', 'B'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] })) }
+  const output = adapter(true).appointmentsToWeekData(appointments([span('B', 780, 1080)]), new Date(DAY), new Date(DAY), 600, new Date(DAY), 'ja', undefined, undefined, hoursFacts, true, { rosterHeadcount: 2, shiftCapacity: pair })
+  expect(output[0]).toMatchObject({ occupancyPct: 50, capacityMinutes: 600, bookedMinutes: 300, shiftState: 'solo' })
+})

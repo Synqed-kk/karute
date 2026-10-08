@@ -71,11 +71,25 @@ export function receivableIntervals(
   ])
 }
 
+/** Ruling S110-1: a solo fallback row needs an owner the data names; null =
+ *  the solo claim is contradicted for this day (no fallback row). */
+function resolveSoloOwner(shift: ShiftCapacityInput, eligible: readonly ShiftPerson[], assignedIds: ReadonlySet<string>): string | null {
+  if (eligible.length === 1) return eligible[0].id
+  if (shift.soloMode !== true) return null
+  if (assignedIds.size === 1) return assignedIds.values().next().value as string
+  if (eligible.length === 0 && assignedIds.size === 0) return '__solo__'
+  return null
+}
+
 /** R-A–R-J totals only: capacityForDay remains the sole percentage producer. */
 export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   const rows = shift.rows.filter(r => r.storeId === shift.storeId && r.date === shift.date)
   const eligible = (shift.roster ?? []).filter(p => p.active && (p.stores.length === 0 || p.stores.some(s => s.storeId === shift.storeId && (s.createdAtMs == null || s.createdAtMs < input.dayEndMs))))
-  const solo = shift.soloMode === true || (shift.roster != null && eligible.length === 1)
+  // Every assigned span of the store-day, BEFORE the personId filter below.
+  const assignedIds = new Set(input.spans.filter(s => s.staffId != null && Math.min(s.endMs, input.dayEndMs) > Math.max(s.startMs, input.dayStartMs)).map(s => s.staffId as string))
+  const soloOwner = resolveSoloOwner(shift, eligible, assignedIds)
+  // solo claim contradicted by the roster/bookings for this day → not entered; PR-2 guess mode covers it
+  const solo = soloOwner != null
   // Core has no dated removals/deactivations: a past zero-row day at a store
   // that has since shrunk to one person reads as solo (R-A known limit).
   const entered = rows.length > 0 || solo
@@ -94,9 +108,8 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   if (!shift.readComplete || shift.roster == null) return empty('unavailable')
   if (!entered) return empty('none')
   // An explicit solo setting supplies one lane even if the owner has no roster card.
-  const soloId = eligible[0]?.id ?? booked.keys().next().value ?? '__solo__'
-  const effectiveRows: readonly ShiftRow[] = rows.length === 0 && solo && input.hours
-    ? [{ staffId: soloId, storeId: shift.storeId, date: shift.date, startMs: input.hours.openMs, endMs: input.hours.closeMs, breaks: [], blocks: [] }]
+  const effectiveRows: readonly ShiftRow[] = rows.length === 0 && soloOwner != null && input.hours
+    ? [{ staffId: soloOwner, storeId: shift.storeId, date: shift.date, startMs: input.hours.openMs, endMs: input.hours.closeMs, breaks: [], blocks: [] }]
     : rows
   const ids = new Set([...effectiveRows.map(r => r.staffId), ...booked.keys()])
   if (shift.personId) {

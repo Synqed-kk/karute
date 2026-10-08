@@ -93,3 +93,29 @@ test('hours clamp and org free-time rule; a closed solo day needs no row', () =>
   expect(capacityForDay({ ...base, hours: { ...base.hours!, source: 'org' }, shift: shifts() }).availableMinutes).toBeNull()
   expect(capacityForDay({ ...input([]), hours: { ...base.hours!, closed: true }, shift: shifts({ rows: [], roster: [roster[0]] }) }).shiftState).toBe('nobody')
 })
+describe('S110-1: the solo lane needs a named owner (store 10:00–20:00 = 600 min, roster A and B, no rows)', () => {
+  const pair = [{ id: 'A', active: true, stores: [{ storeId: 'store' }] }, { id: 'B', active: true, stores: [{ storeId: 'store' }] }]
+  const solo = (over: Partial<ShiftCapacityInput> = {}, spans: ReturnType<typeof span>[] = []) => fact({ rows: [], roster: pair, soloMode: true, ...over }, spans)
+  test('T-S1: the booked person, not roster[0], owns the solo lane: 300/600 = 50%, never 33%', () => {
+    expect(solo({}, [span('B', 780, 1080)])).toMatchObject({ capacityMinutes: 600, bookedMinutes: 300, occupancyPct: 50, shiftState: 'solo', lanes: 1 })
+  })
+  test('T-S2: the owner reads the all-staff figure; the non-owner with no booking reads off', () => {
+    expect(solo({ personId: 'B' }, [span('B', 780, 1080)])).toMatchObject({ occupancyPct: 50, shiftState: 'solo' })
+    expect(solo({ personId: 'A' }, [span('B', 780, 1080)])).toMatchObject({ shiftState: 'off', capacityMinutes: null })
+  })
+  test('T-S3: bookings on two people contradict the solo claim: none, booked time kept', () => {
+    expect(solo({}, [span('A', 600, 720), span('B', 780, 900)])).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 240 })
+  })
+  test('T-S4: two eligible and no booking name no owner: none', () => {
+    expect(solo({}, [])).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, bookedMinutes: 0 })
+  })
+  test('T-S5: without the flag a one-person roster still owns the day (pin)', () => {
+    expect(solo({ soloMode: false, roster: [pair[0]] }, [span('A', 780, 1080)])).toMatchObject({ capacityMinutes: 600, occupancyPct: 50, shiftState: 'solo' })
+  })
+  test('T-S6: explicit solo with an empty roster names the one booked person', () => {
+    expect(solo({ roster: [] }, [span('B', 780, 1080)])).toMatchObject({ capacityMinutes: 600, occupancyPct: 50, shiftState: 'solo', lanes: 1 })
+  })
+  test('T-S7: explicit solo with an empty roster and no booking keeps the placeholder lane at 0% (pin)', () => {
+    expect(solo({ roster: [] }, [])).toMatchObject({ capacityMinutes: 600, bookedMinutes: 0, occupancyPct: 0, shiftState: 'solo', lanes: 1 })
+  })
+})
