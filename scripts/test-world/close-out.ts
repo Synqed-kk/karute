@@ -3,7 +3,8 @@
 // COMPLETED ones ride the NEXT `fill.ts apply` (it writes them for COMPLETED bookings only) — not built here.
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.ts <store-id> --manifest <path> [--apply]
 // DRY-RUN IS THE DEFAULT: every read, no write. Liam's word before a live --apply.
-// Scope: fill-tagged ([tw:…], fill.ts's regex) · this store · SCHEDULED · started before now · owned (its customer = the
+// Scope: fill-tagged ([tw:…], fill.ts's regex) · this store · SCHEDULED · started before now · no person set its status (loaderSet,
+// plan.ts's ONE manual-edit guard; else one skipped line) · owned (its customer = the
 // live customer of the plan's member number, fill.ts's rule; else one skipped line) · still the planned booking (stillPlanned, plan.ts: same start + end; else
 // one skipped line). New status = plan()'s for the key
 // (not in the plan, or still SCHEDULED there → one skipped line). The write = status + acting_staff_id + status_reason
@@ -68,6 +69,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
     if (!tag || r.store_id !== storeId || !((r.status === 'SCHEDULED' && Date.parse(r.starts_at) < now.getTime()) || (r.status === 'IN_PROGRESS' && pastDay))) continue
     const rec = st.created?.appointments?.[tag]
     if (rec ? rec !== r.id : seen.get(tag)! > 1) { skipped.push(`appointments ${tag}: booking ${r.id} ${rec ? 'is not the booking the manifest records for this key' : `carries a tag seen on ${seen.get(tag)} bookings`}, left alone`); continue }
+    if (!loaderSet(r)) { skipped.push(`appointments ${tag}: booking ${r.id}: a person set its status, left alone`); continue } // ⚖ F1 (S88): the ONE manual-edit guard (plan.ts)
     const a = planned.get(tag)
     if (!a || a.status === 'SCHEDULED' || a.status === 'IN_PROGRESS') { skipped.push(`appointments ${tag}: booking ${r.id} is ${a ? `still ${a.status} in the plan` : 'not in the plan'}, left alone`); continue }
     if (r.customer_id !== custId.get(a.member)) { skipped.push(`appointments ${tag}: booking ${r.id}'s customer differs from the planned customer, left alone`); continue }
