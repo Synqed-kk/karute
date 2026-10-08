@@ -4,7 +4,7 @@ import { capacityForDay } from '@/lib/capacity/capacity'
 import { input, DATE, minute } from './__fixtures__/kadou-fixture'
 import { WeekDayCardDataDTO } from '@/lib/app-api/appointments-screen-dto'
 
-jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { shiftLanes: true } }))
+// PR-2: the real switch is ON, so this file no longer forces it.
 jest.mock('next/cache', () => ({ unstable_cache: jest.fn((fn: () => unknown) => fn) }))
 const row = (i: number): StaffShift => ({ id: `r${i}`, business_id: 'business', staff_id: `s${i}`, store_id: 'store', date: DATE, start: 600, end: 1140, breaks: [{ start: 900, end: 960 }], blocks: [], created_by: 'actor', updated_by: 'actor', created_at: '', updated_at: '' })
 function client(list: jest.Mock) { return { staffShifts: { list } } as unknown as Pick<SynqedClient, 'staffShifts'> }

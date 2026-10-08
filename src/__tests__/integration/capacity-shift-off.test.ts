@@ -3,6 +3,13 @@ import { appointmentsToWeekData, appointmentsToMonthFacts, capacityRowFields } f
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { DAY, input, t1Spans, t4Spans, appointments, hoursFacts } from './__fixtures__/kadou-fixture'
 
+// PR-2: the real switch is ON; the OFF guarantee is kept by running this file with it mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
+
+test('PR-2: the real shiftLanes switch is ON', () => {
+  expect(jest.requireActual<typeof import('@/lib/appointments/booking-switches')>('@/lib/appointments/booking-switches').BOOKING_SWITCHES.shiftLanes).toBe(true)
+})
+
 test('OFF output is byte-identical to the pre-PR T1/T2/T4 snapshot', () => {
   expect(BOOKING_SWITCHES.shiftLanes).toBe(false)
   const output = [t1Spans, [t1Spans[0]], t4Spans].map(spans => ({

@@ -18,6 +18,8 @@ jest.mock('@/lib/appointments/booking-switches', () => {
   const actual = jest.requireActual('@/lib/appointments/booking-switches')
   return { BOOKING_SWITCHES: {
     ...actual.BOOKING_SWITCHES,
+    // PR-2 (稼働 ON): this file pins the OFF month-cell shape, so shiftLanes stays OFF.
+    shiftLanes: false,
     get persistCalendarNumbers() {
       return mockPersistCalendarNumbers ?? actual.BOOKING_SWITCHES.persistCalendarNumbers
     },

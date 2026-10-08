@@ -83,5 +83,5 @@ export const BOOKING_SWITCHES = {
   bedLanes: false,
   /** Per-staff receivable time replaces roster × hours (稼働 PR-1).
    *  OFF until the shift-entry rollout; no shift read or output changes OFF. */
-  shiftLanes: false,
+  shiftLanes: true,
 } as const

@@ -1,3 +1,5 @@
+// PR-2 (稼働 ON): this file pins the OFF figures, so it runs with shiftLanes mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
 import type { Appointment } from '@synqed-kk/client'
 import { z } from 'zod'
 import { DATE, DAY, minute, span, appointments, hoursFacts } from './__fixtures__/kadou-fixture'
