@@ -124,3 +124,15 @@ describe('S111-7: the own view of an out-of-hours-only person on a guessed day s
     expect(day2([span('B', 1410, 1470), span('C', 1440 + 600, 1440 + 660)], { personId: 'B' })).toMatchObject({ shiftState: 'off', bookedMinutes: 30, capacityMinutes: null, occupancyPct: null })
   })
 })
+describe('S111-8 (Greptile P1): a previous-day tail never earns a lane — hours 00:00–08:00, roster A and B, zero rows', () => {
+  const night = (spans: ReturnType<typeof span>[]) => {
+    const base = input(spans)
+    return pick(capacityForDay({ ...base, hours: { ...base.hours!, openMs: minute(0), closeMs: minute(480) }, shift: shifts({ roster: [roster[0], roster[1]] }) }))
+  }
+  test('only A 23:30 (previous day) → 00:30 → none, bookedMinutes 30, no capacity', () => {
+    expect(night([span('A', -30, 30)])).toMatchObject({ shiftState: 'none', bookedMinutes: 30, capacityMinutes: null, occupancyPct: null })
+  })
+  test('plus B 02:00–03:00 → B inferred 420 (480 − 60), A adds her 30 with no lane: 450, 90, 20 %', () => {
+    expect(night([span('A', -30, 30), span('B', 120, 180)])).toMatchObject({ shiftState: 'inferred', capacityMinutes: 450, bookedMinutes: 90, occupancyPct: 20, lanes: 2 })
+  })
+})

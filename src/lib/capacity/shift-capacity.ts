@@ -104,11 +104,13 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   const guessable = input.laneKind !== 'none' && hours != null && !hours.closed && hours.source !== 'default'
     // The twin of capacity.ts hoursRunForward (a value import from there would cycle).
     && Number.isFinite(hours.openMs) && Number.isFinite(hours.closeMs) && hours.closeMs > hours.openMs
-  // S111-4: the guessed roster = people with an assigned booking INSIDE the
-  // opening hours. assignedIds (any span on the JST day) stays the solo-rule
-  // input; a midnight tail or an out-of-hours booking never earns a lane.
+  // S111-4 + S111-8: the guessed roster = people with an assigned booking that
+  // starts within the store-day and overlaps the opening hours; a tail from
+  // the previous day keeps its booked minutes, never a lane. assignedIds (any
+  // span on the JST day) stays the solo-rule input; an out-of-hours booking
+  // never earns a lane either.
   const inHoursIds = new Set(guessable && hours
-    ? input.spans.filter(s => s.staffId != null && Math.min(s.endMs, hours.closeMs) > Math.max(s.startMs, hours.openMs)).map(s => s.staffId as string)
+    ? input.spans.filter(s => s.staffId != null && s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs && Math.min(s.endMs, hours.closeMs) > Math.max(s.startMs, hours.openMs)).map(s => s.staffId as string)
     : [])
   const inferred = rows.length === 0 && !solo && guessable && inHoursIds.size > 0
   // Core has no dated removals/deactivations: a past zero-row day at a store
