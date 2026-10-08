@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
-import { todayStatusFixes } from './close-out'
+import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, jstToday, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
@@ -266,6 +266,36 @@ async function main() {
       assert.deepEqual(keep, [], '(c) no skipped line for the unchanged row')
     }
     console.log(`✓ G1: today's reconcile updated ${want.length} rows (${want.filter((w) => w.status === 'IN_PROGRESS').length} IN_PROGRESS); legacy + staff-edited untouched`)
+  }
+
+  // ⚖ G-P1 (S88) wiring pin: apply itself passes the planned staff id and run.skipped to the reconcile — an owned row the
+  // plan moves today, then moved +3h (still today) or re-staffed on core, is not updated and gets exactly one movedLine.
+  for (const variant of ['moved', 'restaffed'] as const) {
+    const g = fakeCore()
+    const gm = empty()
+    assert.equal(await apply(g.core, opts(gm)), 0)
+    const byKey0 = (d: string) => new Map(plan(recipe, { ...ctx, legacyThrough: gm.stores[STORE].legacyThrough }, d, TODAY).appointments.map((a) => [a.key, a]))
+    const day = [...Array(14).keys()].map((i) => addDays(TODAY, i + 1)).find((d) => {
+      const k = byKey0(d)
+      return g.t.appts.some((r) => { const a = k.get(tagOf(r)); return a?.date === d && a.status !== 'SCHEDULED' && !recipe.legacyMembers!.includes(a.member) && r.status === 'SCHEDULED' && jstToday(new Date(Date.parse(r.starts_at as string) + 3 * 3_600_000)) === d })
+    })!
+    assert.ok(day, `${variant}: a future day has an owned row the plan moves off SCHEDULED, +3h still that day`)
+    const byKey = byKey0(day)
+    const target = g.t.appts.find((r) => { const a = byKey.get(tagOf(r)); return a?.date === day && a.status !== 'SCHEDULED' && !recipe.legacyMembers!.includes(a.member) && r.status === 'SCHEDULED' && jstToday(new Date(Date.parse(r.starts_at as string) + 3 * 3_600_000)) === day })!
+    if (variant === 'moved') {
+      const shift = (s: unknown) => new Date(Date.parse(s as string) + 3 * 3_600_000).toISOString()
+      Object.assign(target, { starts_at: shift(target.starts_at), ends_at: shift(target.ends_at), ...(target.occupied_until ? { occupied_until: shift(target.occupied_until) } : {}) })
+    } else {
+      const other = g.t.staff.find((s) => s.id !== target.staff_id)!
+      assert.ok(other, 'restaffed: a second real staff id exists')
+      Object.assign(target, { staff_id: other.id })
+    }
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    assert.ok(g.stats.updates.length > 0, `${variant}: the reconcile ran (other rows of the day were updated)`)
+    assert.ok(!g.stats.updates.some((u) => u.id === target.id), `${variant}: the moved row is not among the status updates`)
+    const line = movedLine(tagOf(target), target.id as string)
+    assert.equal(gm.runs[gm.runs.length - 1].skipped.filter((l) => l === line).length, 1, `${variant}: the run's skipped list carries the movedLine exactly once`)
+    console.log(`✓ G-P1 wiring (${variant}): row ${tagOf(target)} left alone, one movedLine`)
   }
 
   // A default policy may echo platform hours: the snapshot is still the recipe's hours, the ones the loader sets.
