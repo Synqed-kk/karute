@@ -173,7 +173,9 @@ function capacityShown(row: WeekDayRowData): boolean {
   // PR-2 (n3/n4): the percentage itself is the gate — capacityMinutes alone is
   // not enough, and a withheld day (定休日 etc.) never shows whatever its
   // shiftState says.
-  return row.occupancyPct != null
+  // S111-6: and the old gate kept — a withheld row with a stray percentage
+  // prints nothing.
+  return row.occupancyPct != null && row.capacityMinutes != null
 }
 
 /** ⚖ S3b (PKT-1c-B), narrowed by R1-10 — 未設定 reads the FACT, and only the
@@ -227,7 +229,9 @@ function freeOrBookedTimeSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set
   // R1-1: 空き rides `freeMinutes`, which the module withholds on an org-blob
   // day (a business-wide default is not this store's word about its hours,
   // E21). No minutes to promise → no cell, and the slot takes the next metric.
-  if (BOOKING_SWITCHES.freeTimeCell && capacityShown(row) && row.freeMinutes != null) {
+  // S111-1: never on a guessed day — 空き is a free-time figure staff book
+  // into, and the guess cannot say anyone is present outside her bookings.
+  if (BOOKING_SWITCHES.freeTimeCell && capacityShown(row) && row.freeMinutes != null && row.shiftBasis !== 'inferred') {
     return freeCell(ctx, row.freeMinutes)
   }
   return pickNext(row, ctx, used)
