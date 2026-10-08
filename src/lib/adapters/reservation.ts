@@ -1,6 +1,6 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
-import { resolveBreakMinutes } from '@/lib/capacity/break-minutes'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import type { WeekStart } from '@/lib/date/week-start'
 import { isCountedBooking } from '@/lib/appointments/by-date'

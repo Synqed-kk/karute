@@ -1,5 +1,6 @@
 import { shiftTotals, type ShiftCapacityInput, type ShiftState } from './shift-capacity'
 export { receivableIntervals } from './shift-capacity'
+export { resolveBreakMinutes, effectiveBreakMinutes, DEFAULT_BREAK_MINUTES } from './break-minutes'
 export type { ShiftCapacityInput, ShiftState, ShiftRow, ShiftPerson, Interval } from './shift-capacity'
 
 // ---------------------------------------------------------------------------

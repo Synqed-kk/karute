@@ -17,7 +17,7 @@
 //     around this call, so a failed read surfaces as an error.
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { resolveBreakMinutes } from '@/lib/capacity/break-minutes'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { readStaffShifts } from '@/lib/appointments/staff-shifts'
 import type { ShiftCapacityInput } from '@/lib/capacity/capacity'

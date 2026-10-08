@@ -1,4 +1,4 @@
-import { DEFAULT_BREAK_MINUTES, effectiveBreakMinutes, resolveBreakMinutes } from '@/lib/capacity/break-minutes'
+import { DEFAULT_BREAK_MINUTES, effectiveBreakMinutes, resolveBreakMinutes } from '@/lib/capacity/capacity'
 
 test('resolveBreakMinutes: a finite integer ≥ 0 wins; anything else is the default 60', () => {
   expect(DEFAULT_BREAK_MINUTES).toBe(60)

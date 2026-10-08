@@ -15,7 +15,7 @@
 // booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
-import { resolveBreakMinutes } from '@/lib/capacity/break-minutes'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
