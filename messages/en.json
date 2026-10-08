@@ -190,6 +190,7 @@
       "noShow": "No-show",
       "lastMonthSamePeriod": "vs same period last month",
       "unset": "Not set",
+      "utilApprox": "~{pct}%",
       "closed": "Closed",
       "countValue": "{n}",
       "countLine": "{n} bookings",

@@ -64,6 +64,8 @@ function durationMinutes(a: Appointment): number {
  *  agree about them. */
 export type CapacityRowFields = {
   shiftState?: ShiftState
+  /** 'inferred' = guess mode (no shift rows); the renderer prints 約nn%. */
+  shiftBasis?: 'rows' | 'inferred'
   onShiftNoBooking?: number
   unassignedOverflow?: number
   /** lanes × the day's declared minutes, or null when no honest capacity

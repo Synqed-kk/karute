@@ -170,7 +170,10 @@ function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): 
  *  `capacityMinutes != null` IS "this day's capacity is worth showing" — for
  *  稼働 and 空き alike, still one predicate read by both slots. */
 function capacityShown(row: WeekDayRowData): boolean {
-  return row.capacityMinutes != null
+  // PR-2 (n3/n4): the percentage itself is the gate — capacityMinutes alone is
+  // not enough, and a withheld day (定休日 etc.) never shows whatever its
+  // shiftState says.
+  return row.occupancyPct != null
 }
 
 /** ⚖ S3b (PKT-1c-B), narrowed by R1-10 — 未設定 reads the FACT, and only the
@@ -209,7 +212,9 @@ function utilizationSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<Cell
   // partial payload falls to the next metric instead of printing "null%".
   const pct = row.full ? 100 : row.occupancyPct
   if (capacityShown(row) && pct != null) {
-    return { key: 'utilization', label: ctx.t('utilization'), value: `${pct}%`, tone: bandTone(pct) }
+    // A guessed figure (no shift rows; bookings say who worked) reads 約nn%.
+    const value = row.shiftBasis === 'inferred' ? ctx.t('utilApprox', { pct }) : `${pct}%`
+    return { key: 'utilization', label: ctx.t('utilization'), value, tone: bandTone(pct) }
   }
   if (unsetShown(row)) return unsetCell(ctx)
   return pickNext(row, ctx, used)

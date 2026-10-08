@@ -75,7 +75,9 @@ export function cellTone(cell: {
   density: MonthDensityBucket
   band?: MonthDensityBucket
 }): string | null {
-  return DENSITY_DOT_CLASS[cell.band ?? cell.density]
+  // PR-2 (S7 / R-K): the dot is booking density only; `band` stays on the
+  // DTO for OFF decoding and baked bundles but no longer colours the dot.
+  return DENSITY_DOT_CLASS[cell.density]
 }
 
 /** 予約 N件 for the month = the counted bookings of the days that BELONG to it.
