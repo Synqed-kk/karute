@@ -260,7 +260,7 @@ async function main() {
       const longer = { ...fresh, ends_at: shift(30 * 60_000)(fresh.ends_at) }
       const moveLines: string[] = []
       assert.deepEqual(todayStatusFixes([later, restaffed, longer].map((row) => ({ row, planned: pinP, staffId: fresh.staff_id })), recipe, day, moveLines), [], '(a)(b) a row moved later today, re-staffed or re-timed is never picked')
-      assert.deepEqual(moveLines, [later, restaffed, longer].map((r) => `appointments ${pinP.key}: booking ${r.id}'s time, duration or staff differs from the plan (a person moved it), left alone`), '(a)(b) one skipped line per moved row')
+      assert.deepEqual(moveLines, [later, restaffed, longer].map((r) => `appointments ${pinP.key}: booking ${r.id}'s time or duration differs from the plan (or its staff, where the planned staff is known) — a person moved it, left alone`), '(a)(b) one skipped line per moved row')
       const keep: string[] = []
       assert.deepEqual(todayStatusFixes([{ row: fresh, planned: pinP, staffId: fresh.staff_id }], recipe, day, keep).map((x) => x.row), [fresh], '(c) the unchanged row, its staff id known, is still picked')
       assert.deepEqual(keep, [], '(c) no skipped line for the unchanged row')

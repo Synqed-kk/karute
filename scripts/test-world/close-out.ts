@@ -41,7 +41,7 @@ export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' |
 })
 
 /** The one skipped line for a row stillPlanned() rejects (apply's today reconcile and closeOut print the same text). */
-export const movedLine = (key: string, id: string) => `appointments ${key}: booking ${id}'s time, duration or staff differs from the plan (a person moved it), left alone`
+export const movedLine = (key: string, id: string) => `appointments ${key}: booking ${id}'s time or duration differs from the plan (or its staff, where the planned staff is known) — a person moved it, left alone`
 
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
   if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')

@@ -318,7 +318,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const row = await write('appointments', a.key, () => core.appointments.create({
         customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
         duration_minutes: a.duration, booked_price_amount: a.booked_price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
-        // Create has no status_reason in this SDK; keep the taxonomy in notes without an update.
+        // Create has no status_reason in this SDK; realism.ts writes the reason and its label together later.
         // ⚖ G-P2 (S88): no status_reason is saved by this create, so no cancel label either (realism.ts writes both, together)
         title: null, notes: bookingNotes({ ...a, cancelReason: null }),
       }, { idempotencyKey: `test-world:${a.key}` }))
