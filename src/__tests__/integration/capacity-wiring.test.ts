@@ -41,11 +41,11 @@ type Switches = {
   shiftLanes: boolean
 }
 
-const ALL_ON: Switches = {
+const LEGACY_LAYERS_ON: Switches = {
   multiStaffCapacity: true,
   percentBands: true,
   bedLanes: true,
-  shiftLanes: true,
+  shiftLanes: false,
 }
 const ALL_OFF: Switches = {
   multiStaffCapacity: false,
@@ -77,6 +77,7 @@ type WeekOpts = {
   soloMode?: boolean
   appointments?: Appointment[]
   facts?: ReadonlyMap<string, DayHoursFact>
+  shiftCapacity?: Reservation.CapacityInputs['shiftCapacity']
 }
 
 function weekRows(opts: WeekOpts = {}) {
@@ -95,6 +96,7 @@ function weekRows(opts: WeekOpts = {}) {
     {
       rosterHeadcount: opts.rosterHeadcount === undefined ? 1 : opts.rosterHeadcount,
       laneKind: opts.laneKind ?? 'staff',
+      ...(opts.shiftCapacity ? { shiftCapacity: opts.shiftCapacity } : {}),
     },
   )
 }
@@ -191,7 +193,7 @@ describe('multiStaffCapacity ON alone', () => {
   })
 
   it('a store whose ROSTER could not be read gets none, at any switch state', () => {
-    for (const switches of [only, ALL_ON, ALL_OFF]) {
+    for (const switches of [only, LEGACY_LAYERS_ON, ALL_OFF]) {
       const row = byDay(weekRows({ switches, rosterHeadcount: null, soloMode: false })).get(
         YMD.mon,
       )!
@@ -230,17 +232,24 @@ describe('bedLanes ON alone', () => {
     expect(weekRows({ switches: { ...ALL_OFF, bedLanes: true } })).toEqual(
       weekRows({ switches: ALL_OFF }),
     )
-    expect(weekRows({ switches: { ...ALL_ON, bedLanes: false } })).toEqual(
-      weekRows({ switches: ALL_ON }),
+    expect(weekRows({ switches: { ...LEGACY_LAYERS_ON, bedLanes: false } })).toEqual(
+      weekRows({ switches: LEGACY_LAYERS_ON }),
     )
   })
 })
 
 describe('shiftLanes ON alone', () => {
-  it('is identical to OFF — it needs shift data that does not exist yet', () => {
-    expect(weekRows({ switches: { ...ALL_OFF, shiftLanes: true } })).toEqual(
-      weekRows({ switches: ALL_OFF }),
-    )
+  it('withholds the figure without a complete shift read', () => {
+    const rows = weekRows({ switches: { ...ALL_OFF, shiftLanes: true } })
+    for (const row of rows) {
+      expect(row.shiftState).toBe('unavailable')
+      expect(row.occupancyPct).toBeNull()
+      // The hours facts come first: the 定休日 and the unsaved day keep their
+      // own reason even when the shift read is incomplete.
+      const hoursReason = row.dateIso === YMD.sat ? 'closed' : row.dateIso === YMD.sun ? 'hours-not-saved' : null
+      expect(row.capacityReason).toBe(hoursReason ?? 'roster-unknown')
+    }
+    expect(rows).not.toEqual(weekRows({ switches: ALL_OFF }))
   })
 })
 
@@ -252,10 +261,7 @@ describe('pairs — the inert keys never change the answer', () => {
   const pairs: [string, Partial<Switches>][] = [
     ['multiStaff + percentBands', { multiStaffCapacity: true, percentBands: true }],
     ['multiStaff + bedLanes', { multiStaffCapacity: true, bedLanes: true }],
-    ['multiStaff + shiftLanes', { multiStaffCapacity: true, shiftLanes: true }],
     ['percentBands + bedLanes', { percentBands: true, bedLanes: true }],
-    ['percentBands + shiftLanes', { percentBands: true, shiftLanes: true }],
-    ['bedLanes + shiftLanes', { bedLanes: true, shiftLanes: true }],
   ]
 
   it.each(pairs)('%s reads exactly as multiStaffCapacity alone decides', (_name, pair) => {
@@ -267,8 +273,19 @@ describe('pairs — the inert keys never change the answer', () => {
     expect(rows).toEqual(expected)
   })
 
-  it('ALL ON is the shipped state, and it is the multiStaffCapacity answer', () => {
-    expect(weekRows({ switches: ALL_ON, rosterHeadcount: 2 })).toEqual(
+  it.each([
+    ['multiStaff + shiftLanes', { multiStaffCapacity: true, shiftLanes: true }],
+    ['percentBands + shiftLanes', { percentBands: true, shiftLanes: true }],
+    ['bedLanes + shiftLanes', { bedLanes: true, shiftLanes: true }],
+  ] as [string, Partial<Switches>][])('%s requires a complete shift read', (_name, pair) => {
+    for (const row of weekRows({ switches: { ...ALL_OFF, ...pair }, rosterHeadcount: 2 })) {
+      expect(row.shiftState).toBe('unavailable')
+      expect(row.occupancyPct).toBeNull()
+    }
+  })
+
+  it('the legacy layers retain the multiStaffCapacity answer while shifts are OFF', () => {
+    expect(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 })).toEqual(
       weekRows({ switches: { ...ALL_OFF, multiStaffCapacity: true }, rosterHeadcount: 2 }),
     )
   })
@@ -280,7 +297,7 @@ describe('pairs — the inert keys never change the answer', () => {
 
 describe('a neighbouring layer off, with this round ON', () => {
   it('no hours at all: the week degrades honestly, it does not lie', () => {
-    const rows = weekRows({ switches: ALL_ON, facts: new Map(), rosterHeadcount: 2 })
+    const rows = weekRows({ switches: LEGACY_LAYERS_ON, facts: new Map(), rosterHeadcount: 2 })
     for (const row of rows) {
       expect(row.capacityMinutes).toBeNull()
       expect(row.capacityReason).toBe('hours-unresolved')
@@ -292,15 +309,15 @@ describe('a neighbouring layer off, with this round ON', () => {
   })
 
   it('solo_mode off: with the switch ON it is not consulted at all', () => {
-    expect(weekRows({ switches: ALL_ON, soloMode: false, rosterHeadcount: 2 })).toEqual(
-      weekRows({ switches: ALL_ON, soloMode: true, rosterHeadcount: 2 }),
+    expect(weekRows({ switches: LEGACY_LAYERS_ON, soloMode: false, rosterHeadcount: 2 })).toEqual(
+      weekRows({ switches: LEGACY_LAYERS_ON, soloMode: true, rosterHeadcount: 2 }),
     )
   })
 
   it('the terminal partitions off: the capacity facts do not move', () => {
-    const withTerminal = weekRows({ switches: ALL_ON, rosterHeadcount: 2 })
+    const withTerminal = weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 })
     expect(withTerminal.map((r) => r.capacityMinutes)).toEqual(
-      weekRows({ switches: ALL_ON, rosterHeadcount: 2 }).map((r) => r.capacityMinutes),
+      weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 }).map((r) => r.capacityMinutes),
     )
   })
 })
@@ -314,11 +331,11 @@ describe('⚖ store isolation — a divisor never sees another branch', () => {
     // Her store rosters two people; the business rosters forty. The lens the
     // doors pass is her store's, so the day divides by 2 × 600, and a number
     // built from 40 can never appear.
-    const hers = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 })).get(YMD.mon)!
+    const hers = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 })).get(YMD.mon)!
     expect(hers.lanes).toBe(2)
     expect(hers.capacityMinutes).toBe(1200)
 
-    const business = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 40 })).get(YMD.mon)!
+    const business = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 40 })).get(YMD.mon)!
     expect(business.capacityMinutes).toBe(24_000)
     expect(hers.capacityMinutes).not.toBe(business.capacityMinutes)
   })
@@ -327,7 +344,7 @@ describe('⚖ store isolation — a divisor never sees another branch', () => {
     // The whole point of the divisor's fail-CLOSED posture: null is not
     // "everyone", it is "we do not know", and a day we cannot describe gets no
     // number rather than the business-wide one.
-    const row = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: null })).get(YMD.mon)!
+    const row = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: null })).get(YMD.mon)!
     expect(row.capacityMinutes).toBeNull()
     expect(row.capacityReason).toBe('roster-unknown')
     expect(row.occupancyPct).toBeNull()
@@ -346,7 +363,7 @@ describe('mutant pins', () => {
     // the row runs 10:00–20:00 but claims 60 minutes. Reading the column would
     // make this a 10% day; reading the interval makes it the 満 day it is.
     const rows = weekRows({
-      switches: ALL_ON,
+      switches: LEGACY_LAYERS_ON,
       appointments: [
         {
           id: 'lying-duration',
@@ -373,7 +390,7 @@ describe('mutant pins', () => {
 
   it('m2b — occupied_until extends the interval when core snapshotted cleanup', () => {
     const rows = weekRows({
-      switches: ALL_ON,
+      switches: LEGACY_LAYERS_ON,
       appointments: [
         {
           id: 'with-cleanup',
@@ -403,7 +420,7 @@ describe('mutant pins', () => {
     // span (Math.max(finite, NaN) === NaN, which the span validation drops).
     const malformed = byDay(
       weekRows({
-        switches: ALL_ON,
+        switches: LEGACY_LAYERS_ON,
         appointments: [
           {
             id: 'malformed-cleanup',
@@ -426,7 +443,7 @@ describe('mutant pins', () => {
     ).get(YMD.mon)!
     const noCleanup = byDay(
       weekRows({
-        switches: ALL_ON,
+        switches: LEGACY_LAYERS_ON,
         appointments: [
           {
             id: 'no-cleanup',
@@ -460,7 +477,7 @@ describe('mutant pins', () => {
     // can sit before the row's real end. Trusting it blindly halved this
     // booking; the max keeps its full two hours.
     const rows = weekRows({
-      switches: ALL_ON,
+      switches: LEGACY_LAYERS_ON,
       appointments: [
         {
           id: 'stale-cleanup',
@@ -491,7 +508,7 @@ describe('mutant pins', () => {
     // concurrency guard could not see the row at all. Without the max this
     // reads 0 % / 600 free.
     const rows = weekRows({
-      switches: ALL_ON,
+      switches: LEGACY_LAYERS_ON,
       appointments: [
         {
           id: 'backwards-cleanup',
@@ -519,10 +536,10 @@ describe('mutant pins', () => {
 
   it('m4 — laneKind ignoring the class-bound store would hand it a percentage', () => {
     const classBound = byDay(
-      weekRows({ switches: ALL_ON, rosterHeadcount: 3, laneKind: 'none' }),
+      weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 3, laneKind: 'none' }),
     ).get(YMD.mon)!
     const staffBound = byDay(
-      weekRows({ switches: ALL_ON, rosterHeadcount: 3, laneKind: 'staff' }),
+      weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 3, laneKind: 'staff' }),
     ).get(YMD.mon)!
     expect(classBound.occupancyPct).toBeNull()
     expect(staffBound.occupancyPct).not.toBeNull()
@@ -537,7 +554,7 @@ describe('mutant pins', () => {
   })
 
   it('a closed day carries its bookings and its reason, never a number', () => {
-    const row = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 })).get(YMD.sat)!
+    const row = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 })).get(YMD.sat)!
     expect(row.closed).toBe(true)
     expect(row.capacityReason).toBe('closed')
     expect(row.count).toBe(1) // ⚖ the bookings on a 定休日 are real
@@ -545,7 +562,7 @@ describe('mutant pins', () => {
   })
 
   it('an unsaved day says so, and says it is the HOURS that are missing', () => {
-    const row = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 })).get(YMD.sun)!
+    const row = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 })).get(YMD.sun)!
     expect(row.hoursSaved).toBe(false)
     expect(row.hoursSource).toBe('default')
     expect(row.capacityReason).toBe('hours-not-saved')
@@ -561,11 +578,98 @@ describe('mutant pins', () => {
       source: 'org',
       closed: false,
     })
-    const row = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 1, facts })).get(YMD.mon)!
+    const row = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 1, facts })).get(YMD.mon)!
     expect(row.hoursSource).toBe('org')
     expect(row.occupancyPct).toBe(10)
     expect(row.band).toBe('light')
     expect(row.freeMinutes).toBeNull() // E21 — a business default is not this store's word
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// shiftLanes ON — the same three hours guards, with a COMPLETE shift read
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('shiftLanes ON — closed / unsaved / unresolved hours never carry a percent', () => {
+  const ON: Partial<Switches> = { ...ALL_OFF, shiftLanes: true }
+  const jstMinute = (ymd: string, m: number) => Date.parse(`${ymd}T00:00:00+09:00`) + m * 60_000
+  const person = (id: string) => ({ id, active: true, stores: [{ storeId: 'store' }] })
+  const shiftRows: Reservation.CapacityInputs['shiftCapacity'] = {
+    storeId: 'store',
+    readComplete: true,
+    roster: [person('s1'), person('s2')],
+    rows: Object.values(YMD).flatMap((date) =>
+      ['s1', 's2'].map((staffId) => ({
+        staffId, storeId: 'store', date, startMs: jstMinute(date, 600), endMs: jstMinute(date, 1200), breaks: [], blocks: [],
+      })),
+    ),
+  }
+  const soloStore: Reservation.CapacityInputs['shiftCapacity'] = {
+    storeId: 'store', readComplete: true, roster: [person('s1')], rows: [],
+  }
+  const cases: [string, Reservation.CapacityInputs['shiftCapacity']][] = [
+    ['shift rows', shiftRows],
+    ['solo store', soloStore],
+  ]
+
+  it.each(cases)('%s: a closed day carries its bookings and its reason, never a number', (_name, shiftCapacity) => {
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, shiftCapacity })).get(YMD.sat)!
+    expect(row.closed).toBe(true)
+    expect(row.capacityReason).toBe('closed')
+    expect(row.count).toBe(1) // ⚖ the bookings on a 定休日 are real
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBeDefined()
+    expect(row.occupancyPct).toBeNull()
+    expect(row.band).toBeNull()
+    expect(row.capacityMinutes).toBeNull()
+  })
+
+  it.each(cases)('%s: an unsaved day says so, and says it is the HOURS that are missing', (_name, shiftCapacity) => {
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, shiftCapacity })).get(YMD.sun)!
+    expect(row.hoursSaved).toBe(false)
+    expect(row.hoursSource).toBe('default')
+    expect(row.capacityReason).toBe('hours-not-saved')
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBeDefined()
+    expect(row.occupancyPct).toBeNull()
+    expect(row.band).toBeNull()
+  })
+
+  it.each(cases)('%s: no hours at all — the week degrades honestly, it does not lie', (_name, shiftCapacity) => {
+    const rows = weekRows({ switches: ON, facts: new Map(), rosterHeadcount: 2, shiftCapacity })
+    for (const row of rows) {
+      expect(row.capacityMinutes).toBeNull()
+      expect(row.capacityReason).toBe('hours-unresolved')
+      expect(row.occupancyPct).toBeNull()
+      expect(row.band).toBeNull()
+      expect(row.shiftState).toBeDefined()
+      expect(typeof row.count).toBe('number')
+    }
+    // R-G still holds: Thursday's two overlapping rows on one staffer = 180.
+    expect(byDay(rows).get(YMD.thu)!.bookedMinutes).toBe(180)
+  })
+
+  it('lane kind none withholds the percent as kind-none, carrying booked time and shift state', () => {
+    const rows = byDay(weekRows({ switches: ON, rosterHeadcount: 2, laneKind: 'none', shiftCapacity: shiftRows }))
+    for (const [ymd, booked] of [[YMD.mon, 60], [YMD.thu, 180]] as const) {
+      const row = rows.get(ymd)!
+      expect(row.occupancyPct).toBeNull()
+      expect(row.capacityMinutes).toBeNull()
+      expect(row.capacityReason).toBe('kind-none')
+      expect(row.bookedMinutes).toBe(booked)
+      expect(row.shiftState).toBe('entered')
+    }
+  })
+
+  it.each([[1200, 600], [600, 600]])('hours %i→%i that do not run forward withhold the percent as hours-unresolved', (openMinute, closeMinute) => {
+    const facts = new Map(hoursFacts())
+    facts.set(YMD.mon, { minutes: 0, openMinute, closeMinute, saved: true, closed: false, source: 'store' })
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, facts, shiftCapacity: shiftRows })).get(YMD.mon)!
+    expect(row.occupancyPct).toBeNull()
+    expect(row.capacityMinutes).toBeNull()
+    expect(row.capacityReason).toBe('hours-unresolved')
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBe('entered')
   })
 })
 
@@ -592,7 +696,7 @@ describe('capacityRowFields(undefined) — the door that never looked says so', 
   })
 
   it('the module’s own facts are passed through unchanged, reason and all', () => {
-    const rows = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 }))
+    const rows = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 }))
     // A day WITH a capacity still carries a null reason — which is what makes
     // the pairing readable in the first place.
     expect(rows.get(YMD.mon)!.capacityReason).toBeNull()
@@ -613,7 +717,7 @@ describe('⚖ R1 rows — each new guard, at every switch state', () => {
   const STATES: [string, Switches][] = [
     ['ALL OFF', ALL_OFF],
     ['multiStaffCapacity alone', { ...ALL_OFF, multiStaffCapacity: true }],
-    ['ALL ON', ALL_ON],
+    ['ALL ON', LEGACY_LAYERS_ON],
   ]
 
   /** A 22:00-the-night-before run-in plus this store's own noon booking. */
@@ -765,14 +869,14 @@ describe('⚖ R1 rows — each new guard, at every switch state', () => {
 
 describe('the month cell and the week row describe the same day', () => {
   it('appointmentsToMonthFacts agrees with the week row, key for key', () => {
-    const { appointmentsToMonthFacts } = loadAdapter(ALL_ON)
+    const { appointmentsToMonthFacts } = loadAdapter(LEGACY_LAYERS_ON)
     const facts = appointmentsToMonthFacts(APPTS, WEEK_START, WEEK_END, {
       hoursFacts: hoursFacts(),
       soloMode: true,
       rosterHeadcount: 2,
       laneKind: 'staff',
     })
-    const rows = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 }))
+    const rows = byDay(weekRows({ switches: LEGACY_LAYERS_ON, rosterHeadcount: 2 }))
     for (const [ymd, fact] of facts) {
       const row = rows.get(ymd)!
       expect(fact.capacityMinutes).toBe(row.capacityMinutes)
@@ -783,7 +887,7 @@ describe('the month cell and the week row describe the same day', () => {
   })
 
   it('covers exactly the in-month days it was asked for', () => {
-    const { appointmentsToMonthFacts } = loadAdapter(ALL_ON)
+    const { appointmentsToMonthFacts } = loadAdapter(LEGACY_LAYERS_ON)
     const facts = appointmentsToMonthFacts(APPTS, WEEK_START, WEEK_END, {})
     expect([...facts.keys()]).toEqual([
       YMD.mon,
