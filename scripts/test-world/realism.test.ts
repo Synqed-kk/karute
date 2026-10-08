@@ -6,7 +6,7 @@ import type { Appointment } from '@synqed-kk/client'
 import { CANCEL_REASON_SAME_DAY_CONTACT, CANCEL_REASONS, NO_SHOW_REASON_NO_CONTACT } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID, Refused } from './count-baseline'
 import { loadRecipe, registry, storeCtx, type Manifest } from './fill'
-import { addDays, bookingNotes, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
+import { addDays, bookingNotes, hoursOn, isGeneratedNote, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
 import { planStore, realism, revert, type Fields, type Ledger, type RealismCore } from './realism'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' // beauty_chiropractic in registry.json
@@ -243,7 +243,7 @@ async function pass() {
     if (r.status === 'CANCELLED' && burnt.has(r.id)) assert.equal(r.status_reason, CANCEL_REASON_SAME_DAY_CONTACT, `${r.id}: a burnt cancel is same-day contact`)
     if (r.status !== was.status) assert.ok(!w.karuted.has(r.id) && !burnt.has(r.id), `${r.id}: a booking with a karute or a burn was cancelled`)
     assert.equal(r.status_set_by, was.status_set_by, `${r.id}: no acting staff stamped`)
-    assert.equal(r.notes, bookingNotes(planned.get(r.id)!), `${r.id}: tag first, then the ご要望 line`)
+    assert.equal(r.notes, bookingNotes({ ...planned.get(r.id)!, cancelReason: r.status === 'CANCELLED' ? r.status_reason : null }), `${r.id}: tag first, then the ご要望 line, then the saved reason's label (G-P2)`)
     assert.equal(TAG.exec(r.notes!)?.[1], planned.get(r.id)!.key, 'fill / close-out still find the tag')
   }
   assert.ok(owned.some((r) => r.notes!.includes('\n')) && owned.some((r) => !r.notes!.includes('\n')), 'some forms filled, some left empty')
@@ -329,9 +329,26 @@ async function pass() {
   const fix = c4.changes.find((c) => c.id === oldRow.id)
   assert.ok(!c4.held.some((l) => l.startsWith(`${oldRow.id}:`)), 'an old-format generated note is recognised as the loader\'s')
   assert.ok(fix && (CANCEL_REASONS as readonly string[]).includes(fix.set.status_reason as string), 'its status_reason repair runs')
-  assert.equal(fix!.set.notes, bookingNotes(p4.get(oldRow.id)!), 'its notes move to the labelled line')
+  assert.equal(fix!.set.notes, bookingNotes({ ...p4.get(oldRow.id)!, cancelReason: fix!.set.status_reason as string }), 'its notes move to the line labelled with the reason saved beside it')
   assert.ok(c4.held.includes(`${handRow.id}: its notes were edited by hand, left alone`) && !c4.changes.some((c) => c.id === handRow.id), 'a hand-written note is still protected')
   console.log(`✓ G2: old-format cancelled note ${oldRow.id} repaired (${fix!.set.status_reason}); hand-written ${handRow.id} held`)
+
+  // ⚖ G-P2 (S88): ONE value — the cancel label in notes is built from the status_reason saved on the row in the same
+  // write, never the plan's guess: a planned reason X whose booking is burnt (→ same-day contact) is labelled 当日連絡あり,
+  // and the next run still reads that note as the loader's (isGeneratedNote asked with the row's saved reason).
+  const w5 = await world()
+  const p5 = new Map(w5.p.appointments.map((a) => [`a-${a.key}`, a]))
+  const burnRow = w5.rows.find((r) => r !== w5.edited && r !== w5.human && p5.get(r.id)?.status === 'CANCELLED' && p5.get(r.id)!.cancelReason && p5.get(r.id)!.cancelReason !== CANCEL_REASON_SAME_DAY_CONTACT)!
+  assert.ok(burnRow, 'the fixture: a planned cancel whose planned reason is not same-day contact')
+  Object.assign(burnRow, { status: 'CANCELLED', status_reason: null, status_set_by: null, notes: `テストデータ [${p5.get(burnRow.id)!.key}]` })
+  const c5 = planStore({ ...input, recipe: w5.recipe, plan: w5.p, rows: w5.rows, karuted: w5.karuted, burnt: new Set([burnRow.id]) })
+  const one = c5.changes.find((c) => c.id === burnRow.id)!
+  assert.deepEqual([one?.set.status_reason, (one?.set.notes as string | undefined)?.split('\n').pop()], [CANCEL_REASON_SAME_DAY_CONTACT, 'キャンセル理由：当日連絡あり'], 'G-P2: the burnt cancel\'s reason and its note label land in the SAME write, both same-day contact')
+  Object.assign(burnRow, one.set)
+  assert.ok(isGeneratedNote(burnRow.notes, { ...p5.get(burnRow.id)!, cancelReason: burnRow.status_reason }), 'G-P2: the note labelled with the saved reason is the loader\'s')
+  const c5b = planStore({ ...input, recipe: w5.recipe, plan: w5.p, rows: w5.rows, karuted: w5.karuted, burnt: new Set([burnRow.id]) })
+  assert.ok(!c5b.held.some((l) => l.startsWith(`${burnRow.id}:`)) && !c5b.changes.some((c) => c.id === burnRow.id), 'G-P2: the next run neither holds nor rewrites it')
+  console.log(`✓ G-P2: ${burnRow.id} planned ${p5.get(burnRow.id)!.cancelReason}, burnt → ${burnRow.status_reason}, note labelled 当日連絡あり in the same write`)
 
   // --repair-foreign never sets a MANUAL booking's null duration (Karute's own create always sends one): held, one line.
   const manual = { ...clone(w2.reserve), id: 'manual-row', notes: '電話で予約', source: 'MANUAL' as const }

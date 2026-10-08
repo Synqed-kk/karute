@@ -93,7 +93,9 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
       : seen.get(tag)! > 1 ? `its tag ${tag} is on ${seen.get(tag)} bookings`
       : !p ? `${tag} is not in the plan`
       : a.customer_id !== i.custId.get(p.member) ? `its customer differs from the planned customer (${p.member})`
-      : !isGeneratedNote(a.notes, p) ? 'its notes were edited by hand' // any text but a line the loader wrote for this key
+      // ⚖ G-P2 (S88): asked with the row's SAVED reason (the label this script writes); the plan's label, which runs
+      // before S88 wrote, is still the loader's own line
+      : !isGeneratedNote(a.notes, { ...p, cancelReason: a.status === 'CANCELLED' ? a.status_reason : null }) && !isGeneratedNote(a.notes, p) ? 'its notes were edited by hand' // any text but a line the loader wrote for this key
       : null
     if (why) {
       const dur = a.duration_minutes != null ? '' : a.source === 'MANUAL' ? ' — its duration_minutes is null (a MANUAL booking: --repair-foreign leaves it)'
@@ -152,9 +154,11 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
     const [p, n] = [pOf.get(a.id), next.get(a.id)!]
     const old: Fields = {}
     const set: Fields = {}
-    if (p && a.notes !== bookingNotes(p)) {
+    // ⚖ G-P2 (S88): ONE value — the label is the reason saved on this row in this write (n), never the plan's guess
+    const note = p && bookingNotes({ ...p, cancelReason: n.status === 'CANCELLED' ? n.status_reason : null })
+    if (p && a.notes !== note) {
       old.notes = a.notes
-      set.notes = bookingNotes(p)
+      set.notes = note
     }
     if (p && (n.status !== a.status || n.status_reason !== a.status_reason)) {
       // core writes status_reason only beside a status (the same one restated when only the reason moves)
