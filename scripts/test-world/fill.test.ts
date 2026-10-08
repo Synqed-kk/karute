@@ -324,12 +324,16 @@ async function main() {
 
   // ⚖ F2 (S88): the clash window is business-wide — the same practitioner's live booking at ANOTHER store holds the slot
   // (skipped up front, never a double-booking or a 409); a CANCELLED one there frees it. The fake's list honours store_id like core.
-  for (const [status, clashes] of [['SCHEDULED', true], ['CANCELLED', false]] as const) {
+  // The abroad row carries a0's own tag (another customer), and in the recorded variant the manifest even names its id:
+  // ownership stays this store's rows only (fill.ts mine), so it is never adopted — no 「customer differs」 line for a0.
+  for (const [status, clashes, recorded] of [['SCHEDULED', true, false], ['CANCELLED', false, false], ['SCHEDULED', true, true], ['CANCELLED', false, true]] as const) {
     const fx = fakeCore()
     const staffCard = fx.t.staff.find((x) => x.name === a0.staff)!.id
-    fx.t.appts.push({ id: 'abroad-appt', store_id: OTHER, customer_id: 'foreign', staff_id: staffCard, resource_id: 'other-bed', starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: null, status })
+    fx.t.appts.push({ id: 'abroad-appt', store_id: OTHER, customer_id: 'foreign', staff_id: staffCard, resource_id: 'other-bed', starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: bookingNotes(a0), status })
     const mfx = empty()
+    if (recorded) mfx.stores[STORE] = { type: recipe.id, epoch: TODAY, weeklyHours: recipe.policy.weekly_hours, created: { appointments: { [a0.key]: 'abroad-appt' } } }
     const code = await apply(fx.core, opts(mfx))
+    assert.deepEqual(mfx.runs[0].skipped.filter((l) => l.includes('customer differs') && l.startsWith(`appointments ${a0.key}:`)), [], `${status} abroad${recorded ? ' (recorded id)' : ''}: the other store's tagged row is not adopted as a0`)
     assert.deepEqual([code, mfx.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), mfx.runs[0].conflicts409], [0, clashes ? [`appointments ${a0.key}: overlaps existing booking abroad-appt`] : [], []], `another store's ${status} booking, same staff`)
     assert.equal(fx.t.appts.filter((x) => x.store_id === STORE).length, p1.appointments.length - binnedOnly(p1.appointments).length - (clashes ? 1 : 0), `${status} abroad: every planned booking but the binned customer's (and the clashing one), none at the other store`)
     assert.ok(!fx.t.appts.some((x) => x.store_id === STORE && x.staff_id === staffCard && x.starts_at === a0.startsAt) === clashes, `${status} abroad: the planned row is ${clashes ? 'not ' : ''}created`)
