@@ -140,6 +140,10 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
     ids.clear()
     ids.add(shift.personId)
     if (!effectiveRows.some(r => r.staffId === shift.personId) && !booked.has(shift.personId)) return empty('off')
+    // S111-7: on a guessed day a person whose bookings all lie outside the
+    // opening hours has no lane; her own view shows no figure. Her booked
+    // time stays in the booked cell; the all-staff figure is unchanged.
+    if (inferred && !inHoursIds.has(shift.personId)) return empty('off')
   }
   const receivable = new Map<string, Interval[]>()
   let onShiftNoBooking = 0
@@ -178,8 +182,9 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
     const own = minutes([...(receivable.get(id) ?? []), ...(booked.get(id) ?? [])])
     // The break is a duration taken once per inferred person, never an
     // interval placed in the day (nobody knows when it is). It floors at the
-    // person's booked minutes: never below what is booked, never negative,
-    // even when breakMinutes ≥ the open minutes. A person on a guessed day
+    // person's booked minutes: never below what is booked, never negative.
+    // breakMinutes already arrives bounded below the open minutes
+    // (effectiveBreakMinutes, S111-5); the floor stays as the last guard. A person on a guessed day
     // whose bookings all lie outside the opening hours has no row and no
     // receivable time, so this is exactly her booked minutes.
     return n + (inferred ? Math.max(own - breakMinutes, minutes(booked.get(id) ?? [])) : own)

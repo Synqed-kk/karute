@@ -109,3 +109,18 @@ test('S111-2: hours {openMs: 0, closeMs: Infinity} with a booking → not guesse
   const base = input([span('A', 600, 900)])
   expect(pick(capacityForDay({ ...base, hours: { ...base.hours!, openMs: 0, closeMs: Number.POSITIVE_INFINITY }, shift: shifts() }))).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, reason: 'hours-unresolved', bookedMinutes: 300 })
 })
+describe('S111-7: the own view of an out-of-hours-only person on a guessed day shows no figure', () => {
+  const p5 = [span('A', 600, 900), span('B', 1200, 1260)]
+  test('all-staff figure (pinned before K, unchanged): A 540 + B 60 = 600, booked 360, 60 %', () => {
+    expect(pick(fact({}, p5))).toMatchObject({ capacityMinutes: 600, bookedMinutes: 360, occupancyPct: 60, shiftState: 'inferred', lanes: 2 })
+  })
+  test('P5: personId B (only an after-close 60) → off, bookedMinutes 60, no capacity', () => {
+    expect(pick(fact({ personId: 'B' }, p5))).toMatchObject({ shiftState: 'off', bookedMinutes: 60, capacityMinutes: null, occupancyPct: null })
+  })
+  test('personId A → 300/540 = 56 % inferred, unchanged', () => {
+    expect(pick(fact({ personId: 'A' }, p5))).toMatchObject({ shiftState: 'inferred', bookedMinutes: 300, capacityMinutes: 540, occupancyPct: 56 })
+  })
+  test("O5: the midnight-tail stylist's own next-day view → off", () => {
+    expect(day2([span('B', 1410, 1470), span('C', 1440 + 600, 1440 + 660)], { personId: 'B' })).toMatchObject({ shiftState: 'off', bookedMinutes: 30, capacityMinutes: null, occupancyPct: null })
+  })
+})
