@@ -4,7 +4,7 @@ import { capacityForDay } from '@/lib/capacity/capacity'
 import { input, DATE, minute } from './__fixtures__/kadou-fixture'
 import { WeekDayCardDataDTO } from '@/lib/app-api/appointments-screen-dto'
 
-jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { shiftLanes: true } }))
+// PR-2: the real switch is ON, so this file no longer forces it.
 jest.mock('next/cache', () => ({ unstable_cache: jest.fn((fn: () => unknown) => fn) }))
 const row = (i: number): StaffShift => ({ id: `r${i}`, business_id: 'business', staff_id: `s${i}`, store_id: 'store', date: DATE, start: 600, end: 1140, breaks: [{ start: 900, end: 960 }], blocks: [], created_by: 'actor', updated_by: 'actor', created_at: '', updated_at: '' })
 function client(list: jest.Mock) { return { staffShifts: { list } } as unknown as Pick<SynqedClient, 'staffShifts'> }
@@ -15,7 +15,7 @@ test('T16: page two failure withholds the entire range', async () => {
   const result = await readStaffShifts(client(list), 'business', 'store', DATE, '2026-10-10')
   expect(result).toEqual({ rows: [], readComplete: false })
   for (const date of [DATE, '2026-10-09']) {
-    expect(capacityForDay({ ...input(), shift: { ...result, storeId: 'store', date, roster: [] } })).toMatchObject({ shiftState: 'unavailable', occupancyPct: null, band: null })
+    expect(capacityForDay({ ...input(), shift: { ...result, storeId: 'store', date, roster: [], breakMinutes: 60 } })).toMatchObject({ shiftState: 'unavailable', occupancyPct: null, band: null })
   }
 })
 test('page 1 first, remaining pages parallel, scoped cache and JST conversion', async () => {
@@ -59,3 +59,5 @@ test('new text state defaults on an old payload without extending capacityReason
   expect(WeekDayCardDataDTO.shape.shiftState.parse(undefined)).toBe('unavailable')
   expect(WeekDayCardDataDTO.shape.capacityReason.safeParse('none').success).toBe(false)
 })
+
+test('staffShiftsTag is the name Business busts', () => { expect(staffShiftsTag('b', 's')).toBe('staff-shifts:b:s') })

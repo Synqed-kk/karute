@@ -597,6 +597,7 @@ describe('shiftLanes ON — closed / unsaved / unresolved hours never carry a pe
   const shiftRows: Reservation.CapacityInputs['shiftCapacity'] = {
     storeId: 'store',
     readComplete: true,
+    breakMinutes: 60,
     roster: [person('s1'), person('s2')],
     rows: Object.values(YMD).flatMap((date) =>
       ['s1', 's2'].map((staffId) => ({
@@ -605,7 +606,7 @@ describe('shiftLanes ON — closed / unsaved / unresolved hours never carry a pe
     ),
   }
   const soloStore: Reservation.CapacityInputs['shiftCapacity'] = {
-    storeId: 'store', readComplete: true, roster: [person('s1')], rows: [],
+    storeId: 'store', readComplete: true, breakMinutes: 60, roster: [person('s1')], rows: [],
   }
   const cases: [string, Reservation.CapacityInputs['shiftCapacity']][] = [
     ['shift rows', shiftRows],

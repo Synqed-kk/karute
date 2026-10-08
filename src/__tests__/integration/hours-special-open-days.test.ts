@@ -1,3 +1,5 @@
+// PR-2 (稼働 ON): this file pins the OFF figures, so it runs with shiftLanes mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
 /**
  * ⚖ W0.5 (PR A) — 臨時営業日: the resolver learns `special_open_days`.
  *

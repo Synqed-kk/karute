@@ -1,5 +1,6 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import type { WeekStart } from '@/lib/date/week-start'
 import { isCountedBooking } from '@/lib/appointments/by-date'
@@ -62,7 +63,10 @@ function durationMinutes(a: Appointment): number {
  *  wiring round does), but the week row, the month cell and both doors already
  *  agree about them. */
 export type CapacityRowFields = {
-  shiftState?: ShiftState
+  /** The WIRE state: never the internal 'inferred' (see shiftBasis). */
+  shiftState?: Exclude<ShiftState, 'inferred'>
+  /** 'inferred' = guess mode (no shift rows); the renderer prints 約nn%. */
+  shiftBasis?: 'rows' | 'inferred'
   onShiftNoBooking?: number
   unassignedOverflow?: number
   /** lanes × the day's declared minutes, or null when no honest capacity
@@ -291,7 +295,7 @@ function capacityFactsFor(
       capacityForDay({
         ...(BOOKING_SWITCHES.shiftLanes ? {
           shift: {
-            storeId: '', rows: [], roster: null,
+            storeId: '', rows: [], roster: null, breakMinutes: resolveBreakMinutes(null),
             ...inputs.shiftCapacity,
             readComplete: !inputs.storeRowDegraded && (inputs.shiftCapacity?.readComplete ?? false),
             soloMode: inputs.soloMode,
@@ -377,7 +381,9 @@ export function capacityRowFields(fact: CapacityFact | undefined): CapacityRowFi
   }
   return {
     ...(fact.shiftState == null ? {} : {
-      shiftState: fact.shiftState,
+      // PR-2 wire seam: internal 'inferred' → 'entered' + shiftBasis 'inferred'.
+      shiftState: fact.shiftState === 'inferred' ? 'entered' : fact.shiftState,
+      shiftBasis: fact.shiftState === 'inferred' ? 'inferred' : 'rows',
       onShiftNoBooking: fact.onShiftNoBooking,
       unassignedOverflow: fact.unassignedOverflow,
     }),

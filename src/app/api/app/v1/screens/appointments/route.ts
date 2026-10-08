@@ -15,6 +15,7 @@
 // booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
@@ -378,7 +379,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             shiftRosterForBusiness(businessId, storeId),
           ])
         : [{ rows: [], readComplete: false }, null]
-      shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown }
+      shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown, breakMinutes: resolveBreakMinutes(policy) }
     }
 
     const screen = buildAppointmentsScreen({

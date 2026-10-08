@@ -1,3 +1,5 @@
+// PR-2 (稼働 ON): this file pins the OFF figures, so it runs with shiftLanes mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
 /**
  * ⚖ STRESS-S F1 — capacity is NEVER derived from who got booked.
  *

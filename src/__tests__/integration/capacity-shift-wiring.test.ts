@@ -1,3 +1,5 @@
+// PR-2 (稼働 ON): this file pins the OFF figures, so it runs with shiftLanes mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
 import type { Appointment } from '@synqed-kk/client'
 import { z } from 'zod'
 import { DATE, DAY, minute, span, appointments, hoursFacts } from './__fixtures__/kadou-fixture'
@@ -10,7 +12,7 @@ function adapter(on: boolean): typeof Reservation {
   return jest.requireActual('@/lib/adapters/reservation')
 }
 const shiftCapacity = {
-  storeId: 'store', readComplete: true,
+  storeId: 'store', readComplete: true, breakMinutes: 60,
   roster: ['s1', 's2', 's3', 's4', 's5'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] })),
   rows: ['s1', 's2', 's3'].map(staffId => ({ staffId, storeId: 'store', date: DATE, startMs: minute(600), endMs: minute(1140), breaks: [span(staffId, 900, 960)], blocks: [] })),
 }
@@ -32,7 +34,7 @@ test('ON produces the new 63% figure regardless of legacy layer switches', () =>
 })
 test('R-G: displayed booked time uses unions even on none/unavailable days', () => {
   const rows = appointments([span('s1', 600, 720), span('s1', 660, 780)])
-  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'none' })
+  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'entered', shiftBasis: 'inferred' }) // PR-2: a booked zero-row day is guessed
   expect(week(true, rows, { ...shiftCapacity, readComplete: false })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'unavailable' })
   expect(week(false, rows)[0].bookedMinutes).toBe(240)
 })
@@ -84,7 +86,7 @@ test('a failed store read still prints unioned booked time and withholds shift c
 })
 
 test('T-S8: ON, explicit solo, booking on the second roster person reads 50%, never 33%', () => {
-  const pair = { storeId: 'store', readComplete: true, rows: [], roster: ['A', 'B'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] })) }
+  const pair = { storeId: 'store', readComplete: true, breakMinutes: 60, rows: [], roster: ['A', 'B'].map(id => ({ id, active: true, stores: [{ storeId: 'store' }] })) }
   const output = adapter(true).appointmentsToWeekData(appointments([span('B', 780, 1080)]), new Date(DAY), new Date(DAY), 600, new Date(DAY), 'ja', undefined, undefined, hoursFacts, true, { rosterHeadcount: 2, shiftCapacity: pair })
   expect(output[0]).toMatchObject({ occupancyPct: 50, capacityMinutes: 600, bookedMinutes: 300, shiftState: 'solo' })
 })

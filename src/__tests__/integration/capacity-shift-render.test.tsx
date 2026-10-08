@@ -10,7 +10,7 @@ jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key === 
 
 test.each(['none', 'nobody', 'unavailable'] as const)('T20: old-bundle %s rendering is neutral without a percentage or 未設定', state => {
   const off = { staffId: 's1', storeId: 'store', date: DATE, startMs: minute(600), endMs: minute(1140), breaks: [], blocks: [{ startMs: minute(600), endMs: minute(1140) }] }
-  const fact = capacityForDay({ ...input([]), shift: { storeId: 'store', date: DATE, rows: state === 'nobody' ? [off] : [], roster: [], readComplete: state !== 'unavailable' } })
+  const fact = capacityForDay({ ...input([]), shift: { storeId: 'store', date: DATE, rows: state === 'nobody' ? [off] : [], roster: [], breakMinutes: 60, readComplete: state !== 'unavailable' } })
   expect(fact.shiftState).toBe(state)
   expect(fact.reason).toBe('roster-unknown')
   const row = appointmentsToWeekData([], new Date(DAY), new Date(DAY), 600, new Date(DAY), 'ja', undefined, undefined, hoursFacts, false, { rosterHeadcount: 5 })[0]

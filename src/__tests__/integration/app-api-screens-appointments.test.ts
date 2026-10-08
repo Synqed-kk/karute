@@ -224,7 +224,8 @@ jest.mock('@/lib/appointments/booking-switches', () => {
   const actual = jest.requireActual(
     '@/lib/appointments/booking-switches',
   ) as { BOOKING_SWITCHES: Record<string, boolean> }
-  return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: true } }
+  // PR-2 (稼働 ON): this file pins the OFF figures, so shiftLanes stays mocked OFF.
+  return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: true, shiftLanes: false } }
 })
 
 // Business-scoped synqed client — day + range appointment reads, the store
@@ -1060,7 +1061,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
       const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
         BOOKING_SWITCHES: Record<string, boolean>
       }
-      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: false } }
+      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: false, shiftLanes: false } }
     })
     try {
       const { GET: getWithSwitchOff } =

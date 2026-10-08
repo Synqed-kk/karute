@@ -82,6 +82,6 @@ export const BOOKING_SWITCHES = {
    *  its capacity. Flip: when bookings actually claim beds. */
   bedLanes: false,
   /** Per-staff receivable time replaces roster × hours (稼働 PR-1).
-   *  OFF until the shift-entry rollout; no shift read or output changes OFF. */
-  shiftLanes: false,
+   *  ON since PR-2; guess mode until SYNQED Business writes shift rows. */
+  shiftLanes: true,
 } as const

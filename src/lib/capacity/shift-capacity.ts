@@ -1,6 +1,9 @@
 import type { BookedSpan, CapacityInput, DayHours } from './capacity'
+// break-minutes.ts imports only an SDK type: no cycle back into capacity.
+import { effectiveBreakMinutes } from './break-minutes'
 
-export type ShiftState = 'entered' | 'partial' | 'none' | 'nobody' | 'solo' | 'off' | 'unavailable'
+/** 'inferred' is internal (guess mode); the wire maps it to 'entered' + shiftBasis 'inferred'. */
+export type ShiftState = 'entered' | 'partial' | 'none' | 'nobody' | 'solo' | 'off' | 'unavailable' | 'inferred'
 export type Interval = { startMs: number; endMs: number }
 export interface ShiftRow extends Interval {
   staffId: string
@@ -24,6 +27,9 @@ export interface ShiftCapacityInput {
   soloMode?: boolean
   personId?: string | null
   blocks?: readonly BookedSpan[]
+  /** Guess mode only: one break, a DURATION in minutes, taken off each
+   *  inferred person once (resolveBreakMinutes, the per-store setting). */
+  breakMinutes: number
 }
 
 function union(spans: readonly Interval[]): Interval[] {
@@ -88,11 +94,28 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   // Every assigned span of the store-day, BEFORE the personId filter below.
   const assignedIds = new Set(input.spans.filter(s => s.staffId != null && Math.min(s.endMs, input.dayEndMs) > Math.max(s.startMs, input.dayStartMs)).map(s => s.staffId as string))
   const soloOwner = resolveSoloOwner(shift, eligible, assignedIds)
-  // solo claim contradicted by the roster/bookings for this day → not entered; PR-2 guess mode covers it
+  // solo claim contradicted by the roster/bookings for this day → no solo fallback row; guess mode covers it
   const solo = soloOwner != null
+  // Guess mode (PR-2): no rows and no named solo owner → everyone with an
+  // ASSIGNED counted booking that day works the store's hours (minus one
+  // break, below). Nobody without a booking is counted (⚖ 10/6); real rows
+  // win; a day whose hours describe nothing is never guessed.
+  const hours = input.hours
+  const guessable = input.laneKind !== 'none' && hours != null && !hours.closed && hours.source !== 'default'
+    // The twin of capacity.ts hoursRunForward (a value import from there would cycle).
+    && Number.isFinite(hours.openMs) && Number.isFinite(hours.closeMs) && hours.closeMs > hours.openMs
+  // S111-4 + S111-8: the guessed roster = people with an assigned booking that
+  // starts within the store-day and overlaps the opening hours; a tail from
+  // the previous day keeps its booked minutes, never a lane. assignedIds (any
+  // span on the JST day) stays the solo-rule input; an out-of-hours booking
+  // never earns a lane either.
+  const inHoursIds = new Set(guessable && hours
+    ? input.spans.filter(s => s.staffId != null && s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs && Math.min(s.endMs, hours.closeMs) > Math.max(s.startMs, hours.openMs)).map(s => s.staffId as string)
+    : [])
+  const inferred = rows.length === 0 && !solo && guessable && inHoursIds.size > 0
   // Core has no dated removals/deactivations: a past zero-row day at a store
   // that has since shrunk to one person reads as solo (R-A known limit).
-  const entered = rows.length > 0 || solo
+  const entered = rows.length > 0 || solo || inferred
   const booked = new Map<string, Interval[]>()
   const unassigned: Interval[] = []
   for (const s of input.spans) {
@@ -108,14 +131,21 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   if (!shift.readComplete || shift.roster == null) return empty('unavailable')
   if (!entered) return empty('none')
   // An explicit solo setting supplies one lane even if the owner has no roster card.
-  const effectiveRows: readonly ShiftRow[] = rows.length === 0 && soloOwner != null && input.hours
-    ? [{ staffId: soloOwner, storeId: shift.storeId, date: shift.date, startMs: input.hours.openMs, endMs: input.hours.closeMs, breaks: [], blocks: [] }]
-    : rows
+  const storeHoursRow = (staffId: string, open: DayHours): ShiftRow => ({ staffId, storeId: shift.storeId, date: shift.date, startMs: open.openMs, endMs: open.closeMs, breaks: [], blocks: [] })
+  const effectiveRows: readonly ShiftRow[] = inferred && hours
+    ? [...inHoursIds].sort().map(id => storeHoursRow(id, hours))
+    : rows.length === 0 && soloOwner != null && input.hours
+      ? [storeHoursRow(soloOwner, input.hours)]
+      : rows
   const ids = new Set([...effectiveRows.map(r => r.staffId), ...booked.keys()])
   if (shift.personId) {
     ids.clear()
     ids.add(shift.personId)
     if (!effectiveRows.some(r => r.staffId === shift.personId) && !booked.has(shift.personId)) return empty('off')
+    // S111-7: on a guessed day a person whose bookings all lie outside the
+    // opening hours has no lane; her own view shows no figure. Her booked
+    // time stays in the booked cell; the all-staff figure is unchanged.
+    if (inferred && !inHoursIds.has(shift.personId)) return empty('off')
   }
   const receivable = new Map<string, Interval[]>()
   let onShiftNoBooking = 0
@@ -123,7 +153,9 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   for (const id of ids) {
     const intervals = receivableIntervals(id, shift.storeId, shift.date, effectiveRows, input.hours, shift.blocks)
     receivable.set(id, intervals)
-    if (!effectiveRows.some(r => r.staffId === id) && booked.has(id) && eligible.some(p => p.id === id)) partial = true
+    // On a guessed day partial is never set: there are no rows to be partial
+    // against; every figure is the guess.
+    if (!inferred && !effectiveRows.some(r => r.staffId === id) && booked.has(id) && eligible.some(p => p.id === id)) partial = true
   }
   let overtime = 0
   let unassignedOverflow = 0
@@ -147,7 +179,18 @@ export function shiftTotals(input: CapacityInput, shift: ShiftCapacityInput) {
   for (const id of ids) {
     if (rows.some(r => r.staffId === id) && minutes(receivable.get(id) ?? []) > 0 && !booked.has(id)) onShiftNoBooking++
   }
-  const capacityMinutes = [...ids].reduce((n, id) => n + minutes([...(receivable.get(id) ?? []), ...(booked.get(id) ?? [])]), overtime)
-  const shiftState: ShiftState = capacityMinutes === 0 ? 'nobody' : partial ? 'partial' : rows.length === 0 && solo ? 'solo' : 'entered'
+  const breakMinutes = inferred && hours ? effectiveBreakMinutes(shift.breakMinutes, minutes([{ startMs: hours.openMs, endMs: hours.closeMs }])) : 0
+  const capacityMinutes = [...ids].reduce((n, id) => {
+    const own = minutes([...(receivable.get(id) ?? []), ...(booked.get(id) ?? [])])
+    // The break is a duration taken once per inferred person, never an
+    // interval placed in the day (nobody knows when it is). It floors at the
+    // person's booked minutes: never below what is booked, never negative.
+    // breakMinutes already arrives bounded below the open minutes
+    // (effectiveBreakMinutes, S111-5); the floor stays as the last guard. A person on a guessed day
+    // whose bookings all lie outside the opening hours has no row and no
+    // receivable time, so this is exactly her booked minutes.
+    return n + (inferred ? Math.max(own - breakMinutes, minutes(booked.get(id) ?? [])) : own)
+  }, overtime)
+  const shiftState: ShiftState = capacityMinutes === 0 ? 'nobody' : partial ? 'partial' : inferred ? 'inferred' : rows.length === 0 && solo ? 'solo' : 'entered'
   return { bookedMinutes, capacityMinutes: capacityMinutes || null, shiftState, onShiftNoBooking, unassignedOverflow, lanes: ids.size }
 }
