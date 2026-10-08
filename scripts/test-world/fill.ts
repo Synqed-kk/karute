@@ -283,8 +283,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
 
     // ours = the id this loader recorded, else the notes/tag (a staff edit of the notes must not make a second row).
     // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
-    // makes its own tagged one beside it.
-    const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
+    // makes its own tagged one beside it. ⚖ F2 (S88): the window is business-wide (every store, like close-out.ts) so the
+    // staff clash sees the same practitioner's bookings at another store; ownership (mine) stays this store's rows only.
+    const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
     const mine = new Map<string, Appointment>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
