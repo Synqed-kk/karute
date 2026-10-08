@@ -648,6 +648,29 @@ describe('shiftLanes ON — closed / unsaved / unresolved hours never carry a pe
     // R-G still holds: Thursday's two overlapping rows on one staffer = 180.
     expect(byDay(rows).get(YMD.thu)!.bookedMinutes).toBe(180)
   })
+
+  it('lane kind none withholds the percent as kind-none, carrying booked time and shift state', () => {
+    const rows = byDay(weekRows({ switches: ON, rosterHeadcount: 2, laneKind: 'none', shiftCapacity: shiftRows }))
+    for (const [ymd, booked] of [[YMD.mon, 60], [YMD.thu, 180]] as const) {
+      const row = rows.get(ymd)!
+      expect(row.occupancyPct).toBeNull()
+      expect(row.capacityMinutes).toBeNull()
+      expect(row.capacityReason).toBe('kind-none')
+      expect(row.bookedMinutes).toBe(booked)
+      expect(row.shiftState).toBe('entered')
+    }
+  })
+
+  it.each([[1200, 600], [600, 600]])('hours %i→%i that do not run forward withhold the percent as hours-unresolved', (openMinute, closeMinute) => {
+    const facts = new Map(hoursFacts())
+    facts.set(YMD.mon, { minutes: 0, openMinute, closeMinute, saved: true, closed: false, source: 'store' })
+    const row = byDay(weekRows({ switches: ON, rosterHeadcount: 2, facts, shiftCapacity: shiftRows })).get(YMD.mon)!
+    expect(row.occupancyPct).toBeNull()
+    expect(row.capacityMinutes).toBeNull()
+    expect(row.capacityReason).toBe('hours-unresolved')
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.shiftState).toBe('entered')
+  })
 })
 
 // ───────────────────────────────────────────────────────────────────────────
