@@ -378,7 +378,7 @@ describe('FACADE_AUDIT_MAP row disposition — every rule, parameterized', () =>
   })
 
   it.each(liveKeys)(
-    "%s (live) emits exactly the rule's category+action; target_id stamps only when targetType is set",
+    "%s (live) emits exactly the rule's category+action+severity; target_id stamps only when targetType is set",
     async (key) => {
       const rule = FACADE_AUDIT_MAP[key]
       const handler = facadeHandler(key, async (ctx) => ok(ctx, { ok: 1 }), deps)
@@ -388,6 +388,10 @@ describe('FACADE_AUDIT_MAP row disposition — every rule, parameterized', () =>
       const lines = await auditLines(() => handler(authedReq(), route({ id: targetId })))
       expect(lines).toHaveLength(1)
       expect(lines[0]).toMatchObject({ category: rule.category, action: rule.action, source: 'facade' })
+      // Severity rider: logFacadeAudit forwards rule.severity verbatim, and a
+      // row that carries none still emits audit()'s 'info' default — the
+      // unmarked rows' lines are unchanged by the field's existence.
+      expect(lines[0].severity).toBe(rule.severity ?? 'info')
       if (rule.targetType) {
         expect(lines[0].target_type).toBe(rule.targetType)
         expect(lines[0].target_id).toBe(targetId)
@@ -397,6 +401,49 @@ describe('FACADE_AUDIT_MAP row disposition — every rule, parameterized', () =>
       }
     },
   )
+
+  // The erasure pair's severities, HARDCODED on purpose: the parameterized
+  // assertion above reads the very row it checks, so deleting a row's
+  // severity would leave it green ('info' both sides). These two pins are
+  // what makes that deletion a failure — and they are the phone half of the
+  // web/facade parity proof in customer-deletion-actions.test.ts.
+  it.each([
+    ['customer.deletion.schedule', 'warning'],
+    ['customer.deletion.cancel', 'notice'],
+  ] as const)('%s files at severity %s — the web door\'s value, verbatim', async (key, severity) => {
+    const handler = facadeHandler(key, async (ctx) => ok(ctx, { ok: 1 }), deps)
+    const lines = await auditLines(() => handler(authedReq(), route({ id: '00000000-0000-4000-8000-000000000005' })))
+    expect(lines).toHaveLength(1)
+    expect(lines[0].severity).toBe(severity)
+  })
+
+  // The drain-level consequence the severity exists for: emitConsoleLine maps
+  // 'warning' onto console.warn, so a scheduled erasure now leaves the phone
+  // on the warn channel exactly like the web's. auditLines() merges both
+  // spies, so no other test in this file can see the channel.
+  it('a scheduled erasure lands on the WARN channel, not the log channel', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const handler = facadeHandler('customer.deletion.schedule', async (ctx) => ok(ctx, { ok: 1 }), deps)
+      await handler(authedReq(), route({ id: '00000000-0000-4000-8000-000000000005' }))
+      const auditRows = (spy: jest.SpyInstance) =>
+        spy.mock.calls
+          .map((args) => {
+            try {
+              return JSON.parse(String(args[0]))
+            } catch {
+              return null
+            }
+          })
+          .filter((j) => j?.evt === 'audit')
+      expect(auditRows(warnSpy)).toHaveLength(1)
+      expect(auditRows(logSpy)).toHaveLength(0)
+    } finally {
+      warnSpy.mockRestore()
+      logSpy.mockRestore()
+    }
+  })
 })
 
 describe('PIN lockout routes through the audit emitter', () => {
