@@ -181,7 +181,8 @@ export function requestFor(recipe: Recipe, c: RecipeCustomer, key: string, first
 export const isLegacyMember = (recipe: Pick<Recipe, 'legacyMembers'>, member: string): boolean => !!recipe.legacyMembers?.includes(member)
 
 /** The ONE manual-edit guard on a booking's status: no person set it (status_set_by empty), or the loader's own scripts
- *  did (a status_reason starting テストデータ — close-out's write). realism.ts and apply's today reconcile both ask this. */
+ *  did (a status_reason starting テストデータ — close-out's write). realism.ts, apply's today reconcile and close-out's
+ *  main loop (before any write) all ask this. */
 export const loaderSet = (a: { status_set_by?: string | null; status_reason?: string | null }): boolean =>
   a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 

@@ -49,9 +49,13 @@ async function main() {
   Object.assign(personSet, { status_set_by: 'staff-x', status_reason: '電話で来店確認' })
   Object.assign(loaderReason, { status_set_by: 'staff-x', status_reason: 'テストデータ close-out' })
   Object.assign(noSetter, { status_set_by: null, status_reason: null })
+  // the real-world case: a past-day 施術中 row a person set (status_set_by + a non-loader reason) is never closed out
+  const personInProgress = stale[stale.length - 5]
+  assert.ok(stale.length > 13 && personInProgress.status === 'SCHEDULED' && !['SCHEDULED', 'IN_PROGRESS'].includes(personInProgress.want), 'the fixture: a spare stale row the plan calls over')
+  Object.assign(personInProgress, { status: 'IN_PROGRESS', status_set_by: 'staff-y', status_reason: '施術開始（手動）' })
   // ⚖ R2: today's started rows the plan already calls over are closed; a planned SCHEDULED or IN_PROGRESS one is left alone
   const overToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime() && !['SCHEDULED', 'IN_PROGRESS'].includes(r.want))
-  const want = [...stale.slice(7).filter((r) => r !== shifted && r !== personSet), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
+  const want = [...stale.slice(7).filter((r) => r !== shifted && r !== personSet && r !== personInProgress), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
   assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0 && startedToday.some((r) => r.want === 'IN_PROGRESS') && overToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
@@ -88,6 +92,7 @@ async function main() {
   assert.deepEqual([touched(lone.id), touched(loneAbroad.id), ap.lines.filter((l) => l.includes(lone.key))], [true, false, []], '(p) the same tag in another store is not ambiguity: this store\'s row is written, no line')
   assert.deepEqual(only(shifted.id), [false, [`skipped: appointments ${shifted.key}: booking ${shifted.id}'s time or duration differs from the plan (or its staff, where the planned staff is known) — a person moved it, left alone`]], '(q) a past SCHEDULED row moved to another time: one skipped line, no write')
   assert.deepEqual(only(personSet.id), [false, [`skipped: appointments ${personSet.key}: booking ${personSet.id}: a person set its status, left alone`]], '(r) a past SCHEDULED row whose status a person set (status_set_by + a non-loader reason): one skipped line, no write')
+  assert.deepEqual(only(personInProgress.id), [false, [`skipped: appointments ${personInProgress.key}: booking ${personInProgress.id}: a person set its status, left alone`]], '(r) a past-day IN_PROGRESS row whose status a person set: one skipped line, no write')
   assert.deepEqual([only(loaderReason.id), only(noSetter.id)], [[true, []], [true, []]], '(r) the loader\'s own reason (テストデータ…) or no setter: still closed out, no line')
   const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x.id.localeCompare(y.id))
   assert.deepEqual(byId(ap.calls), byId(want), '(b) apply: exactly the tagged + SCHEDULED + past + owned rows, with plan() status and the exact input')
