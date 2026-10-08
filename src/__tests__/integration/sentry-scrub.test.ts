@@ -843,6 +843,22 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
   })
 })
 
+describe('T5 the exit modules run in node, edge and the browser (item 102)', () => {
+  it.each(['src/lib/observability/sentry-exit.ts', 'src/lib/text/mask-sensitive.ts'])(
+    '%s has no node-only, next/* or browser-only reference',
+    (rel) => {
+      const src = stripForScan(read(rel))
+      for (const re of FORBIDDEN) expect(src).not.toMatch(re)
+    },
+  )
+
+  it('mask-sensitive.ts has no import and no require at all', () => {
+    const src = stripComments(read('src/lib/text/mask-sensitive.ts'))
+    expect(src).not.toMatch(/\bimport\b/)
+    expect(src).not.toMatch(/\brequire\b/)
+  })
+})
+
 // PIN: PR-A1 (alarm check-ins) updates this pin ON PURPOSE when it switches
 // check-ins on; nothing else may switch on logs, replay or feedback silently.
 // Comments are removed by the shared scanner helper (stripComments, above).
@@ -860,5 +876,40 @@ describe('T6 pin: no Sentry channel the scrub hooks never see is switched on', (
     expect(src).not.toMatch(/replayIntegration/)
     expect(src).not.toMatch(/feedbackIntegration/)
     expect((src.match(/sendDefaultPii:\s*false/g) ?? []).length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// PR 1 of item 102: the exit transport on the browser and nodejs inits only.
+// PR 2 changes this to THREE (the edge init gains wrapTransport(makeEdgeInnerTransport)).
+describe('T6 pin: the exit transport (item 102, PR 1 form)', () => {
+  const count = (s: string, re: RegExp) => (s.match(re) ?? []).length
+  const server = () => stripComments(read('src/instrumentation.ts'))
+  const client = () => stripComments(read('src/instrumentation-client.ts'))
+  const between = (s: string, a: string, b?: string) => s.slice(s.indexOf(a), b ? s.indexOf(b) : undefined)
+
+  it('`transport:` appears exactly twice: once in the browser init, once in the nodejs init; edge has none', () => {
+    expect(count(client(), /transport:/g)).toBe(1)
+    expect(count(server(), /transport:/g)).toBe(1)
+    const src = server()
+    expect(between(src, "NEXT_RUNTIME === 'nodejs'", "NEXT_RUNTIME === 'edge'")).toMatch(/transport:/)
+    expect(between(src, "NEXT_RUNTIME === 'edge'")).not.toMatch(/transport:/)
+  })
+
+  it('each server init literal carries its own spotlight: false; the shared common object does not', () => {
+    const src = server()
+    expect(between(src, "NEXT_RUNTIME === 'nodejs'", "NEXT_RUNTIME === 'edge'")).toMatch(/Sentry\.init\(\{[^}]*spotlight:\s*false/)
+    expect(between(src, "NEXT_RUNTIME === 'edge'")).toMatch(/Sentry\.init\(\{[^}]*spotlight:\s*false/)
+    expect(between(src, 'const common', "NEXT_RUNTIME === 'nodejs'")).not.toMatch(/spotlight/)
+  })
+
+  it('makeNodeTransport is referenced only inside the nodejs branch', () => {
+    const src = server()
+    expect(count(src, /makeNodeTransport/g)).toBe(1)
+    expect(between(src, "NEXT_RUNTIME === 'nodejs'", "NEXT_RUNTIME === 'edge'")).toMatch(/makeNodeTransport/)
+  })
+
+  it('re-review conditions: no tunnel route anywhere, no Vercel cron monitors in next.config.ts', () => {
+    for (const s of [server(), client(), stripComments(read('next.config.ts'))]) expect(s).not.toMatch(/tunnel/i)
+    expect(stripComments(read('next.config.ts'))).not.toMatch(/automaticVercelMonitors:\s*true/)
   })
 })

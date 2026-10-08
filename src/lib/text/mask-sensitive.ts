@@ -1,0 +1,291 @@
+// Masking for free text that may leave Karute (log lines, error reports).
+// Import-free on purpose: it runs in node, edge and the browser (moved
+// byte-for-byte from src/lib/app-api/errors.ts, item 102 / PR-A0b).
+
+// A canonical UUID (8-4-4-4-12 hex) is exempt from the blob rule below — ids
+// are already on the log line via other fields, and a UUID's hyphens don't
+// break a blob-charset run the way they'd need to for the rule to skip it
+// on its own. Ids are not secrets, so a storage key built from ids (e.g.
+// `app_<uuid>_<uuid>.webm`) must survive too — the test below now matches a
+// UUID anywhere in the run, not just a run that equals one exactly.
+export const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+/** NFKC (full-width ＠ → @, full-width digits and dashes → ASCII, NBSP and
+ *  the ideographic space → space), then every format character (zero-width
+ *  space / joiner, bidi controls, BOM: Unicode Cf) removed, so a disguised
+ *  email or phone number has its plain shape before any rule runs
+ *  (R-S112-5 F1). */
+export function normaliseText(s: string): string {
+  return s.normalize('NFKC').replace(/\p{Cf}+/gu, '')
+}
+
+/** The email rule (bounded quantifiers — no nested-quantifier ambiguity,
+ *  paired with `preBound`). Runs on the normalised string BEFORE the
+ *  non-ASCII rule, so a non-ASCII neighbour can no longer split it. The
+ *  second alternative (R-S113-6) is `local@` + a domain holding non-ASCII
+ *  writing (`tanaka.hanako@例え.jp`): the whole address is `<email>`, so the
+ *  local part never leaves beside a masked domain. */
+const EMAIL_RE =
+  /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}|[A-Za-z0-9.-]{0,255}[^\x00-\x7F](?:[^\x00-\x7F]|[A-Za-z0-9.-]){0,254})/g
+
+/** A phone/card separator (R-S113-5 D1/D2, R-S113-6 F-S113-1): space, tab,
+ *  newline, carriage return · `+ _ , /` · dot · every dash (ASCII hyphen,
+ *  U+2010–U+2015, minus U+2212, small/full-width hyphen-minus U+FE63/U+FF0D,
+ *  katakana prolonged mark U+30FC as an IME types it, hyphen bullet U+2043,
+ *  heavy minus U+2796, katakana double hyphen U+30A0) · parentheses · the
+ *  middle dot U+30FB and the wave dashes U+301C / U+FF5E (and `~`, the form
+ *  U+FF5E takes after NFKC). A gap between digit groups is 1–3 of these.
+ *  NOT a colon (R-S113-10): `127.0.0.1:3100` is an address and port. */
+const PHONE_SEP = ' \\t\\n\\r+_,/~.\\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D\u30FC()\u30FB\u301C\uFF5E\u2043\u2796\u30A0'
+/** THE version string (R-S112-8 (a), R-S113-4 (b), R-S113-5 D3) — the one
+ *  definition, used wherever digits are judged: digit groups of at most 5
+ *  digits joined by single dots, 2+ groups, the WHOLE separated run
+ *  (`120.0.2210.91`, `17.1`, `0.9.1`); the first group is `0` or does not
+ *  start with `0` (every Japanese domestic phone does), and at most ONE group
+ *  has 4+ digits (a phone or card has two). A version is not a number, so the
+ *  phone/digit rule skips it. A run with any other separator or a leading `+`
+ *  is not a version. Known trade: a 4-digit build AND a 4-digit patch
+ *  (`130.0.6723.1000`) is not a version (the field drops at spaced
+ *  positions). Unbroken groups ≤ 5 digits never reach the 10–16 or 7+ rules. */
+const VERSION_RE = /^(?:0|[1-9]\d{0,4})(?:\.\d{1,5})+$/
+export function isVersion(s: string): boolean {
+  return VERSION_RE.test(s) && (s.match(/\d{4,}/g) ?? []).length <= 1
+}
+const DIGIT_RUN = new RegExp(`\\+?\\d+(?:[${PHONE_SEP}]{1,3}\\d+)*`, 'g')
+/** Separator-tolerant phone / card rule (R-S112-5 F1 (3)): a digit run
+ *  broken by separators (gaps of 1–3 PHONE_SEP characters; an optional
+ *  leading `+`, e.g. +81) is masked when
+ *  any stretch of it with at most five separators holds 10–16 digits.
+ *  Unbroken runs are left to the 7+-digit rule; a run that is a version
+ *  string in full (isVersion) is left whole; a leading date (DATE_PREFIX) is
+ *  kept and the rest judged. */
+/** A run that starts with a date (R-S113-6 NIT) — the one definition: the
+ *  date is kept and the REST of the run is judged (`2024-10-08 12:34:56`
+ *  stays; `2024-10-08 090-1234-5678` keeps the date, masks the phone). Not
+ *  followed by a digit, and the month (01–12) and day (01–31) must be real
+ *  (R-S113-12), so `2012-34-5678` and `2012-34-56 7890 1234` are judged whole. */
+const DATE_PREFIX = /^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!\d)/
+export function maskPhones(s: string): string {
+  return s.replace(DIGIT_RUN, (m) => {
+    const date = DATE_PREFIX.exec(m)
+    if (date) return date[0] + maskPhones(m.slice(date[0].length))
+    if (isVersion(m)) return m
+    const groups = (m.match(/\d+/g) ?? []).map((g) => g.length)
+    for (let i = 0; i < groups.length; i++) {
+      let sum = groups[i]
+      for (let j = i + 1; j < groups.length && j - i <= 5; j++) {
+        sum += groups[j]
+        if (sum >= 10 && sum <= 16) return '<phone>'
+        if (sum > 16) break
+      }
+    }
+    return m
+  })
+}
+
+/** Masking order (fix round 4): URL (origin+path, query stripped — a
+ *  case-insensitive scheme) → non-ASCII free text (upstream messages carry
+ *  no ASCII-pattern secrets the later rules would catch, so this runs right
+ *  after the URL step, before anything else can see it) → Bearer token →
+ *  labelled credentials (token/apikey/api_key/key/secret/password/
+ *  authorization = value — this also catches a secret embedded in a URL
+ *  PATH, which the URL step above only strips the QUERY of) → JWT → email
+ *  (bounded quantifiers — no nested/overlapping-quantifier ambiguity, paired
+ *  with `preBound` above) → opaque 32+-char blobs (base64 / API keys; a run
+ *  CONTAINING a canonical UUID is exempt, not just a run that equals one) →
+ *  hyphenated JP phone numbers (`090-1234-5678`) → 7+-digit runs (phone/
+ *  card-like strings).
+ *
+ *  R-S112-5 F1 (item 102 fix batch 1) puts three steps in front: NFKC +
+ *  format-character removal (normaliseText) → URL → EMAIL → the
+ *  separator-tolerant phone/card rule (maskPhones) → then the non-ASCII rule
+ *  and the rest in the order above.
+ *
+ *  Fix round 3: the labelled-credential pattern has no leading `\b` so
+ *  prefixed/camelCase names (access_token, clientSecret) are caught as
+ *  substrings too; this accepts over-masking an innocent word that merely
+ *  ends in a label (e.g. `monkey: banana`).
+ *
+ *  The blob charset deliberately drops `/` from the base64 alphabet
+ *  (`+/_=-`) despite it being a legal base64 char: a URL's kept origin+path
+ *  (the step right above) is itself very often a 32+-char run of letters,
+ *  digits and `/` between dots, and matching against it there re-mangled an
+ *  already-correctly-masked URL into fragments (found empirically running
+ *  the pinned URL test in fix round 2). Base64url secrets — the far more
+ *  common real-world shape, precisely because it's URL-safe — use `-`/`_`
+ *  instead of `+`/`/` and are unaffected. */
+export function maskSensitive(s: string): string {
+  let out = normaliseText(s)
+  out = out.replace(/https?:\/\/\S+/gi, (m) => {
+    try {
+      const u = new URL(m)
+      return u.origin + u.pathname
+    } catch {
+      return '<url>'
+    }
+  })
+  out = out.replace(EMAIL_RE, '<email>')
+  out = maskPhones(out)
+  out = out.replace(/[^\x00-\x7F]+/g, '<text>')
+  out = out.replace(AUTH_HEADER_RE, 'Authorization: <redacted>')
+  out = out.replace(BEARER_RE, 'Bearer <token>')
+  out = out.replace(
+    /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
+    '<label>=<redacted>',
+  )
+  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
+  // after the JWT rule, so `token eyJ…` stays `<jwt>` on errors.ts log lines
+  out = out.replace(SCHEME_CRED_RE, '$1 <token>')
+  out = out.replace(/[A-Za-z0-9+_=-]{32,}/g, (m) => (UUID_RE.test(m) ? m : '<blob>'))
+  out = out.replace(/\b0\d{1,4}-\d{1,4}-\d{3,4}\b/g, '<phone>')
+  out = out.replace(/\d{7,}/g, '<digits>')
+  return out
+}
+
+/** Defense-in-depth against a huge text (perf, errors.ts fix round 2, MUST-2):
+ *  bound to 2000 chars BEFORE any masking regex runs. If the cut lands
+ *  mid-token, trim back to the last whitespace char (found by scanning
+ *  backward — cheap, bounded to 2000 steps); no whitespace in the first 2000
+ *  chars → keep the 2000 and let the masks and the caller's cap handle it.
+ *  ONE definition: errors.ts and the Sentry exit both import this. */
+export function preBound(s: string): string {
+  if (s.length <= 2000) return s
+  const cut = s.slice(0, 2000)
+  for (let i = cut.length - 1; i >= 0; i--) {
+    if (/\s/.test(cut[i])) return cut.slice(0, i)
+  }
+  return cut
+}
+
+const PCT_NON_ASCII_RUN = /(%[89A-Fa-f][0-9A-Fa-f])+/g
+
+/** Every run of `%XX` codes, a code's `25` re-encodings folded in
+ *  (`%25E7`, `%25252525E7`): what replaces them when decoding fails. */
+const PCT_RUN = /(%(?:25)*[0-9A-Fa-f]{2})+/g
+
+/** The Sentry exit's `masked(n)` (item 102 § 2.0; R-S113-6 F-S113-2): bound
+ *  (preBound) → `%40`→`@` → the stable percent-decoded copy (pctDecode; when
+ *  decoding fails every `%XX` run becomes `[enc]`) → the content guard →
+ *  maskSensitive → non-ASCII runs → encoded non-ASCII runs → the guard again
+ *  (masks) → cut to n. A text position MASKS, so the decoded-and-masked text
+ *  is what leaves. A non-string, an empty result or a value whose only
+ *  content was masked → undefined (the field is omitted). */
+export function masked(v: unknown, n: number): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const bound = preBound(v).split('%40').join('@')
+  // the guard also runs first, so a blob is judged whole before the masks
+  // below cut it into fragments
+  let s = guardContent(pctDecode(bound) ?? bound.replace(PCT_RUN, '[enc]'))
+  s = maskSensitive(s)
+  s = s.replace(/[^\x00-\x7F]+/g, '[non-ascii]')
+  s = s.replace(PCT_NON_ASCII_RUN, '[non-ascii]')
+  s = guardContent(s)
+  if (onlyMasked(s)) return undefined
+  s = s.slice(0, n)
+  return s.length > 0 ? s : undefined
+}
+
+// ---- the content guard (item 102 fix batch 1; R-S112-6 S2, R-S112-7) --------
+// The LAST step of every string the Sentry exit lets out. At shape positions
+// (path · token · spaced · transaction name · frame file) a hit DROPS the
+// field (R-S101-11); at text positions (the masked pipeline) a hit is MASKED.
+
+/** `Authorization:` or `authorization=` (R-S113-6 NIT) and everything after it. */
+const AUTH_HEADER_RE = /\bAuthorization\s*[:=].*$/gim
+/** A credential-looking value (R-S113-6 F-S113-4) — the one definition:
+ *  `Basic` and `Token` mask only when followed by one, so 「Invalid Refresh
+ *  Token: Refresh Token Not Found」 or 「Token expired」 keep their meaning. */
+const CRED_VALUE = /[A-Za-z0-9+/=._-]{16,}/
+const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'gi')
+/** `Bearer` masks whatever follows it (unchanged). */
+const BEARER_RE = /\bBearer\s+\S+/gi
+const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
+const B64_RUN = /[A-Za-z0-9+/=_-]{24,}/g
+const UUID_EXACT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID_ALL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+/** R-S112-7: base64-looking = 24+ chars of the class, holding an upper-case
+ *  letter, a lower-case letter AND a digit, and neither a UUID nor pure hex. */
+export function base64Looking(run: string): boolean {
+  return (
+    run.length >= 24 && /[A-Z]/.test(run) && /[a-z]/.test(run) && /[0-9]/.test(run) &&
+    !UUID_EXACT.test(run) && !/^[0-9A-Fa-f]+$/.test(run)
+  )
+}
+
+/** The digit rules with every canonical UUID left whole. */
+function digitsOutsideUuids(s: string): string {
+  const rule = (x: string) => maskUnbrokenDigits(maskPhones(x))
+  let out = ''
+  let last = 0
+  for (const m of s.matchAll(UUID_ALL)) {
+    out += rule(s.slice(last, m.index)) + m[0]
+    last = (m.index ?? 0) + m[0].length
+  }
+  return out + rule(s.slice(last))
+}
+
+/** An unbroken run of 10+ digits (the F1 rule with zero separators, NO upper
+ *  bound: R-S113-4 (a)) — unless the hex-and-digit run around it is an id or
+ *  hash: exactly one of HEX_ID_LENGTHS long AND holding a letter (a span id,
+ *  a trace id, a commit SHA, a digest; R-S113-6). Any other hex-and-digit run
+ *  (`deadbeef0901…`) is judged by the digit rule. UUIDs are left whole by
+ *  digitsOutsideUuids. */
+const HEX_OR_DIGIT_RUN = /[0-9A-Fa-f]+/g
+/** The id and hash lengths (16, 20, 32, 40, 64) — the one definition. */
+const HEX_ID_LENGTHS: ReadonlySet<number> = new Set([16, 20, 32, 40, 64])
+function maskUnbrokenDigits(s: string): string {
+  return s.replace(HEX_OR_DIGIT_RUN, (m) =>
+    HEX_ID_LENGTHS.has(m.length) && /[A-Fa-f]/.test(m) ? m : m.replace(/\d{10,}/g, '<digits>'),
+  )
+}
+
+function guardOne(s: string): string {
+  let out = s.replace(AUTH_HEADER_RE, 'Authorization: <redacted>')
+  out = out.replace(BEARER_RE, (m) => `${m.split(/\s/)[0]} <token>`)
+  out = out.replace(SCHEME_CRED_RE, '$1 <token>')
+  out = out.replace(JWT_RE, '<jwt>')
+  out = out.replace(B64_RUN, (m) => (base64Looking(m) ? '<blob>' : m))
+  return digitsOutsideUuids(out)
+}
+
+/** guardContent(s): masks 10-16-digit runs with up to five separators and
+ *  every unbroken 10+-digit run unless inside an id or hash (the F1 rule),
+ *  base64-looking runs, a JWT, `Bearer <x>`, `Basic|Token <CRED_VALUE>` and everything after
+ *  `Authorization:`. `perSegment` (path and frame-file positions): the rule
+ *  runs on each `/`-separated segment, never across the whole path. */
+export function guardContent(s: string, perSegment = false): string {
+  return perSegment ? s.split('/').map(guardOne).join('/') : guardOne(s)
+}
+
+/** True when guardContent would change the value (a shape position drops it). */
+export function guardHits(s: string, perSegment = false): boolean {
+  return guardContent(s, perSegment) !== s
+}
+
+/** Stable percent-decoding: at most 3 rounds of decodeURIComponent until the
+ *  value stops changing. A decode failure, or a value still changing after 3
+ *  rounds, is null (the caller drops the field). */
+export function pctDecode(s: string): string | null {
+  let cur = s
+  for (let i = 0; i < 3; i++) {
+    let next: string
+    try {
+      next = decodeURIComponent(cur)
+    } catch {
+      return null
+    }
+    if (next === cur) return cur
+    cur = next
+  }
+  try {
+    return decodeURIComponent(cur) === cur ? cur : null
+  } catch {
+    return null
+  }
+}
+
+/** True when nothing but masks, markers and punctuation is left. */
+function onlyMasked(s: string): boolean {
+  return !/[A-Za-z0-9]/.test(s.replace(/<[a-z]+>|\[non-ascii\]|\[enc\]/g, ''))
+}

@@ -26,6 +26,17 @@ const REC = C + '-REC'
 const CUST = C + '-CUST'
 const SPAN = C + '-SPAN'
 const PATH = C + '-PATH'
+// item 102 C2: new plants (exception value in Japanese, scope tag, extra, context, user email).
+const JPX = ['田', '中'].join('')
+const TAGP = C + '-TAG'
+const EXTRAP = C + '-EXTRA'
+const CTXP = C + '-CTX'
+const USERP = [C.toLowerCase() + '-user', 'example.com'].join('@')
+// item 102 fix batch 1 (N8): phone, full-width email, Bearer key, Base64 blob in
+// the error text; a phone path + query string in a transaction name.
+const QPL = C + '-QPL'
+const n8Text = () => ['call', PHONE_SP, 'mail', FW_MAIL, 'auth Bearer', KEY32, 'blob', BLOB200].join(' ')
+const n8Route = () => 'GET /search/' + PHONE_HY + '?q=' + QPL
 
 import {
   init,
@@ -38,7 +49,9 @@ import {
   flush,
   close,
 } from '@sentry/nextjs'
+import { BLOB200, FW_MAIL, KEY32, PHONE_HY, PHONE_SP } from './helpers/sentry-exit-plants'
 import { sentryScrubOptions } from '@/lib/observability/sentry-scrub'
+import { wrapTransport } from '@/lib/observability/sentry-exit'
 
 type TransportOptions = Parameters<typeof createTransport>[0]
 type TransportRequest = Parameters<Parameters<typeof createTransport>[1]>[0]
@@ -55,14 +68,29 @@ function recorder(options: TransportOptions) {
 
 type Item = { type: string; payload: Record<string, unknown> }
 
+function tryJson(line: string): unknown {
+  try {
+    return JSON.parse(line)
+  } catch {
+    return undefined
+  }
+}
+
 /** Envelope = header line, then (item header line, item payload line) pairs. */
 function items(): Item[] {
   const out: Item[] = []
   for (const env of envelopes) {
     const lines = env.split('\n').filter((l) => l.length > 0)
     for (let i = 1; i + 1 < lines.length; i += 2) {
-      const header = JSON.parse(lines[i]) as { type: string }
-      out.push({ type: header.type, payload: JSON.parse(lines[i + 1]) as Record<string, unknown> })
+      // Guard (TRANSPORT A6): a non-JSON line (e.g. a binary attachment) is skipped, never parsed.
+      const header = tryJson(lines[i]) as { type?: unknown } | undefined
+      if (!header || typeof header.type !== 'string') {
+        i -= 1
+        continue
+      }
+      const payload = tryJson(lines[i + 1])
+      if (payload === undefined) continue
+      out.push({ type: header.type, payload: payload as Record<string, unknown> })
     }
   }
   return out
@@ -111,7 +139,7 @@ describe('PR-A0 canary: real SDK with sentryScrubOptions', () => {
       dsn: 'https://public@example.invalid/1',
       tracesSampleRate: 1,
       sendDefaultPii: false,
-      transport: recorder,
+      transport: wrapTransport(recorder), // item 102 C2: the exit
       ...sentryScrubOptions,
     })
 
@@ -119,7 +147,12 @@ describe('PR-A0 canary: real SDK with sentryScrubOptions', () => {
       scope.setSDKProcessingMetadata({ normalizedRequest: plantRequest() })
       logName()
 
-      captureException(new Error('boom'))
+      scope.setTag('customer_name', TAGP)
+      scope.setExtra('customer', EXTRAP)
+      scope.setContext('custom', { name: CTXP })
+      scope.setUser({ email: USERP })
+      captureException(new Error('boom ' + JPX))
+      captureException(new Error(n8Text()))
 
       captureMessage('alarm test', {
         tags: ALARM_TAGS,
@@ -127,6 +160,7 @@ describe('PR-A0 canary: real SDK with sentryScrubOptions', () => {
         fingerprint: ALARM_FP,
       })
 
+      startSpan({ name: n8Route() }, () => undefined)
       startSpan({ name: 'canary-tx' }, () => {
         startSpan({ name: 'canary-child', attributes: spanAttributes() }, () => undefined)
       })
@@ -156,6 +190,10 @@ describe('PR-A0 canary: real SDK with sentryScrubOptions', () => {
     expect(joined).not.toContain(C)
     expect(joined).not.toContain(FUJII)
     expect(joined).not.toContain(MINAKO)
+    for (const p of [JPX, TAGP, EXTRAP, CTXP, USERP]) expect(joined).not.toContain(p)
+    const N8 = [PHONE_SP, PHONE_HY, FW_MAIL.slice(0, 8), KEY32, BLOB200.slice(40, 70), QPL]
+    for (const p of N8) expect(joined).not.toContain(p)
+
 
     // Positive control: the alarm's allowed facts survive the scrub.
     const alarm = messages.find(

@@ -1,4 +1,4 @@
-// One allow-list scrub for every event Karute sends to Sentry (PR-A0).
+// Early trimming hooks. What leaves Karute is decided at the exit, sentry-exit.ts (the transport wrapper on the browser and node inits; the edge init until PR 2 keeps these hooks only). Until item 119, the alarm is rebuilt twice — buildAlarmEvent here and buildAlarmItem at the exit — sharing ALARM_TAG_KEYS, ALARM_EXTRA_KEYS and one copy of the validators.
 // Runs in node, edge and the browser: no runtime imports, types only.
 import type {
   Breadcrumb,
@@ -168,7 +168,7 @@ function stripSpanNames(span: object | undefined): void {
  * { type, category, level, timestamp, data: { from, to } } with from/to
  * query-stripped (each only if a string); `message` and every other key are dropped.
  */
-function keepBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
+export function keepBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
   if (breadcrumb.category !== 'navigation') return null
   const out: Breadcrumb = { category: 'navigation' }
   if (breadcrumb.type !== undefined) out.type = breadcrumb.type
@@ -259,6 +259,24 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
   return event
 }
 
+/**
+ * The alarm extra validators — ONE copy, called by buildAlarmEvent here and by
+ * buildAlarmItem at the exit (sentry-exit.ts). take_ids: an array of at most 10
+ * strings each at most 64 characters; any other key: a finite number, a boolean
+ * or a string of at most 200 characters. Anything else → undefined (dropped).
+ */
+export function alarmExtraValue(key: string, v: unknown): unknown {
+  if (key === 'take_ids') {
+    return Array.isArray(v) && v.length <= 10 && v.every((id) => typeof id === 'string' && id.length <= 64)
+      ? [...v]
+      : undefined
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'string' && v.length <= 200) return v
+  return undefined
+}
+
 function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
   const out: ErrorEvent = { type: undefined }
   if (event.event_id !== undefined) out.event_id = event.event_id
@@ -291,20 +309,8 @@ function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
   if (event.extra) {
     const extra: Record<string, unknown> = {}
     for (const key of ALARM_EXTRA_KEYS) {
-      const v = event.extra[key]
-      if (key === 'take_ids') {
-        if (
-          Array.isArray(v) &&
-          v.length <= 10 &&
-          v.every((id) => typeof id === 'string' && id.length <= 64)
-        ) {
-          extra[key] = [...v]
-        }
-        continue
-      }
-      if (typeof v === 'number' && Number.isFinite(v)) extra[key] = v
-      else if (typeof v === 'boolean') extra[key] = v
-      else if (typeof v === 'string' && v.length <= 200) extra[key] = v
+      const kept = alarmExtraValue(key, event.extra[key])
+      if (kept !== undefined) extra[key] = kept
     }
     out.extra = extra
   }
