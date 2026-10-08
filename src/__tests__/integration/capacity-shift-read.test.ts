@@ -59,3 +59,5 @@ test('new text state defaults on an old payload without extending capacityReason
   expect(WeekDayCardDataDTO.shape.shiftState.parse(undefined)).toBe('unavailable')
   expect(WeekDayCardDataDTO.shape.capacityReason.safeParse('none').success).toBe(false)
 })
+
+test('staffShiftsTag is the name Business busts', () => { expect(staffShiftsTag('b', 's')).toBe('staff-shifts:b:s') })

@@ -20,7 +20,7 @@ test('n3/n4: the 稼働 cell needs occupancyPct, not capacityMinutes alone; a wi
   expect(util({ ...base(), occupancyPct: null, full: false })).toBeUndefined()
   expect(util({ ...base(), occupancyPct: null, full: false, capacityMinutes: null, closed: true, capacityReason: 'closed', shiftState: 'entered' } as WeekDayRowData)).toBeUndefined()
 })
-test('no 「シフト未入力」 or any shift-missing word exists in the messages (⚖ 10/3, ⚖ 10/8)', () => {
+test('ja.json carries no 「シフト未入力」 string (⚖ 10/3, ⚖ 10/8)', () => {
   expect(JSON.stringify(ja)).not.toMatch(/シフト未入力/)
 })
 const ctx = (m: Record<string, string> = ja.reservation.weekRows) => ({ soloMode: false, typeSlot: 'off', t: tFor(m) } as Parameters<typeof weekRowCells>[1])
