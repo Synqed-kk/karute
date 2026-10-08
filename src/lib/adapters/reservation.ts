@@ -63,7 +63,8 @@ function durationMinutes(a: Appointment): number {
  *  wiring round does), but the week row, the month cell and both doors already
  *  agree about them. */
 export type CapacityRowFields = {
-  shiftState?: ShiftState
+  /** The WIRE state: never the internal 'inferred' (see shiftBasis). */
+  shiftState?: Exclude<ShiftState, 'inferred'>
   /** 'inferred' = guess mode (no shift rows); the renderer prints 約nn%. */
   shiftBasis?: 'rows' | 'inferred'
   onShiftNoBooking?: number
@@ -380,7 +381,9 @@ export function capacityRowFields(fact: CapacityFact | undefined): CapacityRowFi
   }
   return {
     ...(fact.shiftState == null ? {} : {
-      shiftState: fact.shiftState,
+      // PR-2 wire seam: internal 'inferred' → 'entered' + shiftBasis 'inferred'.
+      shiftState: fact.shiftState === 'inferred' ? 'entered' : fact.shiftState,
+      shiftBasis: fact.shiftState === 'inferred' ? 'inferred' : 'rows',
       onShiftNoBooking: fact.onShiftNoBooking,
       unassignedOverflow: fact.unassignedOverflow,
     }),

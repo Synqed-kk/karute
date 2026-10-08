@@ -34,7 +34,7 @@ test('ON produces the new 63% figure regardless of legacy layer switches', () =>
 })
 test('R-G: displayed booked time uses unions even on none/unavailable days', () => {
   const rows = appointments([span('s1', 600, 720), span('s1', 660, 780)])
-  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'inferred' }) // PR-2: a booked zero-row day is guessed
+  expect(week(true, rows, { ...shiftCapacity, rows: [] })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'entered', shiftBasis: 'inferred' }) // PR-2: a booked zero-row day is guessed
   expect(week(true, rows, { ...shiftCapacity, readComplete: false })[0]).toMatchObject({ bookedMinutes: 180, shiftState: 'unavailable' })
   expect(week(false, rows)[0].bookedMinutes).toBe(240)
 })

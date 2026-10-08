@@ -57,6 +57,10 @@ const capacityFields = {
   // The default supports bundle skew ON; OFF decoding/JSON keeps today's shape.
   shiftState: z.enum(['entered', 'partial', 'none', 'nobody', 'solo', 'off', 'unavailable'])
     .default('unavailable').transform(value => BOOKING_SWITCHES.shiftLanes ? value : undefined),
+  // PR-2 wire seam: shiftState never leaves the enum above (a phone one build
+  // behind parses a baked copy of it). Guess mode rides here instead; the
+  // object is not .strict(), so an old bundle drops this key. Absent = rows.
+  shiftBasis: z.enum(['rows', 'inferred']).optional().transform(value => BOOKING_SWITCHES.shiftLanes ? value : undefined),
   onShiftNoBooking: z.number().optional(),
   unassignedOverflow: z.number().optional(),
   /** lanes × the day's declared minutes; null = no honest capacity (see
@@ -172,7 +176,7 @@ export const MonthCellDTO = z.object({
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's
  *  month loader returns on BOTH doors (facade GET on the phone, server action
  *  on web), so neither host hand-rolls its own. */
-export type MonthCellDTOType = Omit<z.infer<typeof MonthCellDTO>, 'shiftState'> & { shiftState?: z.infer<typeof MonthCellDTO>['shiftState'] }
+export type MonthCellDTOType = Omit<z.infer<typeof MonthCellDTO>, 'shiftState' | 'shiftBasis'> & { shiftState?: z.infer<typeof MonthCellDTO>['shiftState']; shiftBasis?: z.infer<typeof MonthCellDTO>['shiftBasis'] }
 
 export const AppointmentsScreenDTO = z.object({
   /** Echo of the resolved query params — the view treats them as canon. */
