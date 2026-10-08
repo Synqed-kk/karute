@@ -350,6 +350,20 @@ async function pass() {
   assert.ok(!c5b.held.some((l) => l.startsWith(`${burnRow.id}:`)) && !c5b.changes.some((c) => c.id === burnRow.id), 'G-P2: the next run neither holds nor rewrites it')
   console.log(`✓ G-P2: ${burnRow.id} planned ${p5.get(burnRow.id)!.cancelReason}, burnt → ${burnRow.status_reason}, note labelled 当日連絡あり in the same write`)
 
+  // ⚖ G-P2 (S88) tolerance: a row the plan cancels with reason X but which sits COMPLETED in core, its notes the plan's
+  // labelled line (what runs before S88 wrote), is still the loader's: not held, its notes move to the unlabelled line.
+  const w6 = await world()
+  const p6 = new Map(w6.p.appointments.map((a) => [`a-${a.key}`, a]))
+  const doneRow = w6.rows.find((r) => r !== w6.edited && r !== w6.human && p6.get(r.id)?.status === 'CANCELLED' && p6.get(r.id)!.cancelReason)!
+  assert.ok(doneRow, 'the fixture: a planned cancel with a planned reason')
+  const planned6 = p6.get(doneRow.id)!
+  Object.assign(doneRow, { status: 'COMPLETED', status_reason: null, status_set_by: null, notes: bookingNotes(planned6) })
+  assert.notEqual(bookingNotes(planned6), bookingNotes({ ...planned6, cancelReason: null }), 'the labelled line differs from the unlabelled one (not vacuous)')
+  const c6 = planStore({ ...input, recipe: w6.recipe, plan: w6.p, rows: w6.rows, karuted: w6.karuted, burnt: new Set() })
+  assert.ok(!c6.held.some((l) => l.startsWith(`${doneRow.id}:`)), 'G-P2 tolerance: the plan-labelled note on a COMPLETED row is not held')
+  assert.equal(c6.changes.find((c) => c.id === doneRow.id)?.set.notes, bookingNotes({ ...planned6, cancelReason: null }), 'G-P2 tolerance: its notes are rewritten to the unlabelled line')
+  console.log(`✓ G-P2 tolerance: COMPLETED ${doneRow.id} with the plan's ${planned6.cancelReason} label kept as the loader's, unlabelled`)
+
   // --repair-foreign never sets a MANUAL booking's null duration (Karute's own create always sends one): held, one line.
   const manual = { ...clone(w2.reserve), id: 'manual-row', notes: '電話で予約', source: 'MANUAL' as const }
   const d = planStore({ ...input, rows: [...clone(w2.rows), manual], karuted: w2.karuted, burnt: new Set(), repairForeign: true })
