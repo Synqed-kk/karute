@@ -38,10 +38,13 @@ test('T-G2 part-timer: one 2-h booking → 540, 120, 22%', () => {
 test('T-G3 zero-booking staff are not counted: 5 on the roster, 1 booked 300 → 540 (not 2700), 56%', () => {
   expect(pick(fact({}, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 300, occupancyPct: 56, shiftState: 'inferred', onShiftNoBooking: 0 })
 })
-test('T-G5 breakMinutes is the setting: 30 → 570, 0 → 600, 700 (≥ open) floors at the booked 300', () => {
+test('T-G5 breakMinutes is the setting: 30 → 570, 0 → 600; 700 (≥ open) is sanitised to the default (S111-5) → 540', () => {
   expect(fact({ breakMinutes: 30 }, [span('A', 600, 900)]).capacityMinutes).toBe(570)
   expect(fact({ breakMinutes: 0 }, [span('A', 600, 900)]).capacityMinutes).toBe(600)
-  expect(pick(fact({ breakMinutes: 700 }, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 300, bookedMinutes: 300, occupancyPct: 100 })
+  // Pre-S111-5 this floored at the booked 300 (100 %); the break is now sanitised against the 600 open minutes.
+  expect(pick(fact({ breakMinutes: 700 }, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 300, occupancyPct: 56 })
+  // The floor still holds when a legal break leaves less than the booked time: open 600, break 599, booked 300.
+  expect(pick(fact({ breakMinutes: 599 }, [span('A', 600, 900)]))).toMatchObject({ capacityMinutes: 300, bookedMinutes: 300, occupancyPct: 100 })
 })
 test('T-G6 unassigned booking on an inferred day fills into A (R-E): 540, 240, 44%', () => {
   expect(pick(fact({}, [span('A', 600, 720), span(null, 840, 960)]))).toMatchObject({ capacityMinutes: 540, bookedMinutes: 240, occupancyPct: 44, shiftState: 'inferred', lanes: 1 })
@@ -98,4 +101,11 @@ test('S111-4: a day whose only bookings are outside hours is not guessed: none, 
 })
 test('S111-4: an out-of-hours roster person never makes a guessed day partial', () => {
   expect(fact({}, [span('A', 1200, 1260), span('C', 600, 660)]).shiftState).toBe('inferred')
+})
+test('S111-5: a guessed day with break 1e9 gives the same figure as break 60', () => {
+  expect(pick(fact({ breakMinutes: 1e9 }, three))).toEqual(pick(fact({ breakMinutes: 60 }, three)))
+})
+test('S111-2: hours {openMs: 0, closeMs: Infinity} with a booking → not guessed (none), capacityForDay withholds hours-unresolved', () => {
+  const base = input([span('A', 600, 900)])
+  expect(pick(capacityForDay({ ...base, hours: { ...base.hours!, openMs: 0, closeMs: Number.POSITIVE_INFINITY }, shift: shifts() }))).toMatchObject({ shiftState: 'none', capacityMinutes: null, occupancyPct: null, reason: 'hours-unresolved', bookedMinutes: 300 })
 })
