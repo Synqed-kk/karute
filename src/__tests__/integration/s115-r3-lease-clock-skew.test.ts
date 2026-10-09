@@ -1,7 +1,8 @@
 /**
- * ⚖ S115 round 3 (S3) — THE CLOCK TOLERANCE IS DERIVED FROM THE TTL'S MARGIN. The lease outlives the
- * 300 s door limit by TTL − 300 s; a tolerance wider than that margin claimed a safety the margin
- * does not deliver. Boundaries at margin − 1 s and margin + 1 s, a clock per server.
+ * ⚖ S115 round 3 (S3), revised S116 round 4 (SF3) — ONE CONSTANT SET BESIDE THE TTL. The TAKEOVER
+ * limit is the TTL's margin over the 300 s door limit (30 s): a taker ahead by more takes over a live
+ * holder (a named residual). The READER bound is derived from it, two margins (60 s): a writer up to
+ * 60 s ahead still reads live, so a reader in the holder's first seconds never pays twice.
  */
 jest.mock('server-only', () => ({}))
 
@@ -117,10 +118,20 @@ const MARGIN = TTL - 300_000
 const TOLERANCE = (leaseTtl as Record<string, unknown>).TRANSCRIPT_LEASE_CLOCK_SKEW_MS
 
 describe('S3 — clock skew against the TTL margin', () => {
-  it('one definition: the door limit and the tolerance live beside the TTL, tolerance < TTL − door limit', () => {
+  it('one definition: the takeover limit is TTL − door limit (30 s); the reader bound is two of it (60 s, ≥ 60 s)', () => {
     expect((leaseTtl as Record<string, unknown>).TRANSCRIPT_PAYING_DOOR_MAX_DURATION_MS).toBe(300_000)
+    expect((leaseTtl as Record<string, unknown>).TRANSCRIPT_LEASE_TAKEOVER_SKEW_LIMIT_MS).toBe(MARGIN)
     expect(typeof TOLERANCE).toBe('number')
-    expect(TOLERANCE as number).toBeLessThan(MARGIN)
+    expect(TOLERANCE).toBe(2 * MARGIN)
+    expect(TOLERANCE as number).toBeGreaterThanOrEqual(60_000)
+  })
+
+  it.each([31, 45, 59])('SF3: a LIVE holder whose clock is %i s ahead, a reader 5 s into its life → busy (one payer, not two)', async (s) => {
+    const writer = await take(T0 + s * 1_000)
+    expect(writer.state).toBe('held')
+    const reader = await take(T0 + 5_000)
+    expect(reader.state).toBe('busy')
+    expect(payers([writer, reader])).toBe(1)
   })
 
   it('a writer ahead by margin − 1 s: its lease reads live (busy)', async () => {
@@ -129,9 +140,17 @@ describe('S3 — clock skew against the TTL margin', () => {
     expect((await take(now)).state).toBe('busy')
   })
 
-  it('a writer ahead by margin + 1 s: its lease is unreadable (warned) and falls open', async () => {
+  it('a writer ahead by margin + 1 s: its lease still reads live (busy) — the reader bound is wider', async () => {
     const now = T0 + DAY
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + MARGIN + 1_000, nonce: OTHER }), now)
+    expect((await take(now)).state).toBe('busy')
+  })
+
+  it('the reader boundary: EXACTLY TTL + the reader bound reads live; 1 ms past is unreadable (warned) and falls open', async () => {
+    const now = T0 + DAY
+    plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number), nonce: OTHER }), now)
+    expect((await take(now)).state).toBe('busy')
+    plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number) + 1, nonce: OTHER }), now)
     expect((await take(now)).state).toBe('unknown')
     expect(warns).toContain('transcript-lease.expiry')
   })

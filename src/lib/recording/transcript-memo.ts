@@ -447,7 +447,7 @@ export async function releaseTranscriptLease(held: HeldTranscriptLease, now = Da
 /** ⚖ S58 — the clock-skew tolerance on a lease's expiry: how far past this
  *  server's own `now + TRANSCRIPT_LEASE_TTL_MS` another server's clock may
  *  have written it. A tolerance between clocks, not a business duration.
- *  ⚖ S115 round 3 (S3): derived beside the TTL, under its margin (was 60 s). */
+ *  ⚖ S116 round 4 (SF3): derived beside the TTL — two takeover limits, 60 s. */
 const LEASE_CLOCK_SKEW_MS = TRANSCRIPT_LEASE_CLOCK_SKEW_MS
 
 /** The lease's expiry, or null when it cannot be read (missing, garbage, error).
