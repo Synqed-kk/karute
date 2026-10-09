@@ -113,6 +113,14 @@ export function toAppApiError(err: unknown): AppApiError {
 // safety, not a functional requirement).
 const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`)
 
+// R-S115-15 (log-line forging): control characters never reach a log field
+// raw. The name: every C0 control (ESC U+001B included), DEL and the line
+// terminators LS / PS. The message: every C0 control and DEL except LF and CR,
+// which the first-line cut below needs. Each becomes a space, after the decode
+// (a `%1B` is ESC only once decoded) and before masking.
+const NAME_CONTROL_RE = new RegExp(`[\\x00-\\x1F\\x7F${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`, 'g')
+const MESSAGE_CONTROL_RE = /[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g
+
 /** Sanitised, bounded one-line description of an unclassified thrown value —
  *  for SERVER logs only — `logFacadeError` (handler.ts) and the web actions'
  *  outage catches — never `errorBody`. Never the
@@ -126,8 +134,11 @@ const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${Stri
 export function describeUnknownThrow(err: unknown): { errName: string; errStatus?: number; errMessage: string } {
   try {
     const rawName = err instanceof Error ? err.name : typeof err
-    // Bounded first (R-S115-10 N4), like the message: a 1 MB name cost 21 ms.
-    const errName = capWithEllipsis(maskSensitive(preBound(typeof rawName === 'string' ? rawName : typeof err)), 60)
+    // Bounded first (R-S115-10 N4), then decoded (R-S115-15), like the
+    // message: a 1 MB name cost 21 ms; `password%3D…` is masked like plain
+    // text. Control characters and line breaks become spaces (one line).
+    const nameText = decodeText(preBound(typeof rawName === 'string' ? rawName : typeof err))
+    const errName = capWithEllipsis(maskSensitive(nameText.replace(NAME_CONTROL_RE, ' ').replace(/\s+/g, ' ').trim()), 60)
 
     const rawMessage = err instanceof Error ? err.message : String(err)
     const message = typeof rawMessage === 'string' ? rawMessage : ''
@@ -147,8 +158,11 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
     // line boundary survives for the cut); any other run → one ' '.
     // Decode AFTER the bound (R-S115-1 N1), the exit's own decode: an
     // encoded label (`password%3D…`) or email (`%40`) is masked like plain
-    // text. A malformed `%XX` run logs as `[enc]`.
-    const collapsed = decodeText(preBound(message)).replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
+    // text. A malformed `%XX` run logs as `[enc]`. Control characters other
+    // than LF / CR become spaces (R-S115-15).
+    const collapsed = decodeText(preBound(message))
+      .replace(MESSAGE_CONTROL_RE, ' ')
+      .replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
     const masked = maskSensitive(collapsed)
     const lineEnd = masked.search(LINE_TERMINATOR_RE)
     const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).trim()

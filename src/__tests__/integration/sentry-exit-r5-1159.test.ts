@@ -82,3 +82,30 @@ describe('R5 2 — label forms: nested escapes, quoted brackets, &quot;, PKCE an
     for (const v of ['pinned: yes', 'keyboard=1', 'one time only', 'verified: true', 'hotpot: 3']) expect(maskSensitive(v)).toBe(v)
   })
 })
+
+// ---- R5 chunk 3
+const nameOf = (name: string) => {
+  const e = new Error('x')
+  e.name = name
+  return describeUnknownThrow(e).errName
+}
+describe('R5 3+4 — err.name decoded; control characters out of both log fields', () => {
+  it('a percent-encoded name is decoded, then masked', () => {
+    expect(leaks(nameOf(`password%3D${PW}`), PW)).toEqual([])
+    expect(leaks(nameOf(`${LOCAL}%40example.com`), 'hanako', 'example')).toEqual([])
+  })
+  const NAME_CONTROL = new RegExp('[\\x00-\\x1F\\x7F\\u2028\\u2029]')
+  it('no C0 control character (ESC included) or line break in errName', () => {
+    for (const n of ['X%1B[31mY', 'X\u001b[31mY', `X\npassword=${PW}`, 'X\rY', 'X%0AY', 'X\u2028Y', 'X\u0000Y\u007f']) {
+      const out = nameOf(n)
+      expect(out).not.toMatch(NAME_CONTROL)
+      expect(leaks(out, PW)).toEqual([])
+    }
+  })
+  it('no C0 control character other than the cut line break in errMessage', () => {
+    for (const m of ['boom %1B[31m red', 'boom \u001b[31m red', 'a\u0007b\u0000c', 'x %00 y']) {
+      expect(log(m)).not.toMatch(/[\x00-\x1F\x7F]/)
+    }
+    expect(log('first %1B line\nsecond')).toBe('first line')
+  })
+})
