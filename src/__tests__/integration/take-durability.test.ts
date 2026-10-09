@@ -1114,6 +1114,23 @@ describe('pinTakeFallback — the key a fallback is about to pay for (S53 A4)', 
     expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: K1, recordingSessionId: 'sess-1' })
   })
 
+  // ⚖ S115 (Opus S1): the first attempt ADOPTED its minted session (the take is finalized at K1),
+  // so the second attempt's pin is refused by the finalized-key guard — and is now told K1, so it
+  // re-sends K1 instead of paying for its own K2.
+  it('two attempts, the first adopted its session → the second is answered the finalized K1', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const hashed = { ...audio, sha256: 'ab'.repeat(32) }
+    const K1 = 'app_biz-1_server-named-1.webm'
+    const K2 = 'app_biz-1_server-named-2.webm'
+    expect(await adoptTakeSession(takeId, 'sess-1', K1)).toBe(true)
+    expect(await pinTakeFallback(takeId, { finalizedPath: K1, recordingSessionId: 'sess-1', locale: 'ja', audio: hashed })).toMatchObject({ finalizedPath: K1 })
+    const second = await pinTakeFallback(takeId, { finalizedPath: K2, recordingSessionId: 'sess-2', locale: 'ja', audio: hashed })
+    expect(second).toMatchObject({ finalizedPath: K1, recordingSessionId: 'sess-1' })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: K1, recordingSessionId: 'sess-1' })
+  })
+
   it('other bytes, another locale or a retired pin → replaced as before (such a pin is never re-presented for this audio)', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')

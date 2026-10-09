@@ -1247,7 +1247,8 @@ export async function stampTakeTranscript(
  *  retired pin) is replaced as before: such a pin can never be re-presented
  *  for this audio anyway (pinForSameBytes / the locale filter in ai-pipeline).
  *  Answers the pin that stands after the write (this one, or the kept one),
- *  or null when nothing landed. */
+ *  the take's finalized key when it is finalized at another key (S115), or
+ *  null when nothing landed. */
 export async function pinTakeFallback(
   takeId: string,
   pin: Omit<TakeFallbackPin, 'at'>,
@@ -1256,7 +1257,14 @@ export async function pinTakeFallback(
   let kept: TakeFallbackPin | null = null
   const wrote = await patchTakeMeta(takeId, { fallbackPin: fresh }, (meta) => {
     kept = null
-    if (meta.finalizedPath && meta.finalizedPath !== pin.finalizedPath) return false
+    // ⚖ S115 (Opus S1): finalized at ANOTHER key — the take adopted another
+    // attempt's minted session (adoptTakeSession), whose key may already be
+    // paid. Nothing is written, and THAT key is answered so this run sends it
+    // (the C3 rule a later 再試行 follows through `currentPath`), never its own.
+    if (meta.finalizedPath && meta.finalizedPath !== pin.finalizedPath) {
+      kept = { ...fresh, finalizedPath: meta.finalizedPath, recordingSessionId: meta.recordingSessionId ?? null }
+      return false
+    }
     const live = meta.fallbackPin
     if (live && !live.retiredAt && live.finalizedPath !== pin.finalizedPath && live.locale === pin.locale && samePinnedBytes(live.audio, pin.audio)) {
       kept = live
