@@ -57,7 +57,8 @@
 //   err.name and the message are bounded, decoded and masked like the exit
 //   text; every C0 control character (ESC included) and DEL becomes a space
 //   (in the name also LF, CR, LS and PS: the name is one line; the message
-//   keeps LF / CR for its first-line cut).
+//   keeps LF, CR, LS and PS and cuts at the first of them: `a`, LS U+2028,
+//   `b` logs `a`).
 // - A name in English letters WITH a space (「Tanaka Hanako」) can leave in the
 //   places that keep spaces: function names in a stack trace, the browser's
 //   user-agent and accept text and its copy in span data, the system name
@@ -73,16 +74,24 @@
 //   address with no dot-suffix (「tanaka@example」), an email split by a
 //   marker (above), a secret after a label the list above does not hold
 //   (「Cookie: sid=…」, `cvv=`), a label with no `:` or `=` (「SECRET_KEY abc」,
-//   「password x」) or written with spaces (「one time code: x」), a secret
-//   in prose (「password is x」, 「the PIN was 1234」 — four digits are not a
-//   phone), the part after `&` or a space in an unquoted value
+//   「password x」, a JSON array pair `["password","x"]`) or written with
+//   spaces (「one time code: x」), a secret in prose (「password is x」, 「the
+//   PIN was 1234」 — four digits are not a phone; 「Incorrect API key
+//   provided: X」 — a word, not `:`, follows the label), the part after `&`
+//   or a space in an unquoted value
 //   (`password=a&b` leaves `&b`, `password=correct horse` leaves 「horse」), a
 //   label with a suffix outside the closed list or after a dot
 //   (`password1=`, `pinNumber=`, `tokenString=`, `key.value=`) or in nested
-//   brackets (`user[password][0]=`), a quote written as a JSON `"` or an
-//   HTML `&#34;` (`{"password":"x"}` leaves whole), a label
-//   broken by an exotic character (`password\0=x`, `password%00=x`, `pass∶x`
-//   with U+2236, a Cyrillic look-alike letter, `apiKey => x`, `token -> x`,
+//   brackets (`user[password][0]=`), a JSON key whose quote is spelled
+//   another way than a plain `"`, `'`, `&quot;` or a backslash run before
+//   `"` (those are covered): the six characters backslash-u-0-0-2-2
+//   (`\u0022`; `{\u0022password\u0022:\u0022x\u0022}` leaves whole), the
+//   same with two backslashes (`\\u0022`), `\x22`, the HTML entity `&#34;`,
+//   `&amp;quot;`, or a backslash-slash before the quote (`\/"`), a label
+//   broken by an exotic character (`password\0=x` and `password%00=x` leave
+//   at the exit but are masked on the log line, where control characters
+//   become spaces before masking; `pass∶x` with U+2236, a Cyrillic
+//   look-alike letter, `apiKey => x`, `token -> x`,
 //   `pass&#61;x`, `password%u003Dx`, `password:"" x`), and a YAML block value
 //   (`password: |` with the value on the next line; the log line keeps only
 //   its first line, the exit keeps the value).
@@ -119,6 +128,24 @@
 //   it was not meant as one, so `%DEBUG%` → `[enc]BUG%` and 「progress
 //   100%ABC」 → `progress 100[enc]C`; a byte that is not valid UTF-8 logs
 //   as `[enc]`.
+//   The decode guard: the six-round ceiling above holds for FULL
+//   re-encodings only. A 「half」 re-encoding (every other character
+//   encoded, ×2 per round) fits 9 rounds in 1,047 characters
+//   (`tanaka.hanako` + 1,023 + `example.com`); what is left after the
+//   guard's 8 rounds becomes `[enc]` and splits an email or a label, which
+//   then leave: `tanaka.hanako[enc]example.com`, `password[enc]<value>`.
+//   An escaped value with two or more backslashes, or an `&quot;`-quoted
+//   value, that is never closed: the label rule falls back to the bare
+//   value, which stops at the first quote (and cannot start at `&`), so the
+//   secret after the quote leaves — with two backslashes before each quote,
+//   `{\\"password\\":\\"x` → `{\\"<label>=<redacted>"x`;
+//   `{&quot;password&quot;:&quot;x` leaves whole. Only when a
+//   doubly-stringified value is cut by the 2,000 bound or another truncation
+//   inside the value; depth 1 (one backslash) and a plain quote still mask
+//   the first word. The same leak, closed or not, for a malformed value at
+//   depth 2+ that holds a lower-depth quote (two backslashes, a quote, `a`,
+//   one backslash, a quote, then the secret: only up to the first quote is
+//   masked).
 //   Over-masking the other way: a date-plus-id route inside the error text
 //   (「/api/2026/10/08/12345」) becomes `<phone>`, and the label rule turns
 //   「Invalid Refresh Token: Refresh Token Not Found」 into 「Invalid Refresh

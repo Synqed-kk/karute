@@ -43,7 +43,9 @@ const EMAIL_RE =
  *  named in the sentry-exit.ts header).
  *  What 、 newly eats: a 、-list holding 10-16 digits in all
  *  (「100、200、300、400」 → `<phone>`), as `,` already did; a date or a
- *  short list (「2026ー10ー09」, 「1、2、3」) is unchanged; an ID list of 10-16
+ *  short list (「2026ー10ー09」, 「1、2、3」) is not turned into `<phone>` (the
+ *  text rule still makes them `2026<text>10<text>09`, `1<text>2<text>3`);
+ *  an ID list of 10-16
  *  digits is not (「ID: 12345、67890」 → `ID: <phone>`), nor a ー date with a
  *  time (「2026ー10ー09 09:00」 → `<phone>:00`).
  *  A gap between digit groups is 1–3 of these.
@@ -331,8 +333,13 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  an `&quot;`-quoted value to the next `&quot;`; a `"`-quoted value to its
  *  closing quote, `\x` inside it part of it; a `'`-quoted value; else a bare
  *  value up to a space, `&` or a quote. Each quoted form is a run of disjoint
- *  tokens (no backtracking ambiguity); an unclosed quoted form falls back to
- *  the bare value.
+ *  tokens (no backtracking ambiguity). An unclosed quoted form falls back to
+ *  the bare value, which stops at the first quote and cannot start at `&`:
+ *  for a plain quote or one backslash that still masks the first word; for
+ *  an escaped value with two or more backslashes it masks only up to the
+ *  quote and the secret after it leaves (`{\\"password\\":\\"x`, no closing
+ *  quote → `{\\"<label>=<redacted>"x`), and an unclosed `&quot;` value is
+ *  not matched at all and leaves whole.
  *  What it also eats (masked in text, the field dropped at shape positions):
  *  a word that merely ENDS in a label before `:`/`=` (`bypass=`, `compass:`,
  *  `oauth=`, `OAuth: …`, `spin=`, `chopin:`, `monkey:banana`, `monkey_id=42`,
@@ -345,7 +352,8 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  their value. Still leaves: another suffix (`password1=`, `passwordStr=`,
  *  `pinNumber=`, `token_b64=`, `tokenString=`, `secretData=`), a dotted one
  *  (`key.value=`), a nested bracket (`user[password][0]=`), a quote written
- *  as `\u0022` or `&#34;`, and the rest named in the sentry-exit.ts header.
+ *  as `\u0022` or `&#34;`, an unclosed value of the two kinds above, and the
+ *  rest named in the sentry-exit.ts header.
  *  A label with no `:`/`=` after it is kept (`Auth session missing!`,
  *  `/api/auth/session`, `pinned`, `passthrough`). */
 export const LABELLED_CRED_RE =

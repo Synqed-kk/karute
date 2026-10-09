@@ -45,6 +45,9 @@ describe('R5 1 — the decode runs until the text is stable, on normalised text'
     expect((masked('%FF '.repeat(500), 200) ?? '').length).toBeLessThanOrEqual(200)
     expect(log('%FF '.repeat(700)).length).toBeLessThanOrEqual(201)
   })
+  it('each round is bounded again: a text that normalising lengthens (U+FDFA, 18 characters) stays within 5/3 of the bound', () => {
+    expect(decodeText(String.fromCharCode(0xfdfa).repeat(2000)).length).toBeLessThanOrEqual(3334)
+  })
 })
 
 // ---- R5 chunk 2
@@ -107,5 +110,9 @@ describe('R5 3+4 — err.name decoded; control characters out of both log fields
       expect(log(m)).not.toMatch(/[\x00-\x1F\x7F]/)
     }
     expect(log('first %1B line\nsecond')).toBe('first line')
+  })
+  it('a name with runs of spaces, tabs or a decoded control logs as one line with single spaces', () => {
+    const TAB = String.fromCharCode(9)
+    expect(nameOf(`  Bad${TAB}${TAB}Name   x%1B%1By  `)).toBe('Bad Name x y')
   })
 })
