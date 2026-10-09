@@ -1133,9 +1133,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
     reserveSaving.current = true
     setReserveBusy(true) // S67 F1 — the six are locked until core answers
     setReserveFail(null)
-    const result = await putReservePolicy(save, policy, reserveBasedOn.current)
-    reserveSaving.current = false
-    setReserveBusy(false)
+    let result: ReservePolicyAnswer
+    try {
+      result = await putReservePolicy(save, policy, reserveBasedOn.current)
+    } finally {
+      // S68 — cleared even when the save throws, so the screen is never left locked
+      reserveSaving.current = false
+      setReserveBusy(false)
+    }
     if (!result.ok) {
       setReserveFail(result.message)
       if (result.stale === undefined) return
