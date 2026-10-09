@@ -140,3 +140,17 @@ it.each(['OWNER', 'ADMIN'])('Q1 negative: an extra %s card sorting first moves n
   expect(span(out, card)).toEqual({ id: card, start: GYM.open, end: GYM.close })
   expect(sidesOf(NAMES, GYM)!.has('Dev Salon')).toBe(false)
 })
+
+it('F3 (Greptile #1153 P2): the absence starts only once another person covers every minute to the absent shift\'s end', () => {
+  const two = [{ id: 'a', name: '見本 あ', role: 'STYLIST' }, { id: 'b', name: '見本 い', role: 'STYLIST' }]
+  // 07:00–22:00: あ opens 07:00–16:00, い closes 13:00–22:00 — the midpoint (11:30) would leave nobody working until 13:00
+  const split = shiftDay('hair_salon', two, { open: 420, close: 1320 }, absence, sellSlots)
+  const early = split.shifts.find((s) => s.staff_id === split.absence!.staff_id)!
+  const others = split.shifts.filter((s) => s.staff_id !== early.staff_id)
+  const empty = Array.from({ length: early.end - split.absence!.from }, (_, i) => split.absence!.from + i).filter((m) => !others.some((s) => s.start <= m && m < s.end))
+  expect({ staff: split.absence!.staff_id, from: split.absence!.from, empty: empty.length }).toEqual({ staff: 'a', from: 13 * 60, empty: 0 })
+  // coverage already holds (10:00–19:00, both work the day): today's start, the midpoint 14:30, exactly
+  expect(shiftDay('hair_salon', two, sample, absence, sellSlots).absence!.from).toBe(Math.floor((600 + 1140) / 2))
+  // a lone person: nobody covers, so no absence
+  expect(shiftDay('hair_salon', two.slice(0, 1), sample, absence, sellSlots).absence).toBeNull()
+})

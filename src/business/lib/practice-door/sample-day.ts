@@ -122,7 +122,18 @@ export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name:
   const pool = shifts.filter((s) => stylists.has(s.staff_id))
   const opening = pool.filter((s) => s.start === pair.open)
   const early = [...(opening.length ? opening : pool)].sort((a, b) => lastEnd(a) - lastEnd(b))[0]
-  const away = absence && early && shifts.length >= 2 ? { ...absence, staff_id: early.staff_id, from: Math.max(Math.floor((early.start + early.end) / 2), lastEnd(early)) } : null
+  // ⚖ FOLD-GREPTILE-1 F3 — coverage, not a head count: the absence starts at the first minute from today's start
+  // (max(midpoint, lastEnd)) from which another person's shift covers every minute to the absent shift's end; no such
+  // minute before that end → no absence (a lone person is never covered, so never carries it).
+  const coveredFrom = (e: FixtureShift) => {
+    const covered = (m: number) => shifts.some((s) => s.staff_id !== e.staff_id && s.start <= m && m < s.end)
+    let from = e.end
+    while (from - 1 >= Math.max(Math.floor((e.start + e.end) / 2), lastEnd(e)) && covered(from - 1)) from -= 1
+    const start = Math.max(Math.floor((e.start + e.end) / 2), lastEnd(e))
+    return from < e.end ? from : start >= e.end && shifts.some((s) => s.staff_id !== e.staff_id) ? start : null // vacuous: nothing left to cover
+  }
+  const from = early ? coveredFrom(early) : null
+  const away = absence && early && from !== null ? { ...absence, staff_id: early.staff_id, from } : null
   const meetsBreak = (s: FixtureShift, t: number) => s.breaks.some((b) => b.start < t + 60 && t < b.end)
   const times = [960, 1050].map((t) => Math.min(t, pair.close - 60 - (1050 - t))).filter((t) => t > pin && t >= pair.open)
   const used = new Set<string>()
