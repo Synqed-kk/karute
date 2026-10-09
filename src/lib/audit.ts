@@ -1180,6 +1180,15 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       dated: '2026-09-29',
     },
   },
+  // Reserve S66 PACKET B — SYNQED Business's 受付 (the store's six booking rules) save route. Rows before sites, as
+  // the store-days rows did: the route file lands with the Business PR stacked on this one. One storePolicies.set
+  // through the practice door; core writes its own store_policy.edit audit row, the route emits nothing of its own.
+  'business/reserve-policy': {
+    kind: 'skip',
+    justification:
+      "Business 受付 booking rules (PUT) — the door's setReservePolicy makes one storePolicies.set of the six fields; core writes the store_policy.edit audit row itself; the route emits nothing of its own. Covered by core's own store_policy.edit row; no coveredBy symbol exists for these SDK-emitted writes.",
+    dated: '2026-10-08',
+  },
   // ⚖ R53/R55 (PR #1107) — SYNQED Business's ログアウト: server-side sign-out inside Business territory. Auth only:
   // supabase auth.signOut({ scope: 'local' }) through admission.ts, no facade, no core, no row written. Rows before
   // sites, as #1030 did for card-color: the route file lands with #1107.
