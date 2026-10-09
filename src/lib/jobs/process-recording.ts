@@ -234,6 +234,14 @@ async function resolveActorUserId(synqed: SynqedClient, staffId: string): Promis
     .catch(() => null)
 }
 
+// S118 (#1088 r6) — WHY ≥ ON THE CLAIMED ROW IS RIGHT (core main e85773067):
+// claimNext (src/services/recording-job.service.ts:~98-112) runs
+// `UPDATE … SET status='RUNNING', claimed_at=now(), attempts = attempts + 1 … RETURNING id`,
+// then findUniqueOrThrow on that id AFTER the update and returns toPublic(row)
+// (:29-51, snake_case `attempts: r.attempts`, `max_attempts: r.maxAttempts`);
+// POST /v1/recording-jobs/claim (src/routes/recording-jobs.ts:38-41) returns it as is.
+// So the row the worker sees is the POST-increment one: the 3rd claim of a
+// max-3 job reads attempts 3 ≥ 3 = the last.
 /** ⚖ S116 round 5 (R-S116-9) — is this claim the job's last attempt? Core counts
  *  attempts on claim and FAILs at attempts ≥ max_attempts; an unreadable count = last. */
 export function isLastAttempt(job: Pick<RecordingJob, 'attempts' | 'max_attempts'>): boolean {
