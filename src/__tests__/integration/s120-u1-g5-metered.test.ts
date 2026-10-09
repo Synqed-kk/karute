@@ -44,7 +44,8 @@ import { transcriptLeaseKey, transcriptTrueUpKey } from '@/lib/recording/transcr
 
 const MEMO = 'trc/biz-1_take-1.ja.json'
 const LEASE = transcriptLeaseKey(MEMO)
-const MARK = transcriptTrueUpKey(MEMO)
+const WRITTEN_AT = 'w' // the planted memo's generation (G6: the marker key names it)
+const MARK = transcriptTrueUpKey(MEMO, WRITTEN_AT)
 const dg = (jest.requireMock('@/lib/deepgram') as { st: { paid: number; dur: number; ticks: number } }).st
 const led = (jest.requireMock('@/lib/ai-rate-limit') as { led: { calls: Array<{ cents: number; ok: boolean }>; failCents: Set<number> } }).led
 const meter = (door: 'web' | 'job'): TranscriptionMeter => ({ synqed: {} as TranscriptionMeter['synqed'], businessId: 'biz-1', door, recordingSessionId: 'rs-1', audioKey: 'biz-1/take-1.webm' } as TranscriptionMeter)
@@ -79,7 +80,7 @@ describe('G5 metered: an unusable lease no longer lets every call pay, and an ow
 
   it.each(['clean', 'notJson'])('memo owes a true-up (99c), no marker, lease=%s: three replays record it once, marker written, no payer', async (name) => {
     if (name !== 'clean') plant(LEASE, BAD[name])
-    plant(MEMO, JSON.stringify({ v: 1, result: { transcript: 'x', durationSec: 100 }, duration_seconds: 100, written_at: 'w', trueUp: { reserveCents: 1, costCents: 100, deltaCents: 99 } }))
+    plant(MEMO, JSON.stringify({ v: 1, result: { transcript: 'x', durationSec: 100 }, duration_seconds: 100, written_at: WRITTEN_AT, trueUp: { reserveCents: 1, costCents: 100, deltaCents: 99 } }))
     const rec = []
     for (let i = 0; i < 3; i++) {
       const r = await call('job')
