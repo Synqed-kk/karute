@@ -165,7 +165,8 @@ export const DEFAULT_THROTTLE: Throttle = { concurrency: 1, pauseMs: 150 }
 export const SATURATED_LINE = "core's database is at its connection limit — stopped. Check core answers before resuming."
 /** Thrown by the limiter once core's database reported it is full; no request starts after it. */
 export class Saturated extends Error {}
-const isSaturated = (e: unknown) => /EMAXCONN|max client connections/i.test(message(e))
+// the text may sit in the message, the error code or the JSON body (SynqedError keeps code and body apart)
+const isSaturated = (e: unknown) => ((x) => /EMAXCONN|max client connections|max clients reached|too many clients/i.test(`${message(e)} ${x?.code ?? ''} ${JSON.stringify(x?.body ?? '')}`))(e as { code?: unknown; body?: unknown } | null)
 
 /** The CLI's throttle flags; a string is the refusal (exit 2, before any core call). */
 export function parseThrottle(argv: string[]): Throttle | string {

@@ -723,6 +723,13 @@ async function main() {
   assert.ok(sr.s.failedAt > 0 && sr.s.calls === sr.s.failedAt, `read-back: failed at request ${sr.s.failedAt}, ${sr.s.calls} started`)
   assert.deepEqual([srLog.filter((l) => l === SATURATED_LINE).length, srLog.some((l) => l.startsWith('section |'))], [1, false], srLog.join('\n'))
   console.log(`✓ S90 EMAXCONN in read-back: stopped at request ${sr.s.failedAt}, ${sr.s.calls - sr.s.failedAt} started after, exit 0 kept`)
+  // the full-database text only in the error code, or only in the JSON body, stops the run too
+  for (const err of [Object.assign(new Error('pool refused'), { status: 500, code: 'EMAXCONN' }), Object.assign(new Error('unavailable'), { status: 503, body: { error: { message: 'sorry, too many clients already' } } })]) {
+    const sc = watched((call) => call === 'appointments.create', err)
+    assert.equal(await apply(sc.core, { ...opts(empty()), limiter: sc.lim(DEFAULT_THROTTLE) }), 1, err.message)
+    assert.ok(sc.s.failedAt > 0 && sc.s.calls === sc.s.failedAt, `${err.message}: ${sc.s.calls - sc.s.failedAt} started after`)
+  }
+  console.log('✓ S90 detection: EMAXCONN only in the code, "too many clients" only in the body: both stop the run')
   // lead note: a full database is never retried (one request, not a whole read-back); a plain 5xx re-run of the read-back still queues in the limiter
   let tries = 0
   await assert.rejects(withRetry(async () => { tries++; throw new Saturated('EMAXCONN') }, false, async () => {}), Saturated)
