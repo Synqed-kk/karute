@@ -324,7 +324,7 @@ describe('the fixture data door', () => {
       // pure model (its one non-local import is `import type`, erased — no fixture reaches the door) in place of the palette.
       'src/business/lib/practice-door/door-store-capabilities.ts': ['../clock', '../store-page/model', './actor', './core-reach', './door', './switch'],
       // Reserve S66 — 受付ルール's writer, door-store-capabilities.ts's twin: its own allowlist key (a second storePolicies.set site).
-      'src/business/lib/practice-door/door-reserve-policy.ts': ['../clock', '../store-days-state', './actor', './core-reach', './door', './reserve-policy', './switch'],
+      'src/business/lib/practice-door/door-reserve-policy.ts': ['../clock', '../store-days-state', './actor', './core-reach', './door', './reserve-policy', './sample-facade', './switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.

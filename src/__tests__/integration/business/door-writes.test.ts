@@ -885,7 +885,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     const second = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 50 }, first.ok ? first.basedOn : 'x')
     expect(second.ok).toBe(true)
     const third = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 0 }, first.ok ? first.basedOn : 'x')
-    expect(third).toMatchObject({ ok: false, reason: 'stale', message: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。' })
+    expect(third).toMatchObject({ ok: false, reason: 'stale', message: 'この店舗のReserve 受付の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更していない項目は最新の内容に置き換えました。もう一度保存すると、変更した項目が保存されます。' })
     expectWrites({ set: 2 })
   })
 

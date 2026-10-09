@@ -19,17 +19,20 @@ import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem
 type Reason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'
 type StoredPolicy = ReservePolicy & { updated_at: string | null }
 /** `basedOn` is the saved row's fingerprint, the next save's precondition (R9). A 'stale' answer carries the row
- *  as core holds it now and ITS fingerprint (the lead's ruling, fix batch 1): the screen cannot re-read, so it
- *  keeps the manager's draft, shows the stale line and takes this basedOn; only a second, explicit press saves. */
+ *  as core holds it now and ITS fingerprint (S67 W1, replacing fix batch 1's blind second press): the screen
+ *  merges that row into the fields the manager left as they were, keeps the ones they changed, shows the stale
+ *  line and takes this basedOn; only a second, explicit press saves. */
 export type SetReservePolicyResult =
   | { ok: true; row: StoredPolicy; basedOn: string }
   | { ok: false; reason: 'stale'; message: string; current: StoredPolicy; basedOn: string }
   | { ok: false; reason: Exclude<Reason, 'stale'>; message: string }
 
 // DESIGN-BUILD2 §4 + §9 R5/R9 — native JP, listed for the blind pass. The stale line follows お店ページ's
-// (store-page/copy.ts); the failure line is the store-days line without its schedule-list clause.
+// (store-page/copy.ts), and says what the screen does with it (S67 W1: the screen merges the 409's row into the
+// fields the manager did not change, so the next press saves only the manager's own changes over the latest row);
+// the failure line is the store-days line without its schedule-list clause.
 const MSG = {
-  stale: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。',
+  stale: 'この店舗のReserve 受付の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更していない項目は最新の内容に置き換えました。もう一度保存すると、変更した項目が保存されます。',
   range: '設定できる範囲を超えた値があるため、保存できませんでした。',
   cutoffOverOpen: '直前締切が受け付ける日数より長く、予約できる枠がなくなるため、保存できませんでした。',
   freeOverOpen: '無料キャンセル期限が受け付ける日数より長く、すべての予約が期限後になるため、保存できませんでした。',
