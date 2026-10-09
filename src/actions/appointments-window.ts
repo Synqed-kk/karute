@@ -17,9 +17,13 @@
 //     around this call, so a failed read surfaces as an error.
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import { readStaffShifts } from '@/lib/appointments/staff-shifts'
+import type { ShiftCapacityInput } from '@/lib/capacity/capacity'
+import { resolveStoreScope, shiftRosterForBusiness } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   emptyAppointmentWindow,
@@ -44,6 +48,7 @@ import {
  *  store-isolation law a branch's staff must not receive other stores' ids at
  *  all (the same rule screen.ts:124-131 states for colorRosterIds). */
 export type AppointmentWindowPayload = AppointmentWindow & {
+  shiftCapacity?: Omit<ShiftCapacityInput, 'date'>
   hoursFacts: [string, DayHoursFact][]
   /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
    *  the window below holds only the staff-less rows BY CONSTRUCTION. The
@@ -191,8 +196,20 @@ export async function getAppointmentWindow(
       })
     : new Map<string, DayHoursFact>()
 
+  let shiftCapacity: Omit<ShiftCapacityInput, 'date'> | undefined
+  if (BOOKING_SWITCHES.shiftLanes && withHours) {
+    const businessId = await getBusinessId()
+    const [read, roster] = storeId && businessId && !reachesNoStore(scope)
+      ? await Promise.all([
+          readStaffShifts(synqed, businessId, storeId, span.fromYmd, span.toExclusiveYmd),
+          shiftRosterForBusiness(businessId, storeId),
+        ])
+      : [{ rows: [], readComplete: false }, null]
+    shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown, breakMinutes: resolveBreakMinutes(policy) }
+  }
   return {
     ...window,
+    ...(shiftCapacity ? { shiftCapacity } : {}),
     staffFilterUnknown: unknown,
     hoursFacts: [...hoursFacts],
     // Per-store first (a chain can run a yoga studio next to a hair salon),

@@ -12,6 +12,7 @@ import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { renderNow } from '../clock'
+import { planesOf } from './sample-facade'
 import { READ_ONLY_NOTE } from '../store-days-state'
 import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem, type ReservePolicy } from './reserve-policy'
 
@@ -19,17 +20,20 @@ import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem
 type Reason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'
 type StoredPolicy = ReservePolicy & { updated_at: string | null }
 /** `basedOn` is the saved row's fingerprint, the next save's precondition (R9). A 'stale' answer carries the row
- *  as core holds it now and ITS fingerprint (the lead's ruling, fix batch 1): the screen cannot re-read, so it
- *  keeps the manager's draft, shows the stale line and takes this basedOn; only a second, explicit press saves. */
+ *  as core holds it now and ITS fingerprint (S67 W1, replacing fix batch 1's blind second press): the screen
+ *  merges that row into the fields the manager left as they were, keeps the ones they changed, shows the stale
+ *  line and takes this basedOn; only a second, explicit press saves. */
 export type SetReservePolicyResult =
   | { ok: true; row: StoredPolicy; basedOn: string }
   | { ok: false; reason: 'stale'; message: string; current: StoredPolicy; basedOn: string }
   | { ok: false; reason: Exclude<Reason, 'stale'>; message: string }
 
 // DESIGN-BUILD2 §4 + §9 R5/R9 — native JP, listed for the blind pass. The stale line follows お店ページ's
-// (store-page/copy.ts); the failure line is the store-days line without its schedule-list clause.
+// (store-page/copy.ts), and says what the screen does with it (S67 W1: the screen merges the 409's row into the
+// fields the manager did not change, so the next press saves only the manager's own changes over the latest row);
+// the failure line is the store-days line without its schedule-list clause.
 const MSG = {
-  stale: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。',
+  stale: 'この店舗のReserve 受付の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更していない項目は最新の内容に置き換えました。もう一度保存すると、変更した項目が保存されます。',
   range: '設定できる範囲を超えた値があるため、保存できませんでした。',
   cutoffOverOpen: '直前締切が受け付ける日数より長く、予約できる枠がなくなるため、保存できませんでした。',
   freeOverOpen: '無料キャンセル期限が受け付ける日数より長く、すべての予約が期限後になるため、保存できませんでした。',
@@ -54,7 +58,7 @@ async function hasHqGrant(actor: PracticeActor): Promise<boolean> {
 }
 
 /** The six booking rules of one store, written to core's per-store row. Order: OFF → shape, core's ranges and the
- *  §4 checks (all pure, before any call) → lazy core-reach → actor → store isolation → settings.manage → HQ grant →
+ *  §4 checks → the store's 受付 plane is live (all pure, before any call) → lazy core-reach → actor → store isolation → settings.manage → HQ grant →
  *  ONE fresh `get` → `policyHash(current) !== basedOn` → 'stale' → the same six as stored → ok with no `set` (core
  *  would file no audit row for it anyway; this keeps updated_at still) → ONE `set` carrying ONLY the six fields. The window
  *  between that `get` and the `set` is unguarded: core's PUT takes no precondition yet (CORE-44 is ordered, not on
@@ -65,6 +69,9 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
   if (next === null || typeof storeId !== 'string' || storeId === '' || typeof basedOn !== 'string') return refuse('invalid', MSG.range)
   const problem = reservePolicyProblem(next)
   if (problem) return refuse('invalid', MSG[problem])
+  // S67 W2 — the one choke point: a store whose 受付 plane is not live (the screen shows it as sample, from the same
+  // table, sample-facade's planesOf) is refused before any core call, so a hand-made PUT cannot write it either.
+  if (planesOf(storeId).bookingPolicy !== 'live') return refuse('tenant', MSG.fail)
   const reach = await import('./core-reach') // lazy, like door.ts: the OFF path never loads the SDK
   let actor: PracticeActor
   try {

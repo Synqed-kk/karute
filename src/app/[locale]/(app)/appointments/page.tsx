@@ -300,6 +300,7 @@ export default async function AppointmentsPage({
     activeStaffId,
     storeStaffIds,
     divisorStaffIds,
+    ...(BOOKING_SWITCHES.shiftLanes ? { shiftCapacity: (weekWindow ?? monthWindow ?? dayWindow)?.shiftCapacity } : {}),
     // ⚖ R1-9 — from the window that was actually read: an unplaceable 担当
     // filter's window holds only 担当未定 rows, and that is not a 0 % day.
     staffFilterUnknown:

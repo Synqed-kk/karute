@@ -607,15 +607,15 @@ describe('MonthPage — the month line', () => {
 })
 
 describe('MonthPage — cellTone', () => {
-  it('reads the wire density today and a per-store band the day it lands', () => {
+  it('reads the wire density only — band never colours the dot (PR-2 S7, R-K)', () => {
     const { cellTone } = loadMonthPage()
     expect(cellTone({ density: 'light' })).toBe('bg-[var(--color-success)]')
     expect(cellTone({ density: 'medium' })).toBe('bg-[var(--color-accent)]')
     expect(cellTone({ density: 'busy' })).toBe('bg-[var(--color-warning)]')
     expect(cellTone({ density: 'empty' })).toBeNull()
-    // 1c-B's seam: a per-store band overrides the fixed table, and until it is
-    // on the wire `density` is the whole answer.
-    expect(cellTone({ density: 'busy', band: 'light' })).toBe('bg-[var(--color-success)]')
+    // PR-2 (S7): re-pinned — was band-over-density ('bg-[var(--color-success)]');
+    // band stays on the DTO but the dot reads density alone.
+    expect(cellTone({ density: 'busy', band: 'light' })).toBe('bg-[var(--color-warning)]')
   })
 
   it('is the SAME map the week rows draw their dot from', () => {

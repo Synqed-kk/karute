@@ -19,7 +19,7 @@ const need = <T,>(x: T | undefined, what: string): T => x ?? (() => { throw new 
 
 async function main(): Promise<number> {
   if (!store) return (console.log('usage: probe-chair-overlap.ts --store <hair salon store id>'), 1)
-  if (registry.stores[store] !== 'hair_salon') throw new Error(`store ${store} is not mapped to hair_salon in registry.json`)
+  if (registry.stores[store]?.type !== 'hair_salon') throw new Error(`store ${store} is not mapped to hair_salon in registry.json`)
   const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
   if (!baseUrl || !apiKey) throw new Error('set SYNQED_CORE_URL and SYNQED_CORE_API_KEY first (values are never printed)')
   const { SynqedClient } = await import('@synqed-kk/client')

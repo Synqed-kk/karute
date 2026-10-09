@@ -1,0 +1,30 @@
+import { DEFAULT_BREAK_MINUTES, effectiveBreakMinutes, resolveBreakMinutes } from '@/lib/capacity/capacity'
+
+test('resolveBreakMinutes: a finite integer ≥ 0 wins; anything else is the default 60', () => {
+  expect(DEFAULT_BREAK_MINUTES).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: 45 })).toBe(45)
+  expect(resolveBreakMinutes({ break_minutes: 0 })).toBe(0)
+  expect(resolveBreakMinutes({ break_minutes: undefined })).toBe(60)
+  expect(resolveBreakMinutes({})).toBe(60)
+  expect(resolveBreakMinutes(null)).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: 'abc' })).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: '45' })).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: -10 })).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: Number.NaN })).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: 12.5 })).toBe(60)
+  expect(resolveBreakMinutes({ break_minutes: Number.POSITIVE_INFINITY })).toBe(60)
+})
+
+test('S111-5 effectiveBreakMinutes: bounded by the day\'s open minutes, default if it fits, else 0', () => {
+  expect(effectiveBreakMinutes(1000, 600)).toBe(60)
+  expect(effectiveBreakMinutes(600, 600)).toBe(60)
+  expect(effectiveBreakMinutes(599, 600)).toBe(599)
+  expect(effectiveBreakMinutes(Number.NaN, 600)).toBe(60)
+  expect(effectiveBreakMinutes(-5, 600)).toBe(60)
+  expect(effectiveBreakMinutes(undefined as unknown as number, 600)).toBe(60)
+  expect(effectiveBreakMinutes(59.5, 600)).toBe(60)
+  expect(effectiveBreakMinutes(45, 600)).toBe(45)
+  expect(effectiveBreakMinutes(0, 600)).toBe(0)
+  expect(effectiveBreakMinutes(1000, 30)).toBe(0)
+  expect(effectiveBreakMinutes(60, 30)).toBe(0)
+})

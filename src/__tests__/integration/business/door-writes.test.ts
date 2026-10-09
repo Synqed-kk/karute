@@ -861,6 +861,21 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
   const { RESERVE_POLICY_DEFAULTS, policyHash, pickReservePolicy } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
   const PROOF = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_min: 15, cancel_free_until_hours: 12, cancel_late_pct: 30, no_show_pct: 100 } as const
   const BASED = policyHash(pickReservePolicy(BASE_POLICY))
+  // S67 W2: the writer saves only a store whose 受付 plane is live. The admitted store's line lands in
+  // sample-facade.ts with the screen (#1157); here it is set by hand, on the same table the writer reads.
+  const { STORE_PLANE_OVERRIDES } = jest.requireActual('@/business/lib/practice-door/sample-facade') as typeof import('@/business/lib/practice-door/sample-facade')
+  beforeEach(() => { STORE_PLANE_OVERRIDES[STORE_ID] = { ...STORE_PLANE_OVERRIDES[STORE_ID], bookingPolicy: 'live' } })
+  afterEach(() => { delete STORE_PLANE_OVERRIDES[OTHER_STORE_ID] })
+
+  it('W2: a visible store whose 受付 plane is still sample (a hand-made PUT) → tenant, no core call, 0 storePolicies.set', async () => {
+    expect(STORE_PLANE_OVERRIDES[OTHER_STORE_ID]?.bookingPolicy).not.toBe('live')
+    const reads = withReads()
+    expect(await data.setReservePolicy(OTHER_STORE_ID, { ...PROOF }, BASED)).toEqual({ ok: false, reason: 'tenant', message: 'いまは保存できないため、時間をおいてもう一度保存してください。' })
+    expect(Object.values(reads).every((fn) => fn.mock.calls.length === 0)).toBe(true)
+    expect(mockCore.writerFor).not.toHaveBeenCalled()
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+    expectWrites()
+  })
 
   it('ok: ONE set(storeId, { acting_staff_id, six fields }) — no lead_time_min, weekly_hours, special_open_days, booking_step_min; basedOn refreshed from the PUT answer', async () => {
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY, ...PROOF, updated_at: '2026-09-29T03:00:00.000Z' })
@@ -885,7 +900,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     const second = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 50 }, first.ok ? first.basedOn : 'x')
     expect(second.ok).toBe(true)
     const third = await data.setReservePolicy(STORE_ID, { ...PROOF, no_show_pct: 0 }, first.ok ? first.basedOn : 'x')
-    expect(third).toMatchObject({ ok: false, reason: 'stale', message: 'この店舗の予約と確保の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。最新の設定を確認してから、もう一度変更してください。' })
+    expect(third).toMatchObject({ ok: false, reason: 'stale', message: 'この店舗のReserve 受付の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更していない項目は最新の内容に置き換えました。もう一度保存すると、変更した項目が保存されます。' })
     expectWrites({ set: 2 })
   })
 
@@ -958,6 +973,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
 
   it('forbidden: a store outside the actor’s visible stores is refused before any core read', async () => {
     as('login-admin')
+    STORE_PLANE_OVERRIDES[OTHER_STORE_ID] = { bookingPolicy: 'live' } // live here, so visibility is what refuses
     const reads = withReads()
     expect(await data.setReservePolicy(OTHER_STORE_ID, { ...PROOF }, BASED)).toMatchObject({ ok: false, reason: 'forbidden' })
     expect(reads.storePolicyGet).not.toHaveBeenCalled()

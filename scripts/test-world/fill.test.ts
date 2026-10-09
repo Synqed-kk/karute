@@ -6,8 +6,9 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
+import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
+import { apply, jstToday, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -24,7 +25,7 @@ const conflict = (msg: string) => Object.assign(new Error(msg), { status: 409 })
 function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[] } = {}) {
   let n = 0
   const t = { staff: [] as Row[], links: new Map<string, string[]>(), resources: [] as Row[], menus: [] as Row[], customers: [] as Row[], packs: [] as Row[], burns: [] as Row[], appts: [] as Row[], karutes: [] as Row[] }
-  const stats = { writes: 0, policy: null as null | Record<string, unknown> }
+  const stats = { writes: 0, policy: null as null | Record<string, unknown>, updates: [] as { id: string; status: unknown }[] }
   const add = (table: Row[], row: Record<string, unknown>) => {
     stats.writes++
     const r = { id: `id-${++n}`, business_id: o.business ?? DEV_SALON_BUSINESS_ID, ...row }
@@ -66,11 +67,18 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
       },
     },
     appointments: {
-      list: async (q: Q) => paged('appointments', t.appts.filter((a) => (!q.from || (a.starts_at as string) >= q.from) && (!q.to || (a.starts_at as string) < q.to)), q),
+      list: async (q: Q) => paged('appointments', t.appts.filter((a) => (!q.store_id || a.store_id === q.store_id) && (!q.from || (a.starts_at as string) >= q.from) && (!q.to || (a.starts_at as string) < q.to)), q),
       create: async (i: Record<string, unknown>, opts?: { idempotencyKey?: string }) => {
         if (o.fail409) throw conflict('RESOURCE_TAKEN')
         if (t.appts.some((a) => !isTerminalStatus(a.status as string) && overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
         return add(t.appts, { ...i, occupied_until: null, idempotencyKey: opts?.idempotencyKey })
+      },
+      // like core: a status write stamps who set it (status_set_by) and its reason
+      update: async (id: string, i: Record<string, unknown>) => {
+        stats.writes++
+        stats.updates.push({ id, status: i.status })
+        const r = t.appts.find((a) => a.id === id)!
+        return Object.assign(r, { status: i.status, status_reason: i.status_reason, status_set_by: i.acting_staff_id })
       },
     },
     karuteRecords: {
@@ -150,6 +158,12 @@ async function main() {
   const apptKeys = f.t.appts.map((a) => a.idempotencyKey)
   assert.deepEqual(apptKeys, f.t.appts.map((a) => `test-world:${tagOf(a)}`), 'booking key = test-world:<its tag>')
   assert.equal(new Set(apptKeys).size, apptKeys.length, 'booking keys are distinct')
+  for (const a of f.t.appts) {
+    const planned = p1.appointments.find((p) => p.key === tagOf(a))!
+    assert.equal(a.booked_price_amount, planned.booked_price, 'the create payload carries the menu price')
+    assert.equal(a.booked_price_currency, 'JPY')
+    assert.equal(a.status, planned.status, 'the create payload carries the planned status')
+  }
   const apptById = new Map(f.t.appts.map((a) => [a.id, a]))
   const burnKeys = f.t.burns.map((b) => b.idempotencyKey)
   assert.ok(burnKeys.length > 0, 'the run burnt 回数券')
@@ -160,7 +174,7 @@ async function main() {
   assert.equal(f.t.links.get('st-0'), undefined, 'a practitioner of every store is never narrowed to one')
   assert.equal(m.stores[STORE].epoch, TODAY)
   assert.deepEqual(f.t.customers.filter((c) => c.member_number === 'BC-0003').map((c) => c.id), ['binned'], 'a binned customer is never re-created')
-  assert.equal(m.runs[0].created.customers, 29)
+  assert.equal(m.runs[0].created.customers, recipe.customers.length - 1)
   assert.equal(await apply(f.core, opts(m)), 0)
   assert.equal(f.stats.writes, first, 'second run: 0 writes')
   assert.equal(m.runs.length, 2)
@@ -170,6 +184,119 @@ async function main() {
   assert.equal(await apply(f.core, opts(m, addDays(TODAY, 7))), 0)
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
   assert.equal(f.t.appts.length, p2.appointments.length - binnedOnly(p2.appointments).length)
+
+  // ⚖ G3 (S87): a store's identities come from its fixed identityIndex, not its place in registry.json — reverse the
+  // stores map and insert a new store first: every existing store's recipe (members, staff, phones) is byte-identical.
+  {
+    const ids = Object.keys(registry.stores)
+    assert.deepEqual(ids.map((sid) => registry.stores[sid].identityIndex), ids.map((_, i) => i), 'today\'s identityIndex = today\'s position (nothing moves for the current registry)')
+    const before = await Promise.all(ids.map(async (sid) => JSON.stringify(await loadRecipe(registry.stores[sid].type, sid))))
+    const saved = registry.stores
+    try {
+      registry.stores = Object.fromEntries([['store-new-first', { type: 'hair_salon', keyPrefix: 'hair_salon@new', namePool: 3, identityIndex: ids.length }], ...ids.reverse().map((sid) => [sid, saved[sid]])])
+      const after = await Promise.all(Object.keys(saved).map(async (sid) => JSON.stringify(await loadRecipe(saved[sid].type, sid))))
+      assert.deepEqual(after, before, 'reordered + a store inserted first: every existing store\'s identities are byte-identical')
+      registry.stores = { ...registry.stores, clash: { type: 'hair_salon', keyPrefix: 'hair_salon@clash', namePool: 4, identityIndex: 0 } }
+      await assert.rejects(loadRecipe('hair_salon', 'clash'), /identityIndex must be a non-negative integer no other store carries, inside the staff-name pool/, 'a duplicate identityIndex is refused')
+      // the staff-name pool holds 7 stores × 6 names: an index past it, or a negative one, is refused (never undefined names)
+      for (const bad of [7, -1]) {
+        registry.stores = { ...saved, outside: { type: 'hair_salon', keyPrefix: 'hair_salon@outside', namePool: 4, identityIndex: bad } }
+        await assert.rejects(loadRecipe('hair_salon', 'outside'), /inside the staff-name pool/, `identityIndex ${bad} is refused`)
+      }
+    } finally { registry.stores = saved }
+    console.log(`✓ G3: ${ids.length} stores' recipes byte-identical after reorder + insert-first`)
+  }
+
+  // ⚖ G1 (S87): a later apply reconciles TODAY's owned rows to the plan's status (the 13:24 pin → IN_PROGRESS) — exactly
+  // the non-legacy, loader-set ones still SCHEDULED; a legacy row and a staff-edited row of the same day stay as they were.
+  {
+    const g = fakeCore()
+    const gm = empty()
+    assert.equal(await apply(g.core, opts(gm)), 0)
+    const planOn = (d: string) => new Map(plan(recipe, { ...ctx, legacyThrough: gm.stores[STORE].legacyThrough }, d, TODAY).appointments.map((a) => [a.key, a]))
+    // the first future day with a legacy row and a non-legacy session across the pin
+    const day = [...Array(14).keys()].map((i) => addDays(TODAY, i + 1)).find((d) => {
+      const k = planOn(d)
+      const of = g.t.appts.map((r) => k.get(tagOf(r))).filter((a) => a?.date === d)
+      return of.some((a) => recipe.legacyMembers!.includes(a!.member)) && of.some((a) => a!.status === 'IN_PROGRESS')
+    })!
+    assert.ok(day, 'a future day carries both a legacy row and a session across the pin')
+    const byKey = planOn(day)
+    const rowsOfDay = g.t.appts.filter((r) => byKey.get(tagOf(r))?.date === day)
+    assert.ok(rowsOfDay.length > 0 && rowsOfDay.every((r) => r.status === 'SCHEDULED'), 'the first fill wrote that future day SCHEDULED')
+    const legacyRow = rowsOfDay.find((r) => recipe.legacyMembers!.includes(byKey.get(tagOf(r))!.member))!
+    const moving = rowsOfDay.filter((r) => !recipe.legacyMembers!.includes(byKey.get(tagOf(r))!.member) && byKey.get(tagOf(r))!.status !== 'SCHEDULED')
+    assert.ok(legacyRow && moving.some((r) => byKey.get(tagOf(r))!.status === 'IN_PROGRESS') && moving.length >= 2, `that day has a legacy row and ${moving.length} non-legacy rows the plan moves`)
+    const edited = moving.find((r) => byKey.get(tagOf(r))!.status !== 'IN_PROGRESS') ?? moving[moving.length - 1]
+    Object.assign(edited, { status_set_by: 'st-1', status_reason: null }) // a staff member set it back to 予約済み
+    const legacyBefore = { ...legacyRow }
+    const editedBefore = { ...edited }
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    const want = moving.filter((r) => r !== edited).map((r) => ({ id: r.id, status: byKey.get(tagOf(r))!.status })).sort((a, b) => a.id.localeCompare(b.id))
+    assert.deepEqual([...g.stats.updates].sort((a, b) => a.id.localeCompare(b.id)), want, 'exactly the owned non-legacy loader-set SCHEDULED rows of today were updated, to the plan\'s status')
+    assert.ok(want.some((w) => w.status === 'IN_PROGRESS'), 'the session across the pin is IN_PROGRESS')
+    assert.deepEqual(legacyRow, legacyBefore, 'a legacy row stays as it was')
+    assert.deepEqual(edited, editedBefore, 'a staff-edited row stays as it was')
+    assert.equal(gm.runs[1].created.todayStatus, want.length)
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    assert.equal(g.stats.updates.length, want.length, 'a third run the same day: no further status write')
+    // the picker itself, row by row: a pin session planned IN_PROGRESS today, still SCHEDULED, no person set it → picked;
+    // the same row moved by staff to another day → never picked (the row's own start, not just the plan's date);
+    // the same row for a legacy member → never picked (the legacy guard, pinned directly)
+    {
+      const pin = moving.find((r) => byKey.get(tagOf(r))!.status === 'IN_PROGRESS')!
+      const pinP = byKey.get(tagOf(pin))!
+      const fresh = { id: pin.id as string, staff_id: pin.staff_id as string, starts_at: pin.starts_at as string, ends_at: pin.ends_at as string, status: 'SCHEDULED' as const, status_set_by: null, status_reason: null }
+      assert.equal(todayStatusFixes([{ row: fresh, planned: pinP }], recipe, day).length, 1, 'the untouched pin session is picked')
+      const moved = { ...fresh, starts_at: new Date(Date.parse(fresh.starts_at) + 86_400_000).toISOString() }
+      assert.deepEqual(todayStatusFixes([{ row: moved, planned: pinP }], recipe, day), [], 'a booking staff moved to another day is never picked')
+      assert.deepEqual(todayStatusFixes([{ row: fresh, planned: { ...pinP, member: recipe.legacyMembers![0] } }], recipe, day), [], 'a legacy member\'s booking is never picked')
+      // ⚖ G-P1 (S88): the row must still BE the planned booking (stillPlanned) — a same-day move, a re-staff or a new
+      // duration is a person's edit: never picked, one skipped line each; the untouched row with its staff id still is
+      const shift = (ms: number) => (t: string) => new Date(Date.parse(t) + ms).toISOString()
+      const later = { ...fresh, starts_at: shift(3 * 3_600_000)(fresh.starts_at), ends_at: shift(3 * 3_600_000)(fresh.ends_at) }
+      assert.equal(jstToday(new Date(later.starts_at)), day, 'the fixture: the moved row is still today')
+      const restaffed = { ...fresh, staff_id: 'another-staff' }
+      const longer = { ...fresh, ends_at: shift(30 * 60_000)(fresh.ends_at) }
+      const moveLines: string[] = []
+      assert.deepEqual(todayStatusFixes([later, restaffed, longer].map((row) => ({ row, planned: pinP, staffId: fresh.staff_id })), recipe, day, moveLines), [], '(a)(b) a row moved later today, re-staffed or re-timed is never picked')
+      assert.deepEqual(moveLines, [later, restaffed, longer].map((r) => `appointments ${pinP.key}: booking ${r.id}'s time or duration differs from the plan (or its staff, where the planned staff is known) — a person moved it, left alone`), '(a)(b) one skipped line per moved row')
+      const keep: string[] = []
+      assert.deepEqual(todayStatusFixes([{ row: fresh, planned: pinP, staffId: fresh.staff_id }], recipe, day, keep).map((x) => x.row), [fresh], '(c) the unchanged row, its staff id known, is still picked')
+      assert.deepEqual(keep, [], '(c) no skipped line for the unchanged row')
+    }
+    console.log(`✓ G1: today's reconcile updated ${want.length} rows (${want.filter((w) => w.status === 'IN_PROGRESS').length} IN_PROGRESS); legacy + staff-edited untouched`)
+  }
+
+  // ⚖ G-P1 (S88) wiring pin: apply itself passes the planned staff id and run.skipped to the reconcile — an owned row the
+  // plan moves today, then moved +3h (still today) or re-staffed on core, is not updated and gets exactly one movedLine.
+  for (const variant of ['moved', 'restaffed'] as const) {
+    const g = fakeCore()
+    const gm = empty()
+    assert.equal(await apply(g.core, opts(gm)), 0)
+    const byKey0 = (d: string) => new Map(plan(recipe, { ...ctx, legacyThrough: gm.stores[STORE].legacyThrough }, d, TODAY).appointments.map((a) => [a.key, a]))
+    const day = [...Array(14).keys()].map((i) => addDays(TODAY, i + 1)).find((d) => {
+      const k = byKey0(d)
+      return g.t.appts.some((r) => { const a = k.get(tagOf(r)); return a?.date === d && a.status !== 'SCHEDULED' && !recipe.legacyMembers!.includes(a.member) && r.status === 'SCHEDULED' && jstToday(new Date(Date.parse(r.starts_at as string) + 3 * 3_600_000)) === d })
+    })!
+    assert.ok(day, `${variant}: a future day has an owned row the plan moves off SCHEDULED, +3h still that day`)
+    const byKey = byKey0(day)
+    const target = g.t.appts.find((r) => { const a = byKey.get(tagOf(r)); return a?.date === day && a.status !== 'SCHEDULED' && !recipe.legacyMembers!.includes(a.member) && r.status === 'SCHEDULED' && jstToday(new Date(Date.parse(r.starts_at as string) + 3 * 3_600_000)) === day })!
+    if (variant === 'moved') {
+      const shift = (s: unknown) => new Date(Date.parse(s as string) + 3 * 3_600_000).toISOString()
+      Object.assign(target, { starts_at: shift(target.starts_at), ends_at: shift(target.ends_at), ...(target.occupied_until ? { occupied_until: shift(target.occupied_until) } : {}) })
+    } else {
+      const other = g.t.staff.find((s) => s.id !== target.staff_id)!
+      assert.ok(other, 'restaffed: a second real staff id exists')
+      Object.assign(target, { staff_id: other.id })
+    }
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    assert.ok(g.stats.updates.length > 0, `${variant}: the reconcile ran (other rows of the day were updated)`)
+    assert.ok(!g.stats.updates.some((u) => u.id === target.id), `${variant}: the moved row is not among the status updates`)
+    const line = movedLine(tagOf(target), target.id as string)
+    assert.equal(gm.runs[gm.runs.length - 1].skipped.filter((l) => l === line).length, 1, `${variant}: the run's skipped list carries the movedLine exactly once`)
+    console.log(`✓ G-P1 wiring (${variant}): row ${tagOf(target)} left alone, one movedLine`)
+  }
 
   // A default policy may echo platform hours: the snapshot is still the recipe's hours, the ones the loader sets.
   const nine = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { open: '09:00', close: '18:00' }]))
@@ -193,6 +320,23 @@ async function main() {
     assert.deepEqual(mfo.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), clashes ? [`appointments ${a0.key}: overlaps existing booking foreign-appt`] : [], `a foreign ${status} booking`)
     assert.deepEqual(mfo.runs[0].conflicts409, [])
     assert.equal(fo.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length + (clashes ? 0 : 1), `${status}: the foreign booking + every planned one but the binned customer's (and the clashing one)`)
+  }
+
+  // ⚖ F2 (S88): the clash window is business-wide — the same practitioner's live booking at ANOTHER store holds the slot
+  // (skipped up front, never a double-booking or a 409); a CANCELLED one there frees it. The fake's list honours store_id like core.
+  // The abroad row carries a0's own tag (another customer), and in the recorded variant the manifest even names its id:
+  // ownership stays this store's rows only (fill.ts mine), so it is never adopted — no 「customer differs」 line for a0.
+  for (const [status, clashes, recorded] of [['SCHEDULED', true, false], ['CANCELLED', false, false], ['SCHEDULED', true, true], ['CANCELLED', false, true]] as const) {
+    const fx = fakeCore()
+    const staffCard = fx.t.staff.find((x) => x.name === a0.staff)!.id
+    fx.t.appts.push({ id: 'abroad-appt', store_id: OTHER, customer_id: 'foreign', staff_id: staffCard, resource_id: 'other-bed', starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: bookingNotes(a0), status })
+    const mfx = empty()
+    if (recorded) mfx.stores[STORE] = { type: recipe.id, epoch: TODAY, weeklyHours: recipe.policy.weekly_hours, created: { appointments: { [a0.key]: 'abroad-appt' } } }
+    const code = await apply(fx.core, opts(mfx))
+    assert.deepEqual(mfx.runs[0].skipped.filter((l) => l.includes('customer differs') && l.startsWith(`appointments ${a0.key}:`)), [], `${status} abroad${recorded ? ' (recorded id)' : ''}: the other store's tagged row is not adopted as a0`)
+    assert.deepEqual([code, mfx.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), mfx.runs[0].conflicts409], [0, clashes ? [`appointments ${a0.key}: overlaps existing booking abroad-appt`] : [], []], `another store's ${status} booking, same staff`)
+    assert.equal(fx.t.appts.filter((x) => x.store_id === STORE).length, p1.appointments.length - binnedOnly(p1.appointments).length - (clashes ? 1 : 0), `${status} abroad: every planned booking but the binned customer's (and the clashing one), none at the other store`)
+    assert.ok(!fx.t.appts.some((x) => x.store_id === STORE && x.staff_id === staffCard && x.starts_at === a0.startsAt) === clashes, `${status} abroad: the planned row is ${clashes ? 'not ' : ''}created`)
   }
 
   // A 回数券 sold by hand (round 1, no loader note) is never adopted: the loader makes its own and burns only that.
@@ -235,6 +379,18 @@ async function main() {
   assert.equal(mn.runs[1].created.packs ?? 0, 0, 'an edited pack note: the re-run makes no second pack')
   assert.deepEqual(fn.t.packs.filter((x) => x.customer_id === pk.customer_id).map((x) => x.id), [pk.id], 'one pack on the customer')
   assert.equal(fn.t.burns.filter((b) => b.pack_id === pk.id).length, k0.redeem.length, 'every burn lands on the recorded pack')
+  // ⚖ Q7: the cap counts burns, not distinct dates — core already holding size burns on ONE date (a same-day double
+  // burn) gets no further burn on the re-run (counting dates would allow size − 1 more).
+  const fq = fakeCore()
+  const mq = empty()
+  const addQ = fq.core.packs.addRedemption
+  Object.assign(fq.core.packs, { addRedemption: async () => Promise.reject(Object.assign(new Error('refused'), { status: 400 })) })
+  assert.equal(await apply(fq.core, opts(mq)), 1)
+  Object.assign(fq.core.packs, { addRedemption: addQ })
+  const pq = fq.t.packs.find((x) => x.id === mq.stores[STORE].created.packs![k0.key])!
+  for (let i = 0; i < k0.size; i++) fq.t.burns.push({ id: `double-${i}`, pack_id: pq.id, customer_id: pq.customer_id, redeemed_on: '2026-01-05', appointment_id: `hand-${i}` })
+  assert.equal(await apply(fq.core, opts(mq)), 0)
+  assert.equal(fq.t.burns.filter((b) => b.pack_id === pq.id).length, k0.size, 'a full pack burnt twice on one day gets no further burn')
   // (b) Staff clear a loader booking's note (its tag is gone) → the re-run finds it by its recorded id: no second
   // booking, no clash skip, its karute and burn stay on it.
   const fb = fakeCore()
@@ -366,8 +522,8 @@ async function main() {
   assert.deepEqual(prefer('09:05', '19:25'), [545, 855, 1075], 'preferredStart: 09:05–19:25 (mid 14:15, off the grid) → am 09:05 · pm 14:15 (the true midpoint) · eve 17:55')
   const types = Object.keys(registry.types).filter((t) => registry.types[t].recipe)
   assert.ok(types.length >= 3, 'every registry type with a recipe runs')
-  const storeOf = new Map(types.map((t) => [t, Object.keys(registry.stores).find((id) => registry.stores[id] === t) ?? `store-${t}`]))
-  const mapped = [...storeOf].filter(([t, id]) => registry.stores[id] !== t).map(([t, id]) => ((registry.stores[id] = t), id))
+  const storeOf = new Map(types.map((t) => [t, targetsFor(undefined, t)[0]]))
+  const mapped: string[] = []
   const owner = new Map<string, string>()
   const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
   const startMinute = (a: Plan['appointments'][number]) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000
@@ -388,8 +544,12 @@ async function main() {
 
       const q1 = plan(r, ctxT, TODAY, TODAY)
       assert.deepEqual(plan(r, ctxT, TODAY, TODAY), q1, `${type}: same inputs → same plan`)
-      // load-bearing: the r() draw order (weights before the role filter). A change here = the plan drifted from the live テスト東京店 — do not re-pin without checking the live rows.
-      const perBed = q1.appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
+      // Keep the original bed/part-of-day characterization intact on its original thirty-person recipe.
+      // The expanded profile's keys are checked separately against the captured pre-change golden.
+      const legacy = { ...r, customers: r.customers.slice(0, 30), profile: undefined, legacyMembers: undefined,
+        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, cancelShare: .08 } }
+      const legacyPlans = [plan(legacy, ctxT, TODAY, TODAY), plan(legacy, ctxT, addDays(TODAY, 7), TODAY)]
+      const perBed = legacyPlans[0].appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
       if (type === 'beauty_chiropractic') assert.deepEqual(perBed, { 'ベッド1': 74, 'ベッド2': 68, 'ベッド3': 79, '個室': 14 }, `${type}: q1 bookings per bed`)
       assert.equal(q1.packs.length, r.packs.length, `${type}: every 回数券 is bought in the window`)
       assert.ok(q1.appointments.length >= r.customers.length && q1.karutes.length > 0, `${type}: the plan fills the store`)
@@ -423,7 +583,7 @@ async function main() {
       for (const q of [q1, q2]) for (const a of overflow(q)) assert.equal(r.staff.find((s) => s.name === a.staff)!.role !== 'ASSISTANT', true, `${type} ${a.key}: an ASSISTANT holds an overflow booking`)
       if (type === 'personal_gym') assert.ok(overflow(q1).length > 0, `${type}: the plan has overflow bookings`)
       // Preferred starts follow the store's own hours: am visits early (one takes the first slot), eve visits late.
-      const starts = (part: string) => q1.appointments.filter((a) => cust.get(a.member)!.time === part).map(startMinute)
+      const starts = (part: string) => legacyPlans[0].appointments.filter((a) => cust.get(a.member)!.time === part).map(startMinute)
       const median = (xs: number[]) => ((s) => (s[(s.length - 1) >> 1] + s[s.length >> 1]) / 2)([...xs].sort((a, b) => a - b))
       const [am, pm, eve] = [starts('am'), starts('pm'), starts('eve')]
       assert.ok(median(am) < median(pm) && median(pm) < median(eve), `${type}: median start am ${median(am)} < pm ${median(pm)} < eve ${median(eve)}`)
@@ -432,7 +592,7 @@ async function main() {
       const longest = Math.max(...r.menus.map((x) => x.duration))
       assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * DEFAULT_SLOT_MINUTES)), `${type}: an eve visit starts near closing`)
       // ...and per visit: every am visit starts before its own day's midpoint, every eve visit at or after it (pm sits on it).
-      for (const q of [q1, q2]) for (const a of q.appointments) {
+      for (const q of legacyPlans) for (const a of q.appointments) {
         const [part, h] = [cust.get(a.member)!.time, hoursOn(r.policy.weekly_hours, a.date)!]
         const [mid, start] = [(at(h.open) + at(h.close)) / 2, startMinute(a)]
         if (part !== 'pm') assert.ok(part === 'am' ? start < mid : start >= mid, `${type} ${a.key}: an ${part} visit in the wrong half of its own day (${start} vs mid ${mid})`)
@@ -475,18 +635,17 @@ async function main() {
   // Every registry store id is a whole core uuid (a truncated one passed every other check).
   for (const id of Object.keys(registry.stores)) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `registry store id ${id}: 8-4-4-4-12 lowercase hex`)
 
-  // One recipe = one store: the guard itself, and apply calling it (a second store mapped to the type, removed again).
-  assert.throws(() => assertOneStore({ a: 'x', b: 'x' }, 'x'), /must map exactly one store/)
-  assert.doesNotThrow(() => assertOneStore({ a: 'x' }, 'x'))
-  assert.throws(() => assertOneStore({}, 'x'), /must map exactly one store/)
-  const twice = fakeCore()
-  registry.stores['store-second-of-type'] = recipe.id
-  try {
-    await assert.rejects(apply(twice.core, opts(empty())), /must map exactly one store/)
-  } finally {
-    delete registry.stores['store-second-of-type']
-  }
-  assert.equal(twice.stats.writes, 0, 'a type mapped to two stores gets no write')
+  // Per-store targeting replaces the removed one-store-per-type restriction. Same-type stores
+  // are accepted, while unknown stores, type mismatches and foreign manifests still write nothing.
+  const second = Object.keys(registry.stores).find((id) => registry.stores[id].type === recipe.id && id !== STORE)!
+  const twice = fakeCore({ stores: [second] })
+  const secondRecipe = await loadRecipe(recipe.id, second)
+  assert.equal(await apply(twice.core, { ...opts(empty()), storeId: second, recipe: secondRecipe, dry: true }), 0)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), storeId: second }), /prepared for store/)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), storeId: 'unmapped' }), /not mapped|prepared for store/)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), recipe: await loadRecipe('hair_salon') }), /not mapped|prepared for store/)
+  await assert.rejects(apply(twice.core, opts({ ...empty(), businessId: 'foreign' })), /not a Dev Salon manifest/)
+  assert.equal(twice.stats.writes, 0, 'dry-run and rejected targets never write')
 
   console.log('✓ fill: all assertions passed')
 }
