@@ -8,7 +8,7 @@ import {
 import { scrubEvent } from '@/lib/observability/sentry-scrub'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { guardContent, preBound } from '@/lib/text/mask-sensitive'
-import { LABEL_FORMS } from './helpers/sentry-exit-plants'
+import { LABEL_FORMS, S2_CUT_SHAPES, residue } from './helpers/sentry-exit-plants'
 
 const EID = 'a'.repeat(32)
 const PW = ['Q7m', '!rT2'].join('')
@@ -135,5 +135,23 @@ describe('R-S115-1 S1 — the widened label vocabulary, one rule at text and sha
     expect(path('/api/auth/session/token', 300)).toBe('/api/auth/session/token')
     expect(masked('AuthSessionMissingError: Auth session missing!', 200)).toBe('AuthSessionMissingError: Auth session missing!')
     expect(masked('passthrough failed for pinned row', 200)).toBe('passthrough failed for pinned row')
+  })
+})
+
+describe('R-S115-1 S2 — the pre-bound cut normalises before its tail scan', () => {
+  it.each(S2_CUT_SHAPES)('%s cut at every offset after Japanese text leaves no letter or digit', (_n, shape) => {
+    const leaks: string[] = []
+    for (let k = 1965; k <= 1999; k++) {
+      const v = 'あ'.repeat(k) + shape + 'ん'.repeat(60)
+      const exit = residue(masked(v, 5000) ?? '')
+      const log = residue(describeUnknownThrow(new Error(v)).errMessage)
+      if (exit || log) leaks.push(`${k}:${exit}|${log}`)
+    }
+    expect(leaks).toEqual([])
+  })
+
+  it('a cut that splits an astral character drops the lone high surrogate', () => {
+    const v = 'あ'.repeat(1999) + String.fromCodePoint(0x1d7ce) + 'ん'.repeat(10)
+    expect(/[\uD800-\uDBFF]$/.test(preBound(v))).toBe(false)
   })
 })

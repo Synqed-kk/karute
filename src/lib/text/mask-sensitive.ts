@@ -154,13 +154,27 @@ export function maskSensitive(s: string): string {
  *  whitespace and phone separators is dropped (a phone cut between groups).
  *  What this eats: on a text over 2000 chars only, the cut word plus any
  *  trailing numbers and separators before it (「… step 3 of 5」); a 2000+
- *  char text with no whitespace keeps only its non-ASCII head. */
+ *  char text with no whitespace keeps only its non-ASCII head.
+ *  R-S115-1 S2: the cut text is NORMALISED (normaliseText: NFKC + format
+ *  characters out) before the tail scan, so a look-alike (one-dot leader
+ *  U+2024, small comma U+FE50, math-bold letters and digits) is judged in
+ *  its plain form; a cut that splits an astral character drops the lone high
+ *  surrogate first. NFKC can lengthen text (ligatures, ㍿), so the
+ *  normalised text is bounded again. What this changes elsewhere: on a text
+ *  over 2000 chars only, the exit's first guard pass sees the NFKC form (as
+ *  maskSensitive always did), and an ideographic space now counts as the
+ *  whitespace the cut word is dropped back to. */
 const BOUND = 2000
 const CUT_WORD_TAIL = /[\x21-\x7E\uFF01-\uFF5E\p{Cf}]+$/u
 const CUT_PHONE_TAIL = new RegExp(`[\\s0-9\uFF10-\uFF19\\p{Cf}${PHONE_SEP}]+$`, 'u')
+const LONE_HIGH_SURROGATE = /[\uD800-\uDBFF]$/
+function sliceToBound(t: string): string {
+  const c = t.slice(0, BOUND)
+  return LONE_HIGH_SURROGATE.test(c) ? c.slice(0, -1) : c
+}
 export function preBound(s: string): string {
   if (s.length <= BOUND) return s
-  const cut = s.slice(0, BOUND)
+  const cut = sliceToBound(normaliseText(sliceToBound(s)))
   let i = cut.length - 1
   while (i >= 0 && !/\s/.test(cut[i])) i--
   const kept = i >= 0 ? cut.slice(0, i) : cut.replace(CUT_WORD_TAIL, '')

@@ -47,3 +47,17 @@ export const LABEL_FORMS: ((secret: string) => string)[] = [
   (x) => `PIN=${x}`, (x) => `Cookie: session=${x}`, (x) => `{"password":"${x}"}`, (x) => `{"pwd": "${x}"}`,
   (x) => `'passwd': '${x}'`, (x) => `password="a ${x}"`, (x) => `dbPass=${x}`, (x) => `userPin:${x}`,
 ]
+
+// Round 3 (R-S115-1 S2): NFKC look-alikes cut by preBound at 2000 after
+// Japanese text with no whitespace. Math-bold letters and digits are astral
+// (two code units), so a cut can also split one.
+const mathBold = (s: string, base: number, first: string) =>
+  [...s].map((c) => String.fromCodePoint(base + c.charCodeAt(0) - first.charCodeAt(0))).join('')
+export const S2_CUT_SHAPES: [string, string][] = [
+  ['U+2024-separated phone', ['090', '1234', '5678'].join('\u2024')],
+  ['U+FE50-separated phone', ['090', '1234', '5678'].join('\uFE50')],
+  ['math-bold-letter email', [mathBold('tanaka', 0x1d41a, 'a'), mathBold('hanako', 0x1d41a, 'a')].join('.') + '@example.com'],
+  ['math-bold-digit phone', ['090', '1234', '5678'].map((g) => mathBold(g, 0x1d7ce, '0')).join('-')],
+]
+/** What is left once every marker is taken out: no letter or digit may be. */
+export const residue = (s: string) => s.replace(/<[a-z]+>|\[non-ascii\]|\[enc\]/g, '').replace(/[^A-Za-z0-9]/g, '')
