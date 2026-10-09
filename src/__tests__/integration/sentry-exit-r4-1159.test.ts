@@ -62,3 +62,22 @@ describe('R4 SF3 — each percent-encoded run decodes on its own', () => {
     for (const s of [v, ...forms, ...AT]) expect(decodeText(s).length).toBeLessThanOrEqual(s.length)
   })
 })
+
+describe('R4 SF4 — a label with a bounded suffix or in brackets', () => {
+  const forms = [
+    `token_hash=${PW}`, `/auth/confirm?token_hash=${PW}&type=recovery`, `user[password]=${PW}`,
+    `password[]=${PW}`, `token[0]=${PW}`, `pinCode=${PW}`, `pin_code=${PW}`, `passwordHash=${PW}`,
+    `tokenValue=${PW}`, `secret_value: ${PW}`, `password_confirmation=${PW}`, `passwordNew=${PW}`,
+    `api_key_id=${PW}`, `user[password_confirm]=${PW}`, `token-digest: ${PW}`,
+  ]
+  it.each(forms)('text, log line and guard mask %s', (v) => {
+    expect(leaks(masked(v, 300), PW)).toEqual([])
+    expect(leaks(log(v), PW)).toEqual([])
+    expect(leaks(guardContent(v), PW)).toEqual([])
+    if (!v.includes('?')) expect(path(`/a/${v}`, 300)).toBeUndefined()
+  })
+  it.each(['keyboard=1', 'authenticated=true', 'tokenizer: x', 'sessionStorage: full', 'passthrough=1', 'pinned: yes', 'token_type=bearer'])(
+    'an open identifier tail is not eaten: %s',
+    (v) => expect(maskSensitive(v)).toBe(v),
+  )
+})

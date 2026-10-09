@@ -293,6 +293,19 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  (`"a\"b"`), and an escaped-quoted value (`\"x\"`) to its closing escaped
  *  quote, an escaped escaped quote inside it (`\"a\\\"b\"`) read as part of it.
  *  Each quoted form is a run of disjoint tokens (no nested ambiguity).
+ *  R-S115-10 SF4: a label may carry ONE suffix from a closed list, with an
+ *  optional `_` or `-` (hash · code · digest · id · value · confirm,
+ *  confirmation · plain · raw · old · new · current: `token_hash=`,
+ *  `pinCode=`, `passwordHash=`, `session_id=`), and may sit in brackets or
+ *  carry an index (`user[password]=`, `user[password_confirm]=`,
+ *  `password[]=`, `token[0]=`). Never an open identifier tail, so
+ *  `keyboard=`, `authenticated=true`, `tokenizer:`, `sessionStorage:` are
+ *  kept. What the suffixes also eat: `keyCode:`, `keyId=`, `key_id=`,
+ *  `tokenId=`, `authCode=`, `keyValue:`, `keyHash=`, `pin_new=`, and an
+ *  index or bracket before `=` (`map[key]=`, `key[0]=`). Still leaves: any
+ *  other suffix (`password1=`, `passwordStr=`, `pinNumber=`, `token_b64=`,
+ *  `tokenString=`, `secretData=`), a dotted one (`key.value=`), a nested
+ *  bracket (`user[password][0]=`).
  *  Vocabulary (R-S115-1 S1): token · api key · key · secret · pass, password,
  *  passwd, passcode, passphrase · pwd · pw · psw · auth, authorization ·
  *  session, session id · credential(s) · pin. What it also eats (masked in
@@ -303,7 +316,7 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  label with no `:`/`=` after it is kept (`Auth session missing!`,
  *  `/api/auth/session`, `pinned`, `passthrough`). */
 export const LABELLED_CRED_RE =
-  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session(?:[-_]?id)?|credentials?|pin)\\?["']?\s*[:=]\s*(?:\\"(?:[^"\\]|\\\\(?:\\\\|\\"|[^"\\]))*\\"|"(?:[^"\\]|\\[\s\S])*"|'[^']*'|\\?['"]?[^\s&'"]+)/gi
+  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session|credentials?|pin)(?:[-_]?(?:hash|code|digest|id|value|confirm(?:ation)?|plain|raw|old|new|current))?(?:\[\d{0,3}\]|\])?\\?["']?\s*[:=]\s*(?:\\"(?:[^"\\]|\\\\(?:\\\\|\\"|[^"\\]))*\\"|"(?:[^"\\]|\\[\s\S])*"|'[^']*'|\\?['"]?[^\s&'"]+)/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
 /** THE JWT rule (R-S115-1 N4) — one definition, used by maskSensitive and
