@@ -140,9 +140,14 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
     // Mask BEFORE the first-line cut (R-S114-12, the G2 class): a newline is
     // a phone separator, so cutting first logged 「090 1234」 of
     // 「090 1234\n5678」. The cut below is of already-masked text.
-    const masked = maskSensitive(preBound(message))
+    // Collapse whitespace BEFORE the mask (R-S114-13): the phone rule allows
+    // 1-3 separators between groups, so 「090    1234    5678」 must reach it
+    // as 「090 1234 5678」. A run holding a line terminator → one '\n' (the
+    // line boundary survives for the cut); any other run → one ' '.
+    const collapsed = preBound(message).replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
+    const masked = maskSensitive(collapsed)
     const lineEnd = masked.search(LINE_TERMINATOR_RE)
-    const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).replace(/\s+/g, ' ').trim()
+    const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).trim()
     const errMessage = capWithEllipsis(firstLine, 200)
 
     const rawStatus = (err as { status?: unknown } | null)?.status

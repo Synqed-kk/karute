@@ -103,3 +103,16 @@ describe('R-S114-12 — the server log line is masked before its newline cut', (
     expect(describeUnknownThrow(new Error('first   line\nsecond')).errMessage).toBe('first line')
   })
 })
+
+describe('R-S114-13 — the log line collapses whitespace before it masks', () => {
+  it('a one-line phone with 4-space gaps logs no digit group', () => {
+    const { errMessage } = describeUnknownThrow(new Error(['TEL 090', '1234', '5678'].join('    ')))
+    for (const g of ['090', '1234', '5678']) expect(errMessage).not.toContain(g)
+  })
+
+  it('a phone split by four newlines does not log its first groups', () => {
+    const { errMessage } = describeUnknownThrow(new Error(['090-1234', '5678'].join('\n\n\n\n')))
+    expect(errMessage).not.toContain('090-1234')
+    expect(errMessage).not.toContain('1234')
+  })
+})
