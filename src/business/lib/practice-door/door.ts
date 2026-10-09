@@ -13,7 +13,7 @@
 // `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
-import { fixtureIdOf, samplePolicyFor } from './registry'
+import { fixtureIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor } from './registry'
 import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
@@ -263,8 +263,8 @@ async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<Ros
   const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   return Promise.all((typeof lens === 'string' ? [lens] : visibleIds(actor)).map(async (store) => ({
     store,
-    // ⚖ R9 — each seat's live name, for the borrowed free text
-    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name })).sort(byId),
+    // ⚖ R9 — each seat's live name, for the borrowed free text; ⚖ S87 ruling (a) — and its core role, off the SAME row (no extra read)
+    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name, role: row.role })).sort(byId),
     // ⚖ R8' — a borrower's own active rooms: the read listResources makes, once per store; an exact twin: none read (V9-3)
     rooms: borrows(store) ? (await actor.reads.resourcesList({ store_id: store, active: true })).resources.map((r) => ({ id: r.id, name: r.name })).sort(byId) : [],
   })))
@@ -629,9 +629,20 @@ function servedSlots(seats: RosterSeats[], busy: Busy, live: LiveSpan[]): Fixtur
  *  and is not served; a slot decision is served with its slot. Rendered on Dev Salon (fix
  *  round): 担当変更 · レジ · 担当不在 and a Reserve販売 about a booking drop; the Reserve販売
  *  about a served slot stays. An exact twin is served all of its own, as before. */
-function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], busy: Busy, live: LiveSpan[]): FixtureDecision[] {
-  const slots = new Set(servedSlots(seats, busy, live).map((s) => s.id))
-  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null && slots.has(d.sell_slot_id))
+// ⚖ FOLD-GREPTILE-1 F1 — ONE definition, twin or borrower: a Reserve販売 card is served iff its slot is among `slots`, the
+// slots the day FINALLY serves (the generated ones when the day is generated, else the served fixture ones).
+// ⚖ F2 — and the card names the person its slot SERVES (as the inspector reads it): the template's seated person, by
+// roster name, becomes the served slot's.
+function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], slots: readonly FixtureSellSlot[]): FixtureDecision[] {
+  const served = new Map(slots.map((s) => [s.id, s]))
+  const name = new Map(seats.flatMap((s) => s.roster.map((p) => [p.id, p.name] as const)))
+  const seated = new Map(rekeyRows(sellSlots, seats, 'attribute').map((s) => [s.id, name.get(s.staff_id ?? '')]))
+  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null).flatMap((d) => {
+    const slot = d.sell_slot_id === null ? null : served.get(d.sell_slot_id)
+    if (slot === undefined) return []
+    const [was, now] = slot === null ? [] : [seated.get(slot.id), name.get(slot.staff_id ?? '')]
+    return [was && now ? { ...d, detail: d.detail.split(was).join(now) } : d]
+  })
 }
 
 /** ⚖ §v11 V11-12 — the live rows a server WITHOUT them in hand reads for the give-way: ONE read per call (a range for
@@ -654,24 +665,35 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const busy = roomsBusy(rows, dayKey) // ⚖ R10 — the rows this read already holds
   const live = liveSpans(rows, dayKey)
   const slots = servedSlots(seats, busy, live)
-  const served = servedDecisions(today ? decisions : [], seats, busy, live)
-  const carried = new Set(served.flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
+  // `carried` reads the booking cards only, which no slot decides (F1)
+  const carried = new Set(servedDecisions(today ? decisions : [], seats, slots).flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
   const roster = seats.flatMap((s) => s.roster.map((p) => p.id))
   const seated = { shifts: rekeyRows(shifts, seats, 'identity'), absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null }
-  return { ...serveDay({ ...seated, roster, rows: live, carried, taken: slots, hours, sample, dayKey }), sellSlots: slots, decisions: served }
+  const policy = seats.length === 1 ? samplePolicyFor(seats[0].store) : null
+  const type = policy?.kind === 'twin' ? policy.type : undefined
+  const names = seats.flatMap((s) => s.roster.map((p) => p.name))
+  const roles = seats.flatMap((s) => s.roster.map((p) => p.role)) // ⚖ S87 ruling (a): parallel to `roster`, as `names`
+  const prices = type ? SAMPLE_SLOT_PRICES[type] ?? null : null // ⚖ R16: the store's own menu prices, never the 整体 fixture's
+  const result = serveDay({ ...seated, type, names, roles, prices, pin: boardNow, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
+    sellSlots: slots, slotTemplates: rekeyRows(sellSlots, seats, 'attribute'), roomsBusy: busy })
+  const final = result.sellSlots ?? slots
+  return { ...result, sellSlots: final, decisions: servedDecisions(today ? decisions : [], seats, final) }
 }
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
-  const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
   // ⚖ PR-4a — per store, its OWN re-key of the open family: a borrower counts the rows it is served
   // (R10: today's busy rooms). ⚖ §v11 V11-11 — today's rows by ONE read, twins and borrowers alike, each store its own.
   const todayKey = jstDayKey(renderNow())
   const [all, day] = await Promise.all([rosterOrderOf(actor, { viewAll: true }), liveRowsOf(actor, { viewAll: true }, { from: todayKey, to: todayKey })])
-  for (const seats of all) {
+  // ⚖ R15: every store's hours in parallel, never one store after another
+  const hoursAll = await Promise.all(all.map((seats) => storeHoursOf(actor, seats.store, todayKey, singletonsOf(samplePolicyFor(seats.store)))))
+  for (const [i, seats] of all.entries()) {
     const rows = day.filter((r) => r.store_id === seats.store)
-    byStore[seats.store] = servedDecisions(open, [seats], roomsBusy(rows, todayKey), liveSpans(rows, todayKey)).length
+    const sample = singletonsOf(samplePolicyFor(seats.store))
+    const hours = hoursAll[i]
+    byStore[seats.store] = servedDay([seats], rows, hours, sample.operatingHours, todayKey).decisions.filter((d) => d.state === 'open').length
   }
   // A store the actor cannot see never counts.
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }
