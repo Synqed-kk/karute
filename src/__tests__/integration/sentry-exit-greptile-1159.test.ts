@@ -176,3 +176,14 @@ describe('R-S115-1 N4 — one JWT rule, no leading word boundary', () => {
     for (const seg of JWT.split('.')) expect(errMessage).not.toContain(seg.slice(4, 20))
   })
 })
+
+describe('R-S115-1 N1 — the log line percent-decodes after the bound (the exit decode, shared)', () => {
+  it('password%3D… does not reach the log line', () => {
+    const pw = ['Q7m', 'xrT2'].join('')
+    expect(describeUnknownThrow(new Error(`login password%3D${pw} failed`)).errMessage).not.toContain(pw)
+  })
+  it('an email written with %40 does not reach the log line', () => {
+    const mail = ['tanaka.hanako', 'example.com'].join('%40')
+    expect(describeUnknownThrow(new Error(`mail ${mail} bounced`)).errMessage).not.toContain('tanaka')
+  })
+})

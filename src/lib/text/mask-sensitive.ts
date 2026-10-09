@@ -193,6 +193,16 @@ const PCT_NON_ASCII_RUN = /(%[89A-Fa-f][0-9A-Fa-f])+/g
  *  (`%25E7`, `%25252525E7`): what replaces them when decoding fails. */
 const PCT_RUN = /(%(?:25)*[0-9A-Fa-f]{2})+/g
 
+/** THE text decode (R-S115-1 N1) — one definition, used by the Sentry
+ *  exit's masked() and the errors.ts server log line. Runs on BOUNDED text
+ *  (after preBound; decoding never lengthens): `%40` → `@`, then the stable
+ *  percent-decoded copy (pctDecode); when decoding fails every `%XX` run
+ *  becomes `[enc]`. */
+export function decodeText(bound: string): string {
+  const at = bound.split('%40').join('@')
+  return pctDecode(at) ?? at.replace(PCT_RUN, '[enc]')
+}
+
 /** The Sentry exit's `masked(n)` (item 102 § 2.0; R-S113-6 F-S113-2): bound
  *  (preBound) → `%40`→`@` → the stable percent-decoded copy (pctDecode; when
  *  decoding fails every `%XX` run becomes `[enc]`) → the content guard →
@@ -202,10 +212,9 @@ const PCT_RUN = /(%(?:25)*[0-9A-Fa-f]{2})+/g
  *  content was masked → undefined (the field is omitted). */
 export function masked(v: unknown, n: number): string | undefined {
   if (typeof v !== 'string') return undefined
-  const bound = preBound(v).split('%40').join('@')
   // the guard also runs first, so a blob is judged whole before the masks
   // below cut it into fragments
-  let s = guardContent(pctDecode(bound) ?? bound.replace(PCT_RUN, '[enc]'))
+  let s = guardContent(decodeText(preBound(v)))
   s = maskSensitive(s)
   s = s.replace(/[^\x00-\x7F]+/g, '[non-ascii]')
   s = s.replace(PCT_NON_ASCII_RUN, '[non-ascii]')

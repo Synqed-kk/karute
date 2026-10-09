@@ -7,7 +7,7 @@
 
 import { BearerVerifyError } from '@/lib/auth/verify-bearer'
 import { RevocationError } from '@/lib/auth/revocation'
-import { maskSensitive, preBound } from '@/lib/text/mask-sensitive'
+import { decodeText, maskSensitive, preBound } from '@/lib/text/mask-sensitive'
 
 /** Stable, client-facing error codes. Additive-only — clients branch on these. */
 export type AppApiErrorCode =
@@ -144,7 +144,10 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
     // 1-3 separators between groups, so 「090    1234    5678」 must reach it
     // as 「090 1234 5678」. A run holding a line terminator → one '\n' (the
     // line boundary survives for the cut); any other run → one ' '.
-    const collapsed = preBound(message).replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
+    // Decode AFTER the bound (R-S115-1 N1), the exit's own decode: an
+    // encoded label (`password%3D…`) or email (`%40`) is masked like plain
+    // text. A malformed `%XX` run logs as `[enc]`.
+    const collapsed = decodeText(preBound(message)).replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
     const masked = maskSensitive(collapsed)
     const lineEnd = masked.search(LINE_TERMINATOR_RE)
     const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).trim()
