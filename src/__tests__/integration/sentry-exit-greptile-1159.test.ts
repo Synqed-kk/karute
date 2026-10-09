@@ -187,3 +187,9 @@ describe('R-S115-1 N1 — the log line percent-decodes after the bound (the exit
     expect(describeUnknownThrow(new Error(`mail ${mail} bounced`)).errMessage).not.toContain('tanaka')
   })
 })
+
+describe('R-S115-1 S3 pin — the log line keeps only the first line for every line break', () => {
+  it.each([['LS', ' '], ['PS', ' '], ['CRLF', '\r\n'], ['LF', '\n']])('%s', (_n, br) => {
+    expect(describeUnknownThrow(new Error(`first line${br}second Tanaka Hanako`)).errMessage).toBe('first line')
+  })
+})
