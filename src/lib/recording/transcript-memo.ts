@@ -307,9 +307,15 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       if (theirs === undefined) theirs = await readLease(key, now)
       if (theirs !== null && theirs.until > now) return { state: 'busy', until: theirs.until }
       const winner = await readClaim(claimKey)
-      if (winner === null || winner.at + TRANSCRIPT_LEASE_TTL_MS > now || link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) {
-        if (winner !== null && link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) warnStorageUnknown('transcript-lease.links', null)
-        return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      if (winner === null || winner.at + TRANSCRIPT_LEASE_TTL_MS > now) return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      // ⚖ S115 round 3 (S1) — PAST THE CAP A DEAD CHAIN FALLS OPEN. The cap only bounds
+      // one call's walk (each call wins at most one link, each next link is named by
+      // the one winner before it, so the chain cannot loop). Past it, with the last
+      // winner dead, the caller pays unleased ('unknown', warned), like an unreadable
+      // lease above — never busy for ever.
+      if (link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) {
+        warnStorageUnknown('transcript-lease.links', null)
+        return { state: 'unknown' }
       }
       claimKey = transcriptLeaseClaimKey(memoKey, { until: 0, nonce: winner.nonce })
     }
@@ -345,8 +351,8 @@ const TRANSCRIPT_LEASE_CLAIM_BUSY_MS = 5_000
 
 /** ⚖ S115 (B1) — how many dead claim links one take will walk. Each link is a
  *  takeover whose winner never wrote its lease, at least one TTL apart; past
- *  this many in a row the caller is told busy (warned), never paid unclaimed.
- *  A loop bound, not a business number. */
+ *  this many in a row, with the last winner dead, the caller pays unleased
+ *  ('unknown', warned — S115 round 3, S1). A loop bound, not a business number. */
 const TRANSCRIPT_LEASE_MAX_LINKS = 32
 
 /** A claim object's `{ at, nonce }`, or null when it cannot be read. */
