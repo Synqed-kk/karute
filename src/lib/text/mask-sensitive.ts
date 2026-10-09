@@ -248,8 +248,13 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  token · path and frame file per segment · spaced · transaction name · iso ·
  *  content-type — a hit drops the field). A label word (no leading `\b`, so
  *  access_token / clientSecret / dbPass / userPin match too), an optional
- *  closing quote (the JSON key `"password":`), then `:` or `=` then a value;
- *  a quoted value is consumed to its closing quote (`password="a b"`).
+ *  closing quote (the JSON key `"password":`) or escaped quote (a JSON body
+ *  inside a string, `{\"password\":\"x\"}`, R-S115-10 SF2), then `:` or `=`
+ *  then a value; a quoted value is consumed to its closing quote
+ *  (`password="a b"`), an escaped quote inside it read as part of it
+ *  (`"a\"b"`), and an escaped-quoted value (`\"x\"`) to its closing escaped
+ *  quote, an escaped escaped quote inside it (`\"a\\\"b\"`) read as part of it.
+ *  Each quoted form is a run of disjoint tokens (no nested ambiguity).
  *  Vocabulary (R-S115-1 S1): token · api key · key · secret · pass, password,
  *  passwd, passcode, passphrase · pwd · pw · psw · auth, authorization ·
  *  session, session id · credential(s) · pin. What it also eats (masked in
@@ -260,7 +265,7 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  label with no `:`/`=` after it is kept (`Auth session missing!`,
  *  `/api/auth/session`, `pinned`, `passthrough`). */
 export const LABELLED_CRED_RE =
-  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session(?:[-_]?id)?|credentials?|pin)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|['"]?[^\s&'"]+)/gi
+  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session(?:[-_]?id)?|credentials?|pin)\\?["']?\s*[:=]\s*(?:\\"(?:[^"\\]|\\\\(?:\\\\|\\"|[^"\\]))*\\"|"(?:[^"\\]|\\[\s\S])*"|'[^']*'|\\?['"]?[^\s&'"]+)/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
 /** THE JWT rule (R-S115-1 N4) — one definition, used by maskSensitive and
