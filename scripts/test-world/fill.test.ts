@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, jstToday, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
+import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -646,6 +646,94 @@ async function main() {
   await assert.rejects(apply(twice.core, { ...opts(empty()), recipe: await loadRecipe('hair_salon') }), /not mapped|prepared for store/)
   await assert.rejects(apply(twice.core, opts({ ...empty(), businessId: 'foreign' })), /not a Dev Salon manifest/)
   assert.equal(twice.stats.writes, 0, 'dry-run and rejected targets never write')
+
+  // (e) ⚖ S90 throttle: every core request passes ONE limiter; the first EMAXCONN stops every later request.
+  {
+  const full = Object.assign(new Error('connect EMAXCONN: max client connections reached'), { status: 500 })
+  // Every method of a fake core, watched: requests in flight, start times on a fake clock, an optional failure.
+  const watched = (fail?: (call: string) => boolean, err: Error = full) => {
+    const f = fakeCore()
+    Object.assign(f.core.staffStores, { counts: async () => ({ counts: { [STORE]: f.t.links.size } }) })
+    const s = { calls: 0, inFlight: 0, max: 0, starts: [] as number[], clock: 0, failedAt: 0, names: [] as string[] }
+    for (const [ns, obj] of Object.entries(f.core as unknown as Record<string, Record<string, (...a: unknown[]) => Promise<unknown>>>))
+      for (const [k, fn] of Object.entries(obj)) obj[k] = async (...args: unknown[]) => {
+        s.calls++, s.inFlight++, s.starts.push(s.clock), s.names.push(`${ns}.${k}`)
+        s.max = Math.max(s.max, s.inFlight)
+        try {
+          await new Promise((r) => setImmediate(r)) // a request takes time: overlap shows
+          if (!s.failedAt && fail?.(`${ns}.${k}`)) throw ((s.failedAt = s.calls), err)
+          return await fn(...args)
+        } finally {
+          s.inFlight--
+        }
+      }
+    const lim = (t: Throttle) => limiter(t, async (ms) => void (s.clock += ms), () => s.clock)
+    return { ...f, s, lim }
+  }
+  const gaps = (xs: number[]) => xs.slice(1).map((x, i) => x - xs[i])
+  // defaults: 1 in flight, 150 ms between starts — from the CLI (no flags) and from apply (no limiter given)
+  assert.deepEqual([parseThrottle([]), DEFAULT_THROTTLE], [{ concurrency: 1, pauseMs: 150 }, { concurrency: 1, pauseMs: 150 }])
+  const d1 = watched()
+  assert.equal(await apply(d1.core, { ...opts(empty()), limiter: d1.lim(parseThrottle([]) as Throttle) }), 0)
+  assert.ok(d1.s.calls > 300 && d1.s.max === 1 && Math.min(...gaps(d1.s.starts)) >= 150, `default: ${d1.s.calls} calls, max in flight ${d1.s.max}, min gap ${Math.min(...gaps(d1.s.starts))}`)
+  const d2 = watched()
+  const pauses: number[] = []
+  assert.equal(await apply(d2.core, { ...opts(empty()), wait: async (ms: number) => void pauses.push(ms) }), 0)
+  assert.ok(d2.s.max === 1 && pauses.length > 0 && pauses.every((ms) => ms <= 150), `apply's own default: max in flight ${d2.s.max}, ${pauses.length} pauses`)
+  console.log(`✓ S90 default: ${d1.s.calls} requests, max in flight ${d1.s.max}, min start gap ${Math.min(...gaps(d1.s.starts))} ms; apply default max ${d2.s.max}`)
+  // --concurrency 2 → 2 in flight, never 3; 5 and 0 are refused before any core call
+  const c2 = watched()
+  assert.equal(await apply(c2.core, { ...opts(empty()), limiter: c2.lim(parseThrottle(['--concurrency', '2']) as Throttle) }), 0)
+  assert.equal(c2.s.max, 2, `--concurrency 2: max in flight ${c2.s.max}`)
+  for (const bad of ['5', '0', '-1', '1.5', 'x']) assert.equal(typeof parseThrottle(['--concurrency', bad]), 'string', `--concurrency ${bad} refused`)
+  for (const t of [{ concurrency: 5, pauseMs: 150 }, { concurrency: 0, pauseMs: 150 }, { concurrency: 1, pauseMs: -1 }]) {
+    const r = watched()
+    assert.equal(await apply(r.core, { ...opts(empty()), limiter: r.lim(t) }), 2, JSON.stringify(t))
+    assert.equal(r.s.calls, 0, `${JSON.stringify(t)}: zero core calls`)
+  }
+  // --pause-ms 0 needs --no-pause; --no-pause alone means 0
+  assert.equal(typeof parseThrottle(['--pause-ms', '0']), 'string', '--pause-ms 0 alone refused')
+  for (const bad of ['-5', '2.5', '']) assert.equal(typeof parseThrottle(['--pause-ms', bad]), 'string', `--pause-ms ${bad} refused`)
+  assert.deepEqual([parseThrottle(['--pause-ms', '0', '--no-pause']), parseThrottle(['--no-pause']), parseThrottle(['--pause-ms', '400', '--concurrency', '4'])],
+    [{ concurrency: 1, pauseMs: 0 }, { concurrency: 1, pauseMs: 0 }, { concurrency: 4, pauseMs: 400 }])
+  console.log(`✓ S90 flags: --concurrency 2 max ${c2.s.max}; 5 / 0 / --pause-ms 0 refused with 0 core calls`)
+  // the read-back's per-customer reads: bounded by the setting, same table as the old Promise.all fan-out
+  const rb = watched()
+  assert.equal(await apply(rb.core, opts(empty())), 0)
+  const [from, table] = [rb.s.calls, [] as string[]]
+  assert.equal(await apply(rb.core, { ...opts(empty()), readBack: true, log: (l: string) => void table.push(l), limiter: rb.lim({ concurrency: 3, pauseMs: 150 }) }), 0)
+  const perCustomer = rb.s.names.slice(from).filter((n) => n === 'packs.listPacks').length
+  const ours = rb.t.customers.filter((c) => c.member_number).length // the bin counts too: the read-back lists include_deleted
+  assert.ok(perCustomer >= 50 && rb.s.max === 3, `read-back: ${perCustomer} per-customer reads, max in flight ${rb.s.max}`)
+  for (const [label, n] of [['packs of those customers', rb.t.packs.length], ['redemptions on those packs', rb.t.burns.length]] as const)
+    assert.match(table.find((l) => l.startsWith(label))!, new RegExp(`\\| ${n}$`), `${label}: in core now = ${n}`)
+  assert.ok(table.some((l) => l.startsWith('customers (recipe member numbers)') && l.endsWith(`| ${ours}`)), table.join('\n'))
+  console.log(`✓ S90 read-back: ${perCustomer} per-customer reads, max in flight ${rb.s.max}, packs ${rb.t.packs.length}, burns ${rb.t.burns.length}`)
+  // EMAXCONN in the writes: no request starts after it, exit 1, the plain line once
+  const sw = watched((call) => call === 'appointments.create')
+  const swLog: string[] = []
+  assert.equal(await apply(sw.core, { ...opts(empty()), readBack: true, log: (l: string) => void swLog.push(l), limiter: sw.lim(DEFAULT_THROTTLE) }), 1)
+  assert.ok(sw.s.failedAt > 0 && sw.s.calls === sw.s.failedAt, `writes: failed at request ${sw.s.failedAt}, ${sw.s.calls} started`)
+  assert.equal(swLog.filter((l) => l === SATURATED_LINE).length, 1, swLog.join('\n'))
+  console.log(`✓ S90 EMAXCONN in writes: stopped at request ${sw.s.failedAt}, ${sw.s.calls - sw.s.failedAt} started after, exit 1`)
+  // EMAXCONN in the read-back (counts() is read by the read-back only): the read-back stops, the exit code stays
+  const sr = watched((call) => call === 'staffStores.counts')
+  const srLog: string[] = []
+  assert.equal(await apply(sr.core, { ...opts(empty()), readBack: true, log: (l: string) => void srLog.push(l), limiter: sr.lim(DEFAULT_THROTTLE) }), 0)
+  assert.ok(sr.s.failedAt > 0 && sr.s.calls === sr.s.failedAt, `read-back: failed at request ${sr.s.failedAt}, ${sr.s.calls} started`)
+  assert.deepEqual([srLog.filter((l) => l === SATURATED_LINE).length, srLog.some((l) => l.startsWith('section |'))], [1, false], srLog.join('\n'))
+  console.log(`✓ S90 EMAXCONN in read-back: stopped at request ${sr.s.failedAt}, ${sr.s.calls - sr.s.failedAt} started after, exit 0 kept`)
+  // lead note: a full database is never retried (one request, not a whole read-back); a plain 5xx re-run of the read-back still queues in the limiter
+  let tries = 0
+  await assert.rejects(withRetry(async () => { tries++; throw new Saturated('EMAXCONN') }, false, async () => {}), Saturated)
+  assert.equal(tries, 1, 'withRetry never retries a full database')
+  const r5 = watched((call) => call === 'staffStores.counts', Object.assign(new Error('busy'), { status: 500 }))
+  const r5Log: string[] = []
+  assert.equal(await apply(r5.core, { ...opts(empty()), readBack: true, log: (l: string) => void r5Log.push(l), limiter: r5.lim(DEFAULT_THROTTLE) }), 0)
+  const rerun = r5.s.starts.slice(r5.s.failedAt - 2)
+  assert.ok(r5Log.some((l) => l.startsWith('section |')) && r5.s.max === 1 && Math.min(...gaps(rerun)) >= 150, `5xx read-back re-run: max ${r5.s.max}, min gap ${Math.min(...gaps(rerun))}`)
+  console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
+  }
 
   console.log('✓ fill: all assertions passed')
 }
