@@ -287,6 +287,31 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // now passed over to the NEXT link, `…lease.<that claim's nonce>.claim.json`
     // — the very key a lease written by that winner would claim — create-only
     // again, so each link still has exactly one winner.
+    // ⚖ S116 round 4 (SF4) — A FALL-OPEN RE-ROOTS THE CHAIN. Past the link cap, or
+    // on a claim storage dates older than one TTL that cannot be read, no lease was
+    // ever written, so every arrival paid while that state lasted. The fall-open
+    // now writes a fresh lease of its own (upsert) and reads it back, like a
+    // takeover: a later arrival sees a live lease and is held off; when it ends,
+    // the next generation is a fresh claim keyed by this nonce. Only callers whose
+    // re-roots overlap (lease re-read → upsert → read-back) can both hold; one
+    // whose write storage refuses answers 'unknown' and pays, as before.
+    const reroot = async (): Promise<TranscriptLeaseTake> => {
+      const live = await readLease(key, now)
+      if (live !== null && live.until > now) return { state: 'busy', until: live.until }
+      let rooted: { error: unknown }
+      try {
+        rooted = await createServiceClient().storage.from('recordings').upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
+      } catch (err) {
+        rooted = { error: err ?? new Error('re-root upload threw') }
+      }
+      if (rooted.error) {
+        warnStorageUnknown('transcript-lease.reroot', rooted.error)
+        return { state: 'unknown' }
+      }
+      const after = await readLease(key, now)
+      if (after === null || after.nonce === nonce) return held()
+      return { state: 'busy', until: after.until > now ? after.until : now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+    }
     let claimKey = transcriptLeaseClaimKey(memoKey, seen)
     let theirs: { until: number; nonce?: string } | null | undefined
     for (let link = 0; ; link++) {
@@ -321,7 +346,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
         const born = await claimCreatedAt(claimKey)
         if (born !== null && born + TRANSCRIPT_LEASE_TTL_MS <= now) {
           warnStorageUnknown('transcript-lease.claim-unreadable', null)
-          return { state: 'unknown' }
+          return await reroot()
         }
         return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       }
@@ -334,7 +359,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       // lease above — never busy for ever.
       if (link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) {
         warnStorageUnknown('transcript-lease.links', null)
-        return { state: 'unknown' }
+        return await reroot()
       }
       claimKey = transcriptLeaseClaimKey(memoKey, { until: 0, nonce: winner.nonce })
     }

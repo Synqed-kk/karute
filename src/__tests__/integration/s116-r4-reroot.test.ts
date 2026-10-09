@@ -1,7 +1,8 @@
 /**
- * ⚖ S115 round 3 (S1) — PAST THE 32-LINK CAP A DEAD CHAIN FALLS OPEN. transcribe.ts: "A stuck
- * lease never blocks paying: it expires and falls open to paying." 32 takeovers whose lease writes
- * all fail leave 32 dead claim links; the next take used to answer busy for ever.
+ * ⚖ S116 round 4 (#1088, Opus attack SF4) — A FALL-OPEN RE-ROOTS THE CHAIN. Past the 32-link cap
+ * and on an old unreadable claim no lease was ever written, so EVERY arrival paid while the state
+ * lasted. The fall-open now writes a fresh lease (upsert, read back): later arrivals see it live
+ * and are held off; when it ends, the next generation is a fresh claim — never a new stuck path.
  */
 jest.mock('server-only', () => ({}))
 
@@ -21,6 +22,8 @@ type MockRule = {
 const mockObjects = new Map<string, MockObj>()
 const mockRules: MockRule[] = []
 const mockClock = { now: 0 }
+const mockInfo: { fn: null | ((had: MockObj) => unknown) } = { fn: null }
+const mockCalls = { info: 0, download: 0 }
 function mockRuleFor(op: MockRule['op'], key: string): MockRule | null {
   for (const r of mockRules) {
     if (r.op !== op || r.times === 0 || !r.key.test(key)) continue
@@ -72,6 +75,8 @@ jest.mock('@/lib/supabase/service', () => ({
           if (rule?.kind === '500') return { data: null, error: mockErr('500', 'Internal') }
           const had = mockObjects.get(key)
           if (!had) return { data: null, error: mockErr('404', 'Object not found') }
+          mockCalls.info++
+          if (mockInfo.fn) return mockInfo.fn(had)
           return { data: { name: key, createdAt: new Date(had.createdAt).toISOString() }, error: null }
         },
       }),
@@ -85,22 +90,24 @@ import { TRANSCRIPT_LEASE_TTL_MS as TTL } from '@/lib/recording/transcript-lease
 const MEMO = 'trc/biz-1_take-1.ja.json'
 const LEASE = transcriptLeaseKey(MEMO)
 const T0 = 1_800_000_000_000
-const DAY = 24 * 3_600_000
-const OTHER = '00000000-0000-4000-8000-000000000001'
-/** One server's take at its own clock `at` (the storage clock reads the same). */
-const take = (at: number) => {
-  mockClock.now = at
-  return takeTranscriptLease(MEMO, at)
+const S = 1_000
+const DAY = 86_400_000
+const nn = (i: number) => i.toString(16).padStart(8, '0') + '-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const ck = (nonce: string) => transcriptLeaseClaimKey(MEMO, { until: 0, nonce })
+/** One server's take on its own clock `own`; storage's clock reads `store`. */
+const takeAt = (own: number, store = own) => {
+  mockClock.now = store
+  return takeTranscriptLease(MEMO, own)
 }
-const leaseNow = () => JSON.parse(mockObjects.get(LEASE)!.body) as { expires_at: number; nonce: string }
-const claimKeys = () => [...mockObjects.keys()].filter((k) => k.endsWith('.claim.json'))
-const plant = (key: string, body: string, createdAt: number) => mockObjects.set(key, { body, createdAt })
+const plant = (key: string, body: unknown, createdAt: number) => mockObjects.set(key, { body: typeof body === 'string' ? body : JSON.stringify(body), createdAt })
+const lease = (exp: number, nonce: string) => plant(LEASE, { v: 1, expires_at: exp, nonce }, T0)
 /** A call that answers anything but busy pays (held under the lease, unknown unleased). */
 const payers = (xs: Array<{ state: string }>) => xs.filter((x) => x.state !== 'busy').length
 let warns: string[] = []
 beforeEach(() => {
   mockObjects.clear()
   mockRules.length = 0
+  mockInfo.fn = null
   warns = []
   jest.spyOn(console, 'warn').mockImplementation((line: unknown) => {
     try {
@@ -112,37 +119,51 @@ beforeEach(() => {
 })
 afterEach(() => jest.restoreAllMocks())
 
-/** The first take, then `n` takeovers one TTL apart whose lease writes all fail. */
-const deadChain = async (n: number) => {
-  expect((await take(T0)).state).toBe('held')
-  const states: string[] = []
-  for (let k = 1; k <= n; k++) {
-    mockRules.push({ op: 'upsert', key: /\.lease\.json$/, kind: '500', times: 1 })
-    states.push((await take(T0 + k * (TTL + 1))).state)
-  }
-  return states
+const P = T0 + 400 * DAY
+/** `L` dead links one TTL apart behind the expired generation nn(0). */
+const capChain = (L: number) => {
+  lease(T0 + TTL, nn(0))
+  for (let i = 0; i < L; i++) plant(ck(nn(i)), { v: 1, at: T0 + TTL + i * TTL, nonce: nn(i + 1) }, T0 + TTL + i * TTL)
+}
+const oldUnreadable = () => {
+  lease(T0 + TTL, nn(0))
+  plant(ck(nn(0)), '{garbage', P - 600 * S)
+}
+const arrivals = async () => {
+  const out: Array<{ state: string }> = []
+  for (const t of [30, 60, 120, 240, 299]) out.push(await takeAt(P + t * S))
+  return out
 }
 
-describe('S1 — the 32-link cap never answers busy for ever', () => {
-  it('33 dead links: the 33rd take pays (unknown, warned), and so does one a day and a year later — one payer per call, never busy', async () => {
-    const states = await deadChain(33)
-    expect(states.slice(0, 32)).toEqual(Array(32).fill('held'))
-    expect(claimKeys()).toHaveLength(32)
-    expect(states[32]).toBe('unknown')
-    expect(warns).toContain('transcript-lease.links')
-    const last = T0 + 33 * (TTL + 1)
-    // ⚖ S116 round 4 (SF4): a day later the fall-open RE-ROOTS (its own lease, held);
-    // a year later that lease has expired and the next take holds a fresh generation.
-    for (const at of [last + DAY, last + 365 * DAY]) {
-      const r = await take(at)
-      expect(r.state).toBe('held')
-      expect(payers([r])).toBe(1)
-    }
-    expect(claimKeys()).toHaveLength(33)
+describe.each([
+  ['the 32-link cap', () => capChain(32)],
+  ['an old unreadable claim', oldUnreadable],
+])('SF4 — %s', (_n, arrange) => {
+  it('a burst of 10 → exactly one payer; arrivals over the next 299 s → all busy', async () => {
+    arrange()
+    mockClock.now = P
+    const burst = await Promise.all(Array.from({ length: 10 }, () => takeTranscriptLease(MEMO, P)))
+    expect(payers(burst)).toBe(1)
+    expect(payers(await arrivals())).toBe(0)
   })
 
-  it('at the cap a LIVE last winner is still busy (the fall-open is for a dead chain only)', async () => {
-    await deadChain(32)
-    expect((await take(T0 + 32 * (TTL + 1) + 10_000)).state).toBe('busy')
+  it('payer A, a reopen B at +45 s, the job cron C at +60 s → one payer', async () => {
+    arrange()
+    const xs = [await takeAt(P), await takeAt(P + 45 * S), await takeAt(P + 60 * S)]
+    expect(xs.map((x) => x.state)).toEqual(['held', 'busy', 'busy'])
+  })
+
+  it('no new stuck path: the re-rooted holder never releases → one TTL later the next take holds a FRESH generation', async () => {
+    arrange()
+    expect((await takeAt(P)).state).toBe('held')
+    expect((await takeAt(P + TTL + S)).state).toBe('held')
+    expect((await takeAt(P + TTL + 2 * S)).state).toBe('busy')
+  })
+
+  it('the re-root write fails → unknown (pays, as before), warned', async () => {
+    arrange()
+    mockRules.push({ op: 'upsert', key: /\.lease\.json$/, kind: '500', times: 1 })
+    expect((await takeAt(P)).state).toBe('unknown')
+    expect(warns).toContain('transcript-lease.reroot')
   })
 })

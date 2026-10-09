@@ -136,10 +136,12 @@ describe('S2 — an unreadable claim is aged by storage, then falls open', () =>
     arrange(claimKey)
     expect((await take(BORN + 10_000)).state).toBe('busy')
     const links = claimKeys().length
-    expect((await take(BORN + TTL + 1)).state).toBe('unknown')
+    // ⚖ S116 round 4 (SF4): the fall-open re-roots (its own lease → held); a year
+    // later that lease has expired and the next take claims a fresh generation.
+    expect((await take(BORN + TTL + 1)).state).toBe('held')
     expect(warns).toContain('transcript-lease.claim-unreadable')
-    expect((await take(BORN + 365 * DAY)).state).toBe('unknown')
-    expect(claimKeys()).toHaveLength(links)
+    expect((await take(BORN + 365 * DAY)).state).toBe('held')
+    expect(claimKeys()).toHaveLength(links + 1)
   })
 
   it('storage will not give the age either (info 500): busy — no age, no pay (the stated residual)', async () => {
