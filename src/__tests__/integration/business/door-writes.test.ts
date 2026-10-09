@@ -946,7 +946,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
   })
 
   it.each([
-    ['grid 20', { ...PROOF, reserve_start_grid_min: 20 }],
+    ['grid 0', { ...PROOF, reserve_start_grid_min: 0 }], // S67: core holds any grid > 0 (20 is a real row now); 0 never
     ['101%', { ...PROOF, cancel_late_pct: 101 }],
     ['0 days', { ...PROOF, booking_open_days: 0 }],
     ['cutoff 40000', { ...PROOF, cutoff_minutes: 40000 }],

@@ -495,11 +495,11 @@ export type ReservePolicySave = { businessId: string; storeId: string; canSave: 
 const RESERVE_POLICY_URL = '/api/business/reserve-policy'
 const RESERVE_SECTION_ID = 'reserve-acceptance'
 const RESERVE_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', reserve_start_grid_min: 'reserve.grid', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
-/** The six dials → the route's `policy`; the grid's 'default' is core's unset (null). */
+/** The six dials → the route's `policy`; the grid's empty box is core's unset (null). */
 export const reservePolicyOf = (values: Record<string, RowValue>): ReservePolicy => ({
   booking_open_days: Number(values[RESERVE_IDS.booking_open_days]),
   cutoff_minutes: Number(values[RESERVE_IDS.cutoff_minutes]),
-  reserve_start_grid_min: values[RESERVE_IDS.reserve_start_grid_min] === 'default' ? null : (Number(values[RESERVE_IDS.reserve_start_grid_min]) as ReserveGrid),
+  reserve_start_grid_min: String(values[RESERVE_IDS.reserve_start_grid_min] ?? '').trim() === '' ? null : (Number(values[RESERVE_IDS.reserve_start_grid_min]) as ReserveGrid),
   cancel_free_until_hours: Number(values[RESERVE_IDS.cancel_free_until_hours]),
   cancel_late_pct: Number(values[RESERVE_IDS.cancel_late_pct]),
   no_show_pct: Number(values[RESERVE_IDS.no_show_pct]),
@@ -510,8 +510,6 @@ const RESERVE_NUMBER_IDS = [RESERVE_IDS.booking_open_days, RESERVE_IDS.cutoff_mi
 const RESERVE_CONTROL_IDS: ReadonlySet<string> = new Set<string>(Object.values(RESERVE_IDS))
 /** S67 F1 — the six while a save is in flight (lock reason, sibling register). */
 const RESERVE_BUSY_LOCK = '保存しています'
-/** S67 F4 — the section foot while the six save to core (the demo line would be false). */
-const RESERVE_SAVE_NOTE = '保存すると、この店舗の受付ルールがReserveの予約ページに反映されます（「サンプル」の印がある項目は、この画面の中だけに反映されます）。'
 const reserveSixOf = (row: Record<string, unknown>) => Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy
 const reserveStampOf = (row: Record<string, unknown>) => (typeof row.updated_at === 'string' ? row.updated_at : null)
 /** S67 F1/F2 — Reserve 受付 while it saves live: the late note follows the DRAFT, 最終変更 the last saved row, and
@@ -531,7 +529,7 @@ function reserveViewOf(s: SettingsSection, lateNote: string, values: Record<stri
 }
 /** Core's six → the dials' values (the linked 直前の空きは売らない follows 直前締切). */
 const reserveValuesOf = (p: ReservePolicy): Record<string, RowValue> => ({
-  ...Object.fromEntries(RESERVE_FIELDS.map((k) => [RESERVE_IDS[k], k === 'reserve_start_grid_min' && p[k] === null ? 'default' : String(p[k])])),
+  ...Object.fromEntries(RESERVE_FIELDS.map((k) => [RESERVE_IDS[k], p[k] === null ? '' : String(p[k])])),
   'reserve.lead': String(p.cutoff_minutes),
 })
 /** The writer's line is printed verbatim; these are ONLY for a refusal the route sends without one (its own
@@ -1122,7 +1120,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  no request, the section commits locally (its sample rows are page-only), exactly like 予約の色分け. */
   const saveReserveSection = useCallback(async (target: SettingsSection, save: ReservePolicySave) => {
     if (reserveSaving.current) return
-    if (RESERVE_NUMBER_IDS.some((id) => !/^\d+$/.test(String(values[id] ?? '')))) {
+    if (RESERVE_NUMBER_IDS.some((id) => !/^\d+$/.test(String(values[id] ?? ''))) || !/^([1-9]\d*)?$/.test(String(values[RESERVE_IDS.reserve_start_grid_min] ?? '').trim())) {
       setReserveFail(RESERVE_SAVE_FAIL.invalid) // S67 F7 — nothing is sent
       return
     }
@@ -2105,7 +2103,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     : liveReserve && !liveReserve.canSave
                       ? <p className="st-foot">{READ_ONLY_NOTE}</p>
                     : liveReserve
-                      ? <p className="st-foot">{RESERVE_SAVE_NOTE}</p>
+                      ? <p className="st-foot">{props.reserveSaveLine}</p>
                     : storeDaysLive
                       ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
                       : <p className="st-foot">{props.demoSaveLine}</p>}
@@ -3484,11 +3482,13 @@ function NumberField({
         // to `commitNumberField` as `''`, which restores the previous value
         // and says so.
         onBlur={locked ? undefined : (e) => {
+          // S67 — an `emptyLabel` field: the cleared box IS the state (core's null), committed as ''.
+          const cleared = Boolean(k.emptyLabel) && e.target.value.trim() === ''
           const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''
           const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? '')
-          lastGood.current = commit.value
-          setMessage(commit.message)
-          onChange(c.id, String(commit.value))
+          lastGood.current = commit.value // a cleared box keeps the last number to fall back to
+          // the one commit, fed '' (and no message) for a cleared emptyLabel box — the shape's single onChange stays single
+          ;((commit: { value: number | ''; message: string | null }) => { setMessage(commit.message); onChange(c.id, String(commit.value)) })(cleared ? { value: '', message: null } : commit)
         }}
       />
       {k.unit && <span id={unitId} className="st-unit">{k.unit}</span>}
@@ -3500,6 +3500,7 @@ function NumberField({
           always leaves `text` as `String(commit.value)`), not `Number(text)
           === 0`, which also reads true for an empty box mid-edit. */}
       {k.zeroLabel && text === '0' && <span className="st-unit">{k.zeroLabel}</span>}
+      {k.emptyLabel && text === '' && <span className="st-unit">{k.emptyLabel}</span>}
       {/* ⚠ THE REGION IS ALWAYS MOUNTED and its TEXT is what changes (⚖ F10's
           own lesson, one section over): a live region that appears and vanishes
           is announced unevenly, and one whose text never changes is silent. The

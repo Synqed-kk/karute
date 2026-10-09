@@ -346,7 +346,8 @@ const POLICY_136_FIELDS: Policy136Fields = {
  *  weekly_hours · source · updated_at verbatim. The census read no other dial, so those carry neutral
  *  values the door never reads — except the 1.36 dials, READ LIVE 9/28 (POLICY_136_FIELDS). */
 const policy = (store_id: string, source: Policy['source'], updated_at: string | null, weekly_hours: Policy['weekly_hours']): Policy => ({
-  store_id, booking_open_days: 30, cutoff_minutes: 0, // 30 = core's default (its CHECK is 1–365; 0 is a row core cannot hold) cancel_free_until_hours: 0, cancel_late_pct: 0, no_show_pct: 0,
+  // booking_open_days 30 = core's default: its CHECK is 1–365 (2026-07-31-store-booking-policies.sql:19), so 0 was never a row core can hold.
+  store_id, booking_open_days: 30, cutoff_minutes: 0, cancel_free_until_hours: 0, cancel_late_pct: 0, no_show_pct: 0,
   gap_guard_mode: 'OFF', new_client_session_minutes: 60, weekly_hours, source, updated_by: null, updated_at, ...POLICY_136_FIELDS,
 })
 const every = (open: string, close: string, tue: { open: string; close: string } | null = { open, close }) =>

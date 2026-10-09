@@ -995,6 +995,8 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/guide',
         '@/business/lib/practice-door/reserve-policy',
+        // S67 F2/F8 — the late note + 最終変更 line, shared with settings-props (pure; imports only reserve-policy).
+        '@/business/lib/reserve-policy-view',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
         // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the

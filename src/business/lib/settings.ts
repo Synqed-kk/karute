@@ -393,7 +393,9 @@ export type ControlKind =
   // (「制限なし」/「販売なし」/…), carried on the control so `labelOfValue` can
   // answer every reader (a preview sentence, this field's own display) from
   // ONE place rather than each one re-deciding what 0 means.
-  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string }
+  // S67 — `emptyLabel`: a field whose empty box is a real state (core's null, e.g. 「標準（30分）」): clearing it
+  // commits '' and reads as this label, never restored to a number.
+  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string; emptyLabel?: string }
   | { kind: 'time' }
   /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
    *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
@@ -805,6 +807,8 @@ export interface SettingsProps {
   openedByUrl: boolean
   /** ⚠ ONE HONEST FOOTNOTE REPLACES SIXTEEN REFUSAL PARAGRAPHS. */
   demoSaveLine: string
+  /** S67 F4 — Reserve 受付's foot while its six save to core (demoSaveLine's live twin). */
+  reserveSaveLine: string
   selfSaveLine: string
   boundaryFallback: string
   /** ⚖ S17 fix round 5 · G3 — WHO IS READING, as an id.
@@ -845,6 +849,7 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
       // `Number(value) === 0`: the field writes every keystroke into the
       // live values map, and `Number('') === 0` would make a box the reader
       // has just cleared read as the zero state before they retype anything.
+      if (String(value) === '' && control.emptyLabel) return control.emptyLabel
       return String(value) === '0' && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
     default:
       return String(value)

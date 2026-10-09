@@ -23,6 +23,8 @@ type StoredPolicy = ReservePolicy & { updated_at: string | null }
  *  as core holds it now and ITS fingerprint (S67 W1, replacing fix batch 1's blind second press): the screen
  *  merges that row into the fields the manager left as they were, keeps the ones they changed, shows the stale
  *  line and takes this basedOn; only a second, explicit press saves. */
+/** The six as the writer's `storePolicies.set` types them (its grid type lags core's; see setReservePolicy). */
+type WirePolicy = ReservePolicy & { reserve_start_grid_min: Parameters<ReturnType<typeof import('./core-reach').storeDaysWriterFor>['storePolicies']['set']>[1]['reserve_start_grid_min'] }
 export type SetReservePolicyResult =
   | { ok: true; row: StoredPolicy; basedOn: string }
   | { ok: false; reason: 'stale'; message: string; current: StoredPolicy; basedOn: string }
@@ -65,7 +67,9 @@ async function hasHqGrant(actor: PracticeActor): Promise<boolean> {
  *  main), so two saves inside it can still cross. A core failure is reported, never swallowed or retried. */
 export async function setReservePolicy(storeId: string, draft: unknown, basedOn: string): Promise<SetReservePolicyResult> {
   if (practiceTenant() === null) return refuse('tenant', MSG.fail)
-  const next = parseReservePolicy(draft)
+  // S67 — core's validator takes ANY positive grid (core routes/store-policies.ts:76; client types.ts:1477 on core
+  // main); the installed SDK's type still narrows it to 15|30|60, so the parsed six are typed as the wire's here.
+  const next = parseReservePolicy(draft) as WirePolicy | null
   if (next === null || typeof storeId !== 'string' || storeId === '' || typeof basedOn !== 'string') return refuse('invalid', MSG.range)
   const problem = reservePolicyProblem(next)
   if (problem) return refuse('invalid', MSG[problem])

@@ -14,9 +14,11 @@ export const RESERVE_POLICY_FIELDS = [
 ] as const
 export type ReservePolicyField = (typeof RESERVE_POLICY_FIELDS)[number]
 
-/** Core's grid choices (core routes/store-policies.ts:62); null = core unset, Reserve steps by 30. */
-export const RESERVE_GRID_CHOICES = [15, 30, 60] as const
-export type ReserveGrid = (typeof RESERVE_GRID_CHOICES)[number] | null
+/** S67 — core holds ANY positive whole minutes here (routes/store-policies.ts:76 positiveMinutes, an int32;
+ *  CHECK 2026-09-15-store-policy-flexible-durations.sql:18 `> 0`); null = core unset, Reserve steps by 30.
+ *  No fixed list (⚖ NO HARDCODED DURATIONS): the read never rejects a grid core can hold. */
+export const RESERVE_GRID_MAX = 2147483647
+export type ReserveGrid = number | null
 
 export interface ReservePolicy {
   booking_open_days: number
@@ -66,7 +68,7 @@ export function pickReservePolicy(row: ReservePolicy): ReservePolicy {
   }
 }
 
-/** Shape + core's ranges: exactly the six keys, whole numbers inside range, grid one of core's choices.
+/** Shape + core's ranges: exactly the six keys, whole numbers inside range, grid null or a positive int32.
  *  null = something core would refuse (the screen's own controls can never send it). */
 export function parseReservePolicy(draft: unknown): ReservePolicy | null {
   if (typeof draft !== 'object' || draft === null || Array.isArray(draft)) return null
@@ -80,7 +82,7 @@ export function parseReservePolicy(draft: unknown): ReservePolicy | null {
   }
   const [open, cutoff, free, late, noShow] = [whole('booking_open_days'), whole('cutoff_minutes'), whole('cancel_free_until_hours'), whole('cancel_late_pct'), whole('no_show_pct')]
   const g = d.reserve_start_grid_min
-  const grid: ReserveGrid | undefined = g === null ? null : (RESERVE_GRID_CHOICES as readonly unknown[]).includes(g) ? (g as ReserveGrid) : undefined
+  const grid: ReserveGrid | undefined = g === null ? null : typeof g === 'number' && Number.isInteger(g) && g > 0 && g <= RESERVE_GRID_MAX ? g : undefined
   if (open === null || cutoff === null || free === null || late === null || noShow === null || grid === undefined) return null
   return { booking_open_days: open, cutoff_minutes: cutoff, reserve_start_grid_min: grid, cancel_free_until_hours: free, cancel_late_pct: late, no_show_pct: noShow }
 }

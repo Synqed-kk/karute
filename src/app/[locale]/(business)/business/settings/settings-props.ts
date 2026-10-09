@@ -79,7 +79,7 @@ import {
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { RESERVE_GRID_CHOICES, RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES, parseReservePolicy, pickReservePolicy, policyHash, type ReservePolicy, type ReserveGrid } from '@/business/lib/practice-door/reserve-policy'
+import { RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES, parseReservePolicy, pickReservePolicy, policyHash, type ReservePolicy, type ReserveGrid } from '@/business/lib/practice-door/reserve-policy'
 import { lateFromBooking, policyAuditLine } from '@/business/lib/reserve-policy-view'
 import { historyOperatorName, samplePart, sampleSelfId, sampleWhole, storeSample, type LabeledPlaneKey, type PlaneKey } from '@/business/lib/practice-door/sample-facade'
 import { weekFromPair, type StoreHours } from '@/business/lib/practice-door/store-hours'
@@ -352,6 +352,9 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     // foot is rendered whichever section is open, so nothing here may describe a
     // screen the reader is not on). It replaces sixteen refusal paragraphs.
     demoSaveLine: '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。',
+    // S67 F4 — its true twin, the foot of Reserve 受付 while the six save to core (the demo line would be false
+    // there); it lives beside demoSaveLine so the page's persistence lines have one home.
+    reserveSaveLine: '保存すると、この店舗の受付ルールがReserveの予約ページに反映されます（「サンプル」の印がある項目は、この画面の中だけに反映されます）。',
     selfSaveLine: 'この設定はこの端末のこのブラウザに保存され、ほかのスタッフの画面は変わりません。',
     boundaryFallback: '設定を変更できる権限がありません。店舗の設定は、権限のあるアカウントでのみ表示されます。',
     // ⚖ S17 fix round 5 · G3 — and WHO they are, as the roster id the shell
@@ -456,13 +459,15 @@ const txt = (
 const num = (
   id: string,
   aria: string,
-  value: number,
+  value: number | null,
   min: number,
   max: number | null,
   step: number,
   unit: string,
   opts?: {
     locked?: string
+    // S67 — null is a real state shown as this label (an empty box); see the control's `emptyLabel`.
+    emptyLabel?: string
     // ⚖ D-31/D-32 F4 — the short label 0 reads as (「制限なし」 etc.).
     zeroLabel?: string
     // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
@@ -475,8 +480,8 @@ const num = (
 ): RowControl => ({
   id,
   aria,
-  control: { kind: 'number', min, max, step, unit, ...(opts?.zeroLabel ? { zeroLabel: opts.zeroLabel } : {}) },
-  value: String(value),
+  control: { kind: 'number', min, max, step, unit, ...(opts?.zeroLabel ? { zeroLabel: opts.zeroLabel } : {}), ...(opts?.emptyLabel ? { emptyLabel: opts.emptyLabel } : {}) },
+  value: value === null ? '' : String(value),
   ...(opts?.locked ? { locked: opts.locked } : {}),
   ...(opts?.lockedWhen ? { lockedWhen: opts.lockedWhen } : {}),
   ...(opts?.ceilingFrom ? { ceilingFrom: opts.ceilingFrom } : {}),
@@ -2060,7 +2065,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
   const live = ctx.reservePolicy
   const R = RESERVE_POLICY_RANGES
   const D = RESERVE_POLICY_DEFAULTS
-  const gridOf = (n: number): ReserveGrid => (RESERVE_GRID_CHOICES as readonly number[]).includes(n) ? (n as ReserveGrid) : null
+  const gridOf = (n: number): ReserveGrid => (Number.isInteger(n) && n > 0 ? n : null)
   const p: ReservePolicy = live?.values ?? {
     booking_open_days: d.bookingOpenDays, cutoff_minutes: d.cutoffMinutes, reserve_start_grid_min: gridOf(opsConfig.reserveStartGridMin),
     cancel_free_until_hours: d.cancelFreeUntilHours, cancel_late_pct: d.cancelLatePct, no_show_pct: d.noShowPct,
@@ -2109,8 +2114,9 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
-          // R12 — core takes 15 · 30 · 60 or unset (Reserve then steps by 30): the dial offers exactly those.
-          seg('reserve.grid', 'お客様が選べる開始時刻', opts([...RESERVE_GRID_CHOICES.map((g): [string, string] => [String(g), gridLabel(g)]), ['default', gridStd]]), p.reserve_start_grid_min === null ? 'default' : String(p.reserve_start_grid_min), unread ? RESERVE_UNREAD_LOCK : undefined),
+          // S67 — core takes any positive whole minutes or unset (Reserve then steps by 30): a free field, no
+          // fixed list (⚖ NO HARDCODED DURATIONS); an empty box is core's unset and reads 標準（30分）.
+          num('reserve.grid', 'お客様が選べる開始時刻', p.reserve_start_grid_min, 1, null, 1, '分', { emptyLabel: gridStd, ...unreadLock }),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {

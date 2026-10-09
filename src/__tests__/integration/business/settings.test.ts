@@ -103,7 +103,7 @@ import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/
 // ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
 // pin below follows the constant rather than restating it.
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
-import { RESERVE_GRID_CHOICES, RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES } from '@/business/lib/practice-door/reserve-policy'
+import { RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES } from '@/business/lib/practice-door/reserve-policy'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -2818,10 +2818,9 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(controlOf(props, 'reserve.cutoff').control).toMatchObject({ min: 0, max: 10080, zeroLabel: '締め切らない' })
     expect(controlOf(props, 'reserve.free').control).toMatchObject({ min: 0, max: 720 })
     expect(controlOf(props, 'reserve.sameday').control).toMatchObject({ min: 0, max: 100, unit: '%' })
-    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'segment', options: [{ value: '15', label: '15分' }, { value: '30', label: '30分' }, { value: '60', label: '60分' }, { value: 'default', label: '標準（30分）' }] })
-    // Reserve S66 T6 — the grid's options, the ranges and the six 初期値 come from reserve-policy.ts, never retyped.
-    const gridOpts = (controlOf(props, 'reserve.grid').control as { options: Array<{ value: string; label: string }> }).options
-    expect(gridOpts).toEqual([...RESERVE_GRID_CHOICES.map((g) => ({ value: String(g), label: `${g}分` })), { value: 'default', label: `標準（${RESERVE_GRID_UNSET_STEP}分）` }])
+    // S67 — the grid is any positive whole minutes (core holds any > 0; ⚖ NO HARDCODED DURATIONS): a free field
+    // with no ceiling, its empty box = core's unset, read as 標準（30分）. No fixed list.
+    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'number', min: 1, max: null, step: 1, unit: '分', emptyLabel: `標準（${RESERVE_GRID_UNSET_STEP}分）` })
     const SIX_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
     for (const [k, id] of Object.entries(SIX_IDS) as Array<[keyof typeof SIX_IDS, string]>) {
       expect({ id, ...controlOf(props, id).control }).toMatchObject({ id, min: RESERVE_POLICY_RANGES[k].min, max: RESERVE_POLICY_RANGES[k].max })
@@ -2831,14 +2830,14 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map(baseOf)).toEqual([
       `初期値: ${D.booking_open_days}日`,
       `初期値: ${D.cutoff_minutes === 0 ? '締め切らない' : `${D.cutoff_minutes}分前`}`,
-      `初期値: ${D.reserve_start_grid_min === null ? `お店の標準（${RESERVE_GRID_UNSET_STEP}分）` : `${D.reserve_start_grid_min}分`}`,
+      `初期値: ${D.reserve_start_grid_min === null ? `標準（${RESERVE_GRID_UNSET_STEP}分）` : `${D.reserve_start_grid_min}分`}`,
       `初期値: ${D.cancel_free_until_hours}時間前`,
       `初期値: ${D.cancel_late_pct}%`,
       `初期値: ${D.no_show_pct}%`,
     ])
     // …and those six read as core's defaults today (30 · 0 · null · 24 · 0 · 0).
     expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map(baseOf))
-      .toEqual(['初期値: 30日', '初期値: 締め切らない', '初期値: お店の標準（30分）', '初期値: 24時間前', '初期値: 0%', '初期値: 0%'])
+      .toEqual(['初期値: 30日', '初期値: 締め切らない', '初期値: 標準（30分）', '初期値: 24時間前', '初期値: 0%', '初期値: 0%'])
     // ⚖ D-32 F6 — AND THE FLOOR, since a floor with no pin is a mutant
     // (1 → 0, or 0 → -1) nothing in this battery would notice.
     for (const id of ['reserve.days', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {

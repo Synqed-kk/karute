@@ -251,12 +251,28 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
   it('JP rulings: 標準（30分） + its 初期値, the full-sentence lead lock, 来店時刻まで無料, the shorter R5 note', async () => {
     await mount()
     const w = blk('reserve.window').textContent ?? ''
-    expect([...blk('reserve.window').querySelectorAll('.st-opt')].map((b) => b.textContent)).toContain('標準（30分）')
+    // S67 grid: a free whole-minutes field now (no 15/30/60 list); its 初期値 line below names 標準（30分）
+    expect(blk('reserve.window').querySelector('input[aria-label="お客様が選べる開始時刻"]')).not.toBeNull()
     expect(w).toContain('初期値: 標準（30分）')
     expect(w).not.toContain('お店の標準')
     expect(w).toContain('上の「直前締切」と同じ値です。変えるときは「直前締切」を変更してください')
     set('無料キャンセル期限', '0')
     expect(blk('reserve.cancel').textContent).toContain('来店時刻まで無料')
     expect(LATE_FROM_BOOKING_NOTE).toBe('直前締切が無料キャンセル期限より短いため、期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。')
+  })
+})
+
+// S67 continuation — THE READ NEVER REJECTS A ROW CORE CAN HOLD: core takes any grid > 0 (store-policies.ts:76,
+// CHECK 2026-09-15-store-policy-flexible-durations.sql:18), so 45 parses; 0 and a fraction never could.
+describe('Reserve S67 — the grid is any positive whole minutes', () => {
+  it('parseReservePolicy keeps 45 and null, refuses 0 / 12.5 / -15', async () => {
+    const { parseReservePolicy, RESERVE_POLICY_DEFAULTS } = await import('@/business/lib/practice-door/reserve-policy')
+    const at = (g: unknown) => parseReservePolicy({ ...RESERVE_POLICY_DEFAULTS, reserve_start_grid_min: g })?.reserve_start_grid_min
+    expect([45, null, 0, 12.5, -15].map(at)).toEqual([45, null, undefined, undefined, undefined])
+  })
+  it('an empty grid box is core null on the wire; 45 is 45', async () => {
+    const { reservePolicyOf } = await import('@/app/[locale]/(business)/business/settings/SettingsScreen')
+    const six = { 'reserve.days': '30', 'reserve.cutoff': '0', 'reserve.free': '24', 'reserve.sameday': '0', 'reserve.noshow': '0' }
+    expect([reservePolicyOf({ ...six, 'reserve.grid': '' }), reservePolicyOf({ ...six, 'reserve.grid': '45' })].map((p) => p.reserve_start_grid_min)).toEqual([null, 45])
   })
 })
