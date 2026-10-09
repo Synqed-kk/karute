@@ -1,4 +1,5 @@
 import 'server-only'
+import { parseStorageTime } from '@/lib/recording/storage-time'
 import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isDuplicateRefusal } from '@/lib/recording/storage-duplicate'
@@ -428,11 +429,12 @@ async function claimCreatedAt(key: string): Promise<number | null> {
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').info(key)
     if (error || !data) {
-      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.claim-info', error)
+      // ⚖ S116 round 4 (N4): a 404 here is warned too — the claim's create just
+      // met it (409), so storage that cannot find it is inconsistent, not empty.
+      if (error) warnStorageUnknown('transcript-lease.claim-info', error)
       return null
     }
-    const at = Date.parse(data.createdAt)
-    return Number.isFinite(at) ? at : null
+    return parseStorageTime(data.createdAt)
   } catch (err) {
     warnStorageUnknown('transcript-lease.claim-info', err)
     return null
