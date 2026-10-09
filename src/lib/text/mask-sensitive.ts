@@ -130,7 +130,7 @@ export function maskSensitive(s: string): string {
   out = out.replace(AUTH_HEADER_RE, 'Authorization: <redacted>')
   out = out.replace(BEARER_RE, 'Bearer <token>')
   out = out.replace(LABELLED_CRED_RE, '<label>=<redacted>')
-  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
+  out = out.replace(JWT_RE, '<jwt>')
   // after the JWT rule, so `token eyJ…` stays `<jwt>` on errors.ts log lines
   out = out.replace(SCHEME_CRED_RE, '$1 <token>')
   out = out.replace(/[A-Za-z0-9+_=-]{32,}/g, (m) => (UUID_RE.test(m) ? m : '<blob>'))
@@ -247,7 +247,13 @@ export const LABELLED_CRED_RE =
   /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session(?:[-_]?id)?|credentials?|pin)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|['"]?[^\s&'"]+)/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
-const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
+/** THE JWT rule (R-S115-1 N4) — one definition, used by maskSensitive and
+ *  guardOne. No leading `\b`, so a JWT glued to a word (`wordeyJ…`) is still
+ *  caught; the header segment needs 10+ characters after `eyJ` (every real
+ *  JWT header is longer), so a code name such as `keyJson.a.b` is kept. It
+ *  still eats a name holding `eyJ` + 10 letters and two dotted parts
+ *  (`monkeyJumpingAround.a.b`). */
+const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
 const B64_RUN = /[A-Za-z0-9+/=_-]{24,}/g
 const UUID_EXACT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const UUID_ALL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
