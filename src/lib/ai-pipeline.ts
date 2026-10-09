@@ -380,6 +380,11 @@ export async function runAIPipeline(
   // The STAGED door is not a fallback: no transcribe door reads a `stg/` key
   // (S33 R1 — ports/recording-port.ts:507, v1/ai/transcribe/route.ts:50).
   let attachOutcome: AttachOutcome | null = null
+  // ⚖ S120 G2: the take's sealed object is provably SHORTER than this run's audio
+  // (the length its finalize re-proved). No length recorded = today's rule.
+  // Local on purpose: suites that mock take-store need no new export.
+  const sealedShorter = (m: { finalizedBytes?: number } | null | undefined) =>
+    m?.finalizedBytes !== undefined && m.finalizedBytes < audioBlob.size
   if (!finalizedPath) {
     if (takeId)
       finalizedPath = await ensureAudioOnServer(
@@ -394,6 +399,13 @@ export async function runAIPipeline(
       (takeId ? (await readTakeSecureMeta(takeId))?.recordingSessionId : null) ??
       ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
+  }
+  // ⚖ S120 G2: the longer recording wins. A key sealed from a provably SHORTER
+  // copy than this run's audio is not this run's key — it goes the fallback way
+  // with its own bytes (one more payment, for the longer words).
+  if (finalizedPath && takeId && sealedShorter(await readTakeSecureMeta(takeId))) {
+    finalizedPath = null
+    attachOutcome = 'attach_failed'
   }
   // S46: the row that reserved the finalized key rides beside it (re-read: the
   // attach may have just stamped it). None → the door keeps today's answer.
@@ -445,7 +457,10 @@ export async function runAIPipeline(
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
     const stored = takeId ? await readTakeTranscript(takeId) : null
     const currentPath =
-      finalizedPath ?? (takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null)
+      finalizedPath ??
+      (takeId
+        ? await readTakeSecureMeta(takeId).then((m) => (m && !sealedShorter(m) ? (m.finalizedPath ?? null) : null))
+        : null)
     if (
       stored &&
       stored.locale === locale &&

@@ -261,6 +261,10 @@ export type TakeMeta = {
    *  existed — read as "no pointer of my own", which sends that take down the
    *  in-tab fallback leg instead of naming an object nobody proved. */
   finalizedPath?: string
+  /** S120 G2: the byte length of the object sealed at `finalizedPath` — the
+   *  length the finalize door re-proved server-side (secure-take's byteLength).
+   *  Absent on takes sealed before S120 and on keys recomposed or adopted. */
+  finalizedBytes?: number
   /** Capture pipeline PR4 fix round 4: where this take's audio was STAGED — the
    *  row-less copy the discard's word-collection uploads for a take that can
    *  never be sealed under a finalized key (lib/recording/discard-transcript).
@@ -823,10 +827,11 @@ async function patchTakeMeta(
  *  and what the core job's audio_path names, so the take has to remember where
  *  it is — and the value is the MINT's own composed key, never one this device
  *  assembled from a tenant id it should not be composing with. */
-export async function markTakeFinalized(takeId: string, finalizedPath: string): Promise<void> {
+export async function markTakeFinalized(takeId: string, finalizedPath: string, finalizedBytes?: number): Promise<void> {
   await patchTakeMeta(takeId, {
     finalizedAt: Date.now(),
     finalizedPath,
+    ...(finalizedBytes !== undefined ? { finalizedBytes } : {}),
     secureError: undefined,
   })
 }
@@ -1076,6 +1081,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'target'
   | 'finalizedAt'
   | 'finalizedPath'
+  | 'finalizedBytes'
   | 'stagedPath'
   | 'secureError'
   | 'durationMs'
@@ -1096,6 +1102,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     target: meta.target,
     finalizedAt: meta.finalizedAt,
     finalizedPath: meta.finalizedPath,
+    finalizedBytes: meta.finalizedBytes,
     stagedPath: meta.stagedPath,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
@@ -1262,7 +1269,10 @@ export async function pinTakeFallback(
     // paid. Nothing is written, and THAT key is answered so this run sends it
     // (the C3 rule a later 再試行 follows through `currentPath`), never its own.
     if (meta.finalizedPath && meta.finalizedPath !== pin.finalizedPath) {
-      kept = { ...fresh, finalizedPath: meta.finalizedPath, recordingSessionId: meta.recordingSessionId ?? null }
+      // S120 G2: …unless the sealed object is provably SHORTER than the bytes this
+      // run just PUT — then nothing is answered and the run sends its own key.
+      if (!(meta.finalizedBytes !== undefined && meta.finalizedBytes < pin.audio.size))
+        kept = { ...fresh, finalizedPath: meta.finalizedPath, recordingSessionId: meta.recordingSessionId ?? null }
       return false
     }
     const live = meta.fallbackPin

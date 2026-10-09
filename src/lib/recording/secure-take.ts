@@ -435,7 +435,7 @@ async function secureBlob(
   // audio_path names, and `minted.path` is the SERVER's composed key — the
   // client never assembles a tenant key of its own.
   if ('ok' in result) {
-    await markTakeFinalized(takeId, minted.path)
+    await markTakeFinalized(takeId, minted.path, blob.size)
     return minted.path
   }
   await markTakeSecureError(takeId, result.error)
