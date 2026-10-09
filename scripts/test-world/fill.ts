@@ -234,9 +234,12 @@ function throttled<C extends object>(core: C, lim: Limiter): C {
 
 async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
   let i = 0
-  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
+  // every worker settles first (no late write after apply returns), then the first failure is thrown — a full database first
+  const settled = await Promise.allSettled(Array.from({ length: Math.min(size, items.length) }, async () => {
     while (i < items.length) await fn(items[i++])
   }))
+  const failed = settled.flatMap((r) => (r.status === 'rejected' ? [r.reason as unknown] : []))
+  if (failed.length) throw failed.find((e) => e instanceof Saturated) ?? failed[0]
 }
 
 export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown>; readBack?: boolean
