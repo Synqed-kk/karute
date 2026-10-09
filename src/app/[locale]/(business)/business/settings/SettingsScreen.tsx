@@ -1136,6 +1136,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
     let result: ReservePolicyAnswer
     try {
       result = await putReservePolicy(save, policy, reserveBasedOn.current)
+    } catch {
+      // S68 round 2 — a thrown save shows the failure line under 保存する, like no answer at all
+      result = { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
     } finally {
       // S68 — cleared even when the save throws, so the screen is never left locked
       reserveSaving.current = false
