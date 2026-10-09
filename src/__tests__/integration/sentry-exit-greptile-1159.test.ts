@@ -1,14 +1,17 @@
 // Greptile on #1159 (S114): G1 a labelled credential at a shape position,
 // G2 a cut before the mask (the alarm hook's cuts, the pre-bound cut), G3 a
 // decode before the length bound. Planted values are assembled at run time.
-/* eslint-disable @typescript-eslint/no-explicit-any -- deep reads of rebuilt output */
+import type { ErrorEvent } from '@sentry/nextjs'
 import {
   frameFile, masked, path, rebuildEnvelope, spaced, token, transactionName,
 } from '@/lib/observability/sentry-exit'
-import { guardContent } from '@/lib/text/mask-sensitive'
+import { scrubEvent } from '@/lib/observability/sentry-scrub'
+import { guardContent, preBound } from '@/lib/text/mask-sensitive'
 
 const EID = 'a'.repeat(32)
 const PW = ['Q7m', '!rT2'].join('')
+const EMAIL = ['tanaka.hanako', 'example.com'].join('@')
+const LOCAL_CUT = 'tanaka.ha'
 
 describe('G1 — the labelled-credential rule at every guard position', () => {
   it('a user-agent holding password=… leaves no header through the transport', () => {
@@ -30,5 +33,39 @@ describe('G1 — the labelled-credential rule at every guard position', () => {
   it('the text position still masks it (one rule, shared)', () => {
     expect(guardContent(`ua password=${PW}`)).not.toContain(PW)
     expect(masked(`failed password=${PW}`, 200)).toBe('failed <label>=<redacted>')
+  })
+})
+
+describe('G2 — nothing is cut before it is masked', () => {
+  it('the alarm hook then the exit: an email straddling 120 does not leave', () => {
+    const msg = 'a '.repeat(55) + ' ' + EMAIL
+    const hooked = scrubEvent({ type: undefined, event_id: EID, message: msg, tags: { alarm: '1' } } as ErrorEvent)
+    const s = JSON.stringify(rebuildEnvelope([{}, [[{ type: 'event' }, hooked]]]))
+    expect(s).not.toContain(LOCAL_CUT)
+  })
+
+  it('the alarm hook then the exit: a fingerprint straddling 100 does not leave', () => {
+    const fp = 'a'.repeat(91) + EMAIL
+    const hooked = scrubEvent({ type: undefined, event_id: EID, fingerprint: [fp], tags: { alarm: '1' } } as ErrorEvent)
+    const s = JSON.stringify(rebuildEnvelope([{}, [[{ type: 'event' }, hooked]]]))
+    expect(s).not.toContain(LOCAL_CUT)
+  })
+
+  it('the pre-bound cut with no whitespace: an email cut at 2000 does not leave', () => {
+    const v = 'あ'.repeat(1991) + EMAIL
+    expect(masked(v, 200) ?? '').not.toContain(LOCAL_CUT)
+  })
+
+  it('the pre-bound cut inside a spaced phone: no digit group of it leaves', () => {
+    const phone = ['090', '1234', '5678'].join(' ')
+    const v = 'あ'.repeat(1990) + ' ' + phone + ' tail'
+    expect(v.slice(0, 2000).endsWith('090 1234 ')).toBe(true)
+    const out = masked(v, 200) ?? ''
+    expect(out).not.toContain('1234')
+    expect(out).not.toContain('090')
+  })
+
+  it('a short text is not cut and keeps its last word', () => {
+    expect(preBound('ok then 5')).toBe('ok then 5')
   })
 })

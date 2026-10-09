@@ -62,7 +62,12 @@
 //   (it counts as hex), or of lower case and digits only, or upper case and
 //   digits only; a 10+-digit run inside a 16, 20, 32, 40 or 64-character hex
 //   id holding a letter; and `javascript:` addresses (no content).
-// - Lost, never leaked: a 16-digit chunk hash drops its frame field; a
+// - Lost, never leaked (Greptile #1159 G2: nothing is cut before it is
+//   masked): an alarm message over 120 characters, a fingerprint over 100
+//   and an alarm tag over 100 are dropped by the hook, never cut; error text
+//   over 2000 characters loses its cut word and the digits and separators
+//   before it (all of it when it has no whitespace and is ASCII). Also: a
+//   16-digit chunk hash drops its frame field; a
 //   user-agent whose version has a 4-digit build AND a 4-digit patch
 //   (「130.0.6723.1000」) drops at spaced positions and masks to `<phone>` in
 //   the error text.

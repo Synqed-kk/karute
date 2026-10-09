@@ -51,7 +51,9 @@ describe('one masking home', () => {
     const long = `${'word '.repeat(450)}TAIL`
     expect(actual.preBound(long).length).toBeLessThanOrEqual(2000)
     expect(actual.preBound(long).endsWith('word')).toBe(true)
-    expect(actual.preBound('x'.repeat(2500))).toHaveLength(2000)
+    // Greptile #1159 G2: a cut word is dropped, never kept half (no whitespace
+    // and all ASCII → nothing is left)
+    expect(actual.preBound('x'.repeat(2500))).toBe('')
     const out = errors.describeUnknownThrow(new Error('first   line\nsecond'))
     expect(out.errMessage).toBe('first line')
     expect(errors.describeUnknownThrow(new Error('z '.repeat(300))).errMessage.endsWith('…')).toBe(true)

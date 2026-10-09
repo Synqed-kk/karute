@@ -160,14 +160,16 @@ describe('T2c alarm caps', () => {
     return { type: undefined, tags: { alarm: '1' }, ...over }
   }
 
-  it('message longer than 120 characters is cut to 120', () => {
-    const out = scrubEvent(alarm({ message: 'm'.repeat(121) }))
-    expect(out!.message).toBe('m'.repeat(120))
+  // Greptile #1159 G2: the hook drops an over-long string, never cuts it
+  // (a cut is unmasked text the exit's rules can no longer recognise).
+  it('a message longer than 120 characters is dropped; 120 is kept', () => {
+    expect(scrubEvent(alarm({ message: 'm'.repeat(121) }))!.message).toBeUndefined()
+    expect(scrubEvent(alarm({ message: 'm'.repeat(120) }))!.message).toBe('m'.repeat(120))
   })
 
-  it('fingerprint keeps 5 of 6 items and cuts an item longer than 100 characters', () => {
-    const out = scrubEvent(alarm({ fingerprint: ['f'.repeat(101), 'b', 'c', 'd', 'e', 'f6'] }))
-    expect(out!.fingerprint).toEqual(['f'.repeat(100), 'b', 'c', 'd', 'e'])
+  it('fingerprint drops an item longer than 100 characters and keeps 5 of the rest', () => {
+    const out = scrubEvent(alarm({ fingerprint: ['f'.repeat(101), 'b', 'c', 'd', 'e', 'f6', 'g7'] }))
+    expect(out!.fingerprint).toEqual(['b', 'c', 'd', 'e', 'f6'])
   })
 
   it('an extra string longer than 200 characters is dropped; 200 is kept', () => {

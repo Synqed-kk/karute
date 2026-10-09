@@ -283,7 +283,10 @@ function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
   if (event.timestamp !== undefined) out.timestamp = event.timestamp
   if (event.platform !== undefined) out.platform = event.platform
   if (event.level !== undefined) out.level = event.level
-  if (typeof event.message === 'string') out.message = event.message.slice(0, 120)
+  // Greptile #1159 G2: the hook never CUTS a string the exit has yet to mask
+  // (a cut email 「tanaka.ha」 no longer matches the email rule); an
+  // over-long value is DROPPED here, and the exit masks then cuts.
+  if (typeof event.message === 'string' && event.message.length <= 120) out.message = event.message
   if (event.environment !== undefined) out.environment = event.environment
   if (event.release !== undefined) out.release = event.release
   if (event.dist !== undefined) out.dist = event.dist
@@ -291,16 +294,17 @@ function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
 
   if (Array.isArray(event.fingerprint)) {
     out.fingerprint = event.fingerprint
-      .filter((f): f is string => typeof f === 'string')
+      .filter((f): f is string => typeof f === 'string' && f.length <= 100)
       .slice(0, 5)
-      .map((f) => f.slice(0, 100))
   }
 
   if (event.tags) {
     const tags: NonNullable<ErrorEvent['tags']> = {}
     for (const key of ALARM_TAG_KEYS) {
       const v = event.tags[key]
-      if (typeof v === 'string') tags[key] = v.slice(0, 100)
+      if (typeof v === 'string') {
+        if (v.length <= 100) tags[key] = v
+      }
       else if ((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean') tags[key] = v
     }
     out.tags = tags

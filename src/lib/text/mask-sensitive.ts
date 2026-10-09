@@ -140,18 +140,31 @@ export function maskSensitive(s: string): string {
 }
 
 /** Defense-in-depth against a huge text (perf, errors.ts fix round 2, MUST-2):
- *  bound to 2000 chars BEFORE any masking regex runs. If the cut lands
- *  mid-token, trim back to the last whitespace char (found by scanning
- *  backward — cheap, bounded to 2000 steps); no whitespace in the first 2000
- *  chars → keep the 2000 and let the masks and the caller's cap handle it.
- *  ONE definition: errors.ts and the Sentry exit both import this. */
+ *  bound to 2000 chars BEFORE any masking regex runs. ONE definition:
+ *  errors.ts and the Sentry exit both import this. The cut must never leave
+ *  a PARTIAL shape the masks can no longer see (Greptile #1159 G2: a cut
+ *  email 「tanaka.ha」 is not an email; 「090 1234」 is not a phone):
+ *  (1) the cut word is dropped — back to the last whitespace (scanned
+ *  backward, bounded to 2000 steps; no shape but a phone, a label or
+ *  `Bearer`/`Authorization` spans whitespace, and those three mask their
+ *  stub or keep no value); with no whitespace at all, the trailing run of
+ *  ASCII / full-width ASCII / format characters is dropped (an email, key or
+ *  token is made of those; a non-ASCII email domain keeps its `local@`, which
+ *  the email rule still masks whole); then (2) the trailing run of digits,
+ *  whitespace and phone separators is dropped (a phone cut between groups).
+ *  What this eats: on a text over 2000 chars only, the cut word plus any
+ *  trailing numbers and separators before it (「… step 3 of 5」); a 2000+
+ *  char text with no whitespace keeps only its non-ASCII head. */
+const BOUND = 2000
+const CUT_WORD_TAIL = /[\x21-\x7E\uFF01-\uFF5E\p{Cf}]+$/u
+const CUT_PHONE_TAIL = new RegExp(`[\\s0-9\uFF10-\uFF19\\p{Cf}${PHONE_SEP}]+$`, 'u')
 export function preBound(s: string): string {
-  if (s.length <= 2000) return s
-  const cut = s.slice(0, 2000)
-  for (let i = cut.length - 1; i >= 0; i--) {
-    if (/\s/.test(cut[i])) return cut.slice(0, i)
-  }
-  return cut
+  if (s.length <= BOUND) return s
+  const cut = s.slice(0, BOUND)
+  let i = cut.length - 1
+  while (i >= 0 && !/\s/.test(cut[i])) i--
+  const kept = i >= 0 ? cut.slice(0, i) : cut.replace(CUT_WORD_TAIL, '')
+  return kept.replace(CUT_PHONE_TAIL, '')
 }
 
 const PCT_NON_ASCII_RUN = /(%[89A-Fa-f][0-9A-Fa-f])+/g
