@@ -52,7 +52,7 @@ import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
   sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
+import { liveIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { customers, operator, staff as fxStaff, stores as fxStores, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
@@ -583,7 +583,7 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(true, id).state }).toEqual({ id, state: 'sample' })
   })
   it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
-    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
+    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', type: 'beauty_chiropractic', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
     expect(storeSample(true, SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
   })
 })
@@ -1799,12 +1799,75 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect([reads(first, TODAY - 46, TODAY + 46), reads(second, TODAY - 46, TODAY + 46)]).toEqual([1, 1])
   })
 
-  it('§v11 V11-12 — the readers agree on a day where the 勤務不可 GENUINELY moves: the gym\'s だいち, 13:00 → 21:30 on day, calendar and 予約一覧', async () => {
+  it('§v11 V11-12 — the readers agree on the generated early-shift absence (R4 + S87 Q4: it goes to the opening-side STYLIST whose rows end first, so it survives): the gym\'s けんた, moved to 21:30', async () => {
     const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
     const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)
     const res = (await data.readReservationPlanes(STORE.gym)).absence
-    expect([day?.staff_id, day?.from]).toEqual(['3c7ecb3b-24f6-413b-8292-5b9d5292e511', 21 * 60 + 30]) // was 13:00 (fixture); past her last row
+    // ⚖ S87 Q4: けんた carries it — the opening side's STYLISTs are けんた and なつみ (こはる opens too but is the ASSISTANT);
+    // けんた's and なつみ's rows end first (21:30), けんた first by name; give-way moved its `from` from 11:30 to his last row's end
+    expect([day?.staff_id, day?.from]).toEqual(['8dd49f39-7ae7-4464-b2f7-f2d0cf7f5461', 21 * 60 + 30]) // GYM.kenta, 21:30
     expect([cal, res]).toEqual([day, day])
+  })
+
+  it('Q3 — a generated hair store keeps its 販売可能枠 decision card: the generated slot keeps the template id, so the card is served and counted', async () => {
+    // Dev Salon (hair) on its rooms, with a core week of 10:00–20:00 every day: not the 10–19 twin, so its day is GENERATED
+    const spy = withRooms()
+    const day = { open: '10:00', close: '20:00' }
+    const week = { sun: day, mon: day, tue: day, wed: day, thu: day, fri: day, sat: day }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.devSalon ? { ...POLICIES[id], source: 'custom', weekly_hours: week } : POLICIES[id]))
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const { price_low, price_high } = SAMPLE_SLOT_PRICES.hair_salon!
+    expect(planes.operatingHours).toEqual({ open: 600, close: 1200 })
+    expect(planes.sellSlots.length).toBeGreaterThan(0)
+    expect(planes.sellSlots.every((x) => x.price_low === price_low && x.price_high === price_high)).toBe(true) // generated (R16), not the fixture's
+    const cards = planes.decisions.filter((d) => d.sell_slot_id !== null && planes.sellSlots.some((x) => x.id === d.sell_slot_id))
+    expect(cards.length).toBeGreaterThan(0) // the card is present
+    const counts = await data.readUnresolvedCounts()
+    expect(counts.byStore[STORE.devSalon]).toBe(planes.decisions.filter((d) => d.state === 'open').length) // and counted
+    expect(counts.byStore[STORE.devSalon]).toBeGreaterThan(0)
+  })
+
+  // The Q3 store-day (Dev Salon, a GENERATED 10:00–20:00 hair day), with optional extra live rows on today.
+  const generatedSalon = (rows: ReadonlyArray<typeof APPOINTMENTS[number]> = []) => {
+    const spy = withRooms()
+    const day = { open: '10:00', close: '20:00' }
+    const week = { sun: day, mon: day, tue: day, wed: day, thu: day, fri: day, sat: day }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.devSalon ? { ...POLICIES[id], source: 'custom', weekly_hours: week } : POLICIES[id]))
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+  }
+
+  it('F1 (Greptile #1153 P1) — a Reserve販売 card is served iff its slot is among the slots the day FINALLY serves: the fixture slot gives way to a live row, the generated slot (same id) is free → card served and counted', async () => {
+    // slot-01's FIXTURE person on Dev Salon is Invite Probe (16:00–17:00); a live row of hers at 16:30 blocks that fixture slot,
+    // while the generated slot-01 (same id, 16:00) seats another person and stands free.
+    const at = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
+    generatedSalon([{ ...APPOINTMENTS[0], id: '00000000-0000-4000-8000-0000000000f1', store_id: STORE.devSalon, staff_id: CARD.probe, menu_id: MENU.zenten, resource_id: null, starts_at: at('16:30'), ends_at: at('17:00'), status: 'SCHEDULED' as const }])
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const slot = planes.sellSlots.find((x) => x.start === 16 * 60)!
+    expect(slot).toBeDefined()
+    expect(slot.staff_id).not.toBe(CARD.probe) // precondition: the generated slot is a different, free person
+    const cards = planes.decisions.filter((d) => d.sell_slot_id === slot.id)
+    expect(cards.map((d) => d.kind)).toEqual(['Reserve販売']) // the card is served on the final slot
+    const counts = await data.readUnresolvedCounts()
+    expect(counts.byStore[STORE.devSalon]).toBe(planes.decisions.filter((d) => d.state === 'open').length) // and the badge counts it
+  })
+
+  it('F2 (Greptile #1153 P2) — a generated slot\'s Reserve販売 card names the person the slot SERVES, as its inspector does (one offer, one person)', async () => {
+    generatedSalon()
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const names = new Map((await data.listStaff(STORE.devSalon)).map((p) => [p.id, p.full_name]))
+    const cards = planes.decisions.filter((d) => d.sell_slot_id !== null && planes.sellSlots.some((x) => x.id === d.sell_slot_id))
+    expect(cards.length).toBeGreaterThan(0)
+    for (const d of cards) {
+      const slot = planes.sellSlots.find((x) => x.id === d.sell_slot_id)!
+      const others = [...names].filter(([id, n]) => id !== slot.staff_id && !names.get(slot.staff_id)!.includes(n)).map(([, n]) => n)
+      expect({ id: d.id, named: d.detail.includes(names.get(slot.staff_id)!), others: others.filter((n) => d.detail.includes(n)) })
+        .toEqual({ id: d.id, named: true, others: [] })
+    }
   })
 
   it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
