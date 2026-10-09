@@ -216,7 +216,6 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
     set('当日キャンセル料', late)
     set('無断キャンセル料', noshow)
     expect(previewText()).toBe(line)
-    process.stdout.write(`\n[S68 0%] ${free}h × ${late}% × ${noshow}% → ${previewText()}\n`)
   })
 
   it('S68 busy finally: a save whose network throws leaves the six unlocked and says so', async () => {
