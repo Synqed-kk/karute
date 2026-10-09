@@ -1080,6 +1080,8 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
       ['grid 15', { ...D, reserve_start_grid_min: 15 }],
       ['grid 30', { ...D, reserve_start_grid_min: 30 }],
       ['grid 60', { ...D, reserve_start_grid_min: 60 }],
+      ['grid 45 (S68: any positive whole minutes)', { ...D, reserve_start_grid_min: 45 }],
+      ['grid 10', { ...D, reserve_start_grid_min: 10 }],
       ['grid null', { ...D, reserve_start_grid_min: null }],
       ['30.0 as sent on the wire', JSON.parse('{"booking_open_days":30.0,"cutoff_minutes":0,"reserve_start_grid_min":null,"cancel_free_until_hours":24,"cancel_late_pct":0,"no_show_pct":0}')],
     ])('accepted: %s → ONE set with exactly these six', async (_n, draft) => {
