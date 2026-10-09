@@ -21,7 +21,9 @@
 // registry.json. Never wire this into e2e/global-setup.ts or any npm script that runs by itself.
 //
 // Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed). The manifest holds ids only.
-// Exit: 0 ok · 1 error · 2 REFUSED (pin) · 4 unexpected 409s > 0.
+// Exit: 0 ok · 1 error (or core's database full) · 2 REFUSED (pin, or a bad throttle flag) · 4 unexpected 409s > 0.
+// Throttle (⚖ S90): every core request passes ONE limiter — `--concurrency <1–4>` in flight (default 1), `--pause-ms <n>`
+// between request starts (default 150; 0 only with `--no-pause`). The first EMAXCONN error stops all requests.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
@@ -152,25 +154,103 @@ export async function withRetry<T>(fn: () => Promise<T>, write: false | 'keyed' 
       return await fn()
     } catch (e) {
       const s = statusOf(e)
-      if (attempt >= 5 || !(s === 429 || (write !== 'unkeyed' && (s ?? 0) >= 500) || (s === undefined && !write))) throw e
+      if (e instanceof Saturated || attempt >= 5 || !(s === 429 || (write !== 'unkeyed' && (s ?? 0) >= 500) || (s === undefined && !write))) throw e
       await wait(500 * 2 ** attempt)
     }
   }
 }
 
-async function pool<T>(items: T[], fn: (x: T) => Promise<void>, size = 4) {
+export interface Throttle { concurrency: number; pauseMs: number }
+export const DEFAULT_THROTTLE: Throttle = { concurrency: 1, pauseMs: 150 }
+export const SATURATED_LINE = "core's database is at its connection limit — stopped. Check core answers before resuming."
+/** Thrown by the limiter once core's database reported it is full; no request starts after it. */
+export class Saturated extends Error {}
+const isSaturated = (e: unknown) => /EMAXCONN|max client connections/i.test(message(e))
+
+/** The CLI's throttle flags; a string is the refusal (exit 2, before any core call). */
+export function parseThrottle(argv: string[]): Throttle | string {
+  const val = (name: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] ?? '' : undefined)
+  const int = (s: string | undefined, d: number) => (s === undefined ? d : /^\d+$/.test(s) ? Number(s) : NaN)
+  const noPause = argv.includes('--no-pause')
+  const t = { concurrency: int(val('--concurrency'), DEFAULT_THROTTLE.concurrency), pauseMs: int(val('--pause-ms'), noPause ? 0 : DEFAULT_THROTTLE.pauseMs) }
+  if (!(t.concurrency >= 1 && t.concurrency <= 4)) return `--concurrency must be a whole number from 1 to 4 (got ${val('--concurrency')})`
+  if (!Number.isInteger(t.pauseMs)) return `--pause-ms must be a whole number of milliseconds (got ${val('--pause-ms')})`
+  if (noPause && t.pauseMs !== 0) return '--no-pause and a non-zero --pause-ms contradict each other'
+  if (t.pauseMs === 0 && !noPause) return '--pause-ms 0 needs --no-pause as well'
+  return t
+}
+
+export type Limiter = ReturnType<typeof limiter>
+/** At most `concurrency` requests in flight, `pauseMs` at least between two request starts, and a stop on a full database. */
+export function limiter(t: Throttle, sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now) {
+  let active = 0
+  let last = -Infinity
+  let gate: Promise<unknown> = Promise.resolve()
+  const queue: (() => void)[] = []
+  const lim = {
+    ...t,
+    stopped: false,
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      while (active >= t.concurrency) await new Promise<void>((r) => queue.push(r))
+      active++
+      try {
+        const turn = gate.then(async () => {
+          const gap = last + t.pauseMs - now()
+          if (gap > 0 && !lim.stopped) await sleep(gap)
+          last = now()
+        })
+        gate = turn
+        await turn
+        if (lim.stopped) throw new Saturated('stopped: core\'s database is at its connection limit')
+        try {
+          return await fn()
+        } catch (e) {
+          if (!isSaturated(e)) throw e
+          lim.stopped = true
+          throw new Saturated(message(e))
+        }
+      } finally {
+        active--
+        queue.shift()?.()
+      }
+    },
+  }
+  return lim
+}
+
+/** The same client, every method call routed through the limiter (namespaces one level deep, like the SDK). */
+function throttled<C extends object>(core: C, lim: Limiter): C {
+  const wrap = <O extends object>(o: O, depth: number): O => new Proxy(o, {
+    get(target, key) {
+      const v = Reflect.get(target, key)
+      if (typeof v === 'function') return (...args: unknown[]) => lim.run(() => v.apply(target, args))
+      return depth && v && typeof v === 'object' ? wrap(v, depth - 1) : v
+    },
+  })
+  return wrap(core, 1)
+}
+
+async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
   let i = 0
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
     while (i < items.length) await fn(items[i++])
   }))
 }
 
-export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown>; readBack?: boolean }
+export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown>; readBack?: boolean
+  limiter?: Limiter } // default: DEFAULT_THROTTLE, pausing with `wait`
 
 /** One store of one type. Mutates opts.manifest (the caller saves it, even after a throw). */
-export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
+export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   const { recipe, storeId, today, dry, log } = o
   if (o.manifest.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
+  const lim = o.limiter ?? limiter(DEFAULT_THROTTLE, o.wait)
+  if (!Number.isInteger(lim.concurrency) || lim.concurrency < 1 || lim.concurrency > 4 || !Number.isInteger(lim.pauseMs) || lim.pauseMs < 0) {
+    log(`REFUSED: throttle ${lim.concurrency} in flight / ${lim.pauseMs} ms is outside 1–4 in flight, ≥ 0 ms`)
+    return 2
+  }
+  const core = throttled(raw, lim)
+  const pool = <T,>(items: T[], fn: (x: T) => Promise<void>) => poolOf(items, fn, lim.concurrency)
   const read = <T,>(fn: () => Promise<T>) => withRetry(fn, false, o.wait)
   let cards: Awaited<ReturnType<typeof assertDevSalon>>
   try {
@@ -212,6 +292,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       return row
     } catch (e) {
       run.created[section]!--
+      if (e instanceof Saturated) throw e
       ;(statusOf(e) === 409 ? run.conflicts409 : run.errors).push(`${section} ${key}: ${message(e)}`)
       return null
     }
@@ -337,6 +418,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
         apptRow.set(planned.key, { id: row.id, status: planned.status })
       } catch (e) {
         run.created.todayStatus!--
+        if (e instanceof Saturated) throw e
         run.errors.push(`todayStatus ${planned.key}: ${message(e)}`)
       }
     }
@@ -378,9 +460,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     // The read-back is a diagnostic: its failure never changes the exit code.
     if (o.readBack) {
       try {
-        (await withRetry(() => readBack(core, storeId, p), false, o.wait)).forEach((r) => log(r.join(' | ')))
+        (await withRetry(() => readBack(core, storeId, p, lim.concurrency), false, o.wait)).forEach((r) => log(r.join(' | ')))
       } catch (e) {
-        log(`read-back failed (writes unaffected): ${message(e)}`)
+        log(e instanceof Saturated ? SATURATED_LINE : `read-back failed (writes unaffected): ${message(e)}`)
       }
     }
     return run.conflicts409.length ? 4 : run.errors.length ? 1 : 0
@@ -388,12 +470,21 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     // A first run that failed before any write leaves no epoch behind (no row exists on its dates yet);
     // once a write was sent, the epoch stays — rows may exist on those dates.
     if (!prior && sent === 0) delete m.stores[storeId]
-    throw e
+    if (!(e instanceof Saturated)) throw e
+    run.errors.push(`stopped: ${message(e)}`) // ⚖ S90: core's database is full — the rest of this run is skipped
+    log(SATURATED_LINE)
+    return 1
   }
 }
 
 /** What core holds for this store now, per section, beside the plan (reads only). */
-async function readBack(core: FillCore, storeId: string, p: Plan): Promise<(string | number)[][]> {
+async function readBack(core: FillCore, storeId: string, p: Plan, size: number): Promise<(string | number)[][]> {
+  // the per-customer reads, `size` at a time (the limiter's setting), results kept in input order
+  const each = async <T, R>(xs: T[], fn: (x: T) => Promise<R[]>) => {
+    const out: R[][] = []
+    await poolOf(xs.map((x, i) => [x, i] as const), async ([x, i]) => void (out[i] = await fn(x)), size)
+    return out.flat()
+  }
   const members = new Set(p.customers.map((c) => c.member))
   const [policy, links, res, { menus }, customers, appts, karutes] = await Promise.all([
     core.storePolicies.get(storeId), core.staffStores.counts(), core.resources.list({ store_id: storeId }), core.menus.list(),
@@ -402,8 +493,8 @@ async function readBack(core: FillCore, storeId: string, p: Plan): Promise<(stri
     pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })),
   ])
   const ours = customers.filter((c) => members.has(c.member_number ?? ''))
-  const packs = (await Promise.all(ours.map((c) => core.packs.listPacks(c.id)))).flat()
-  const burns = (await Promise.all([...new Set(packs.map((k) => k.customer_id))].map((id) => core.packs.listRedemptions(id)))).flat()
+  const packs = await each(ours, (c) => core.packs.listPacks(c.id))
+  const burns = await each([...new Set(packs.map((k) => k.customer_id))], (id) => core.packs.listRedemptions(id))
   const tagged = appts.filter((a) => a.notes?.includes('[tw:'))
   const status = JSON.stringify(tagged.reduce<Record<string, number>>((o, a) => ((o[a.status] = (o[a.status] ?? 0) + 1), o), {}))
   return [
@@ -460,9 +551,16 @@ if (process.argv[1]?.endsWith('fill.ts')) {
       return 0
     }
     if (cmd !== 'apply' || (!store && !type) || !path) {
-      console.log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run]')
+      console.log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run] [--concurrency <1–4>] [--pause-ms <n> | --no-pause]')
       return 1
     }
+    const throttle = parseThrottle(rest)
+    if (typeof throttle === 'string') {
+      console.log(`REFUSED: ${throttle}`)
+      return 2 // before any core call
+    }
+    console.log(`throttle: ${throttle.concurrency} in flight, ${throttle.pauseMs} ms between requests`)
+    const lim = limiter(throttle)
     const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
     if (!baseUrl || !apiKey) throw new Error('set SYNQED_CORE_URL and SYNQED_CORE_API_KEY first (values are never printed)')
     const { SynqedClient } = await import('@synqed-kk/client')
@@ -473,9 +571,10 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     try {
       for (const storeId of targets) {
         const recipe = await loadRecipe(registry.stores[storeId].type, storeId, m.stores[storeId]?.pastDays)
-        const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true })
+        const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true, limiter: lim })
         if (result === 2) return 2 // a refusal stops the whole run, including --store all
         code = Math.max(code, result)
+        if (lim.stopped) break // core's database is full: no later store is started
       }
     } finally {
       if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
@@ -486,7 +585,8 @@ if (process.argv[1]?.endsWith('fill.ts')) {
   main().then(
     (code) => { process.exitCode = code },
     (e) => {
-      console.error('fill failed:', message(e))
+      if (e instanceof Saturated) console.log(SATURATED_LINE) // a full database before a store's run began
+      else console.error('fill failed:', message(e))
       process.exitCode = 1
     },
   )
