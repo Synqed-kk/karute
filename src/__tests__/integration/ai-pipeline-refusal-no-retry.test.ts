@@ -348,4 +348,29 @@ describe('fetchWithRetry — a 409 from the transcribe door is still working (S5
     await expect(run.promise).resolves.toMatchObject({ transcript: SAVED.transcript })
     expect(posts()).toHaveLength(2)
   })
+
+  // ⚖ G8 (S120): the wait's deadline is on the monotonic clock, so a wall clock stepped
+  // while a 409 holds neither stretches the polling (back) nor cuts it short (forward).
+  it('t10 the wall clock set BACK 1 h, 10 s into the wait → still settles by TTL + 19.5 s, the same POSTs as t4', async () => {
+    doors([() => web409('7')])
+    const run = start()
+    await advance(10_000, 500)
+    jest.setSystemTime(Date.now() - 3_600_000)
+    await advance(TRANSCRIPT_LEASE_TTL_MS + 9_500, 500)
+    expect(run.settled).toBe(true)
+    await expect(run.promise).rejects.toThrow(/^Transcription failed: HTTP 409/)
+    expect(posts()).toHaveLength(Math.floor(TRANSCRIPT_LEASE_TTL_MS / 7_000) + 3)
+  })
+
+  it('t11 the wall clock set FORWARD 1 h, 10 s into the wait → waits the lease out like t4, not an early error', async () => {
+    doors([() => web409('7')])
+    const run = start()
+    await advance(10_000, 500)
+    jest.setSystemTime(Date.now() + 3_600_000)
+    await advance(TRANSCRIPT_LEASE_TTL_MS - 10_000, 500)
+    expect(run.settled).toBe(false)
+    await advance(7_000 + 1_500 + 500, 500)
+    expect(run.settled).toBe(true)
+    expect(posts()).toHaveLength(Math.floor(TRANSCRIPT_LEASE_TTL_MS / 7_000) + 3)
+  })
 })

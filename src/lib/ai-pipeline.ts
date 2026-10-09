@@ -110,8 +110,9 @@ function whileStillTranscribing(send: () => Promise<Response>): () => Promise<Re
       const res = await send()
       if (res.status !== 409) return res
       const waitMs = await stillWorkingWaitMs(res)
-      deadline ??= Date.now() + TRANSCRIPT_LEASE_TTL_MS + waitMs
-      if (Date.now() + waitMs > deadline) return res
+      // Monotonic (G8): a wall clock stepped mid-wait must not stretch or cut the polling.
+      deadline ??= performance.now() + TRANSCRIPT_LEASE_TTL_MS + waitMs
+      if (performance.now() + waitMs > deadline) return res
       await new Promise((resolve) => setTimeout(resolve, waitMs))
     }
   }
