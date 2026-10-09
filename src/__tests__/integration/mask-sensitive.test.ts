@@ -3,8 +3,8 @@
 // verify-bearer.ts, which is why maskSensitive was moved out of it.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { maskSensitive, UUID_RE } from '@/lib/text/mask-sensitive'
-import { F1_FORMS } from './helpers/sentry-exit-plants'
+import { masked, maskSensitive, UUID_RE } from '@/lib/text/mask-sensitive'
+import { F1_FORMS, LABEL_FORMS, S2_CUT_SHAPES, residue } from './helpers/sentry-exit-plants'
 
 const SRC = readFileSync(join(process.cwd(), 'src/lib/text/mask-sensitive.ts'), 'utf8')
 
@@ -47,5 +47,17 @@ describe('mask-sensitive.ts — NFKC, email and phone before the text rule (R-S1
   it('a separated run below 10 digits and a date stay readable', () => {
     expect(maskSensitive('retry 3 of 5 at 2026-10-08')).toBe('retry 3 of 5 at 2026-10-08')
     expect(maskSensitive('03-123-4567')).toBe('<phone>')
+  })
+})
+
+describe('R-S115-1 harness plants: label forms and S2 look-alike cuts', () => {
+  const secret = ['Zk4', 'pVw9'].join('')
+  it.each(LABEL_FORMS.map((f) => [f(secret)]))('%s: maskSensitive loses the value', (form) => {
+    expect(maskSensitive(`login failed ${form} again`)).not.toContain(secret)
+  })
+  it.each(S2_CUT_SHAPES)('%s cut at 2000 after Japanese text: no letter or digit leaves', (_n, shape) => {
+    for (let k = 1965; k <= 1999; k++) {
+      expect(residue(masked('あ'.repeat(k) + shape + 'ん'.repeat(60), 5000) ?? '')).toBe('')
+    }
   })
 })

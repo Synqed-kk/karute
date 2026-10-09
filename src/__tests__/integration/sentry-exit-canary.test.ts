@@ -5,7 +5,7 @@
 // bytes are then checked against ONE hand-transcribed table (field → shape).
 /* eslint-disable @typescript-eslint/no-explicit-any -- deep reads of the rebuilt output in the positive-control assertions */
 import { rebuildEnvelope } from '@/lib/observability/sentry-exit'
-import { BLOB200, F1_FORMS, JWT, KEY32, PHONE_HY } from './helpers/sentry-exit-plants'
+import { BLOB200, F1_FORMS, JWT, KEY32, LABEL_FORMS, PHONE_HY, S2_CUT_SHAPES } from './helpers/sentry-exit-plants'
 
 type J = Record<string, unknown>
 const at = (l: string, r: string) => [l, r].join('@')
@@ -474,5 +474,25 @@ describe('C1 N8 plants: phone, key, JWT, Base64, Bearer, query string, encoded c
     expect(e.request.url).toBe('https://karute.app/ja/customers')
     expect(e.exception.values[0].stacktrace.frames[0].filename).toBe('app:///_next/static/chunks/a.js')
     expect(e.transaction).toBe('/ja/customers')
+  })
+})
+
+describe('C1 R-S115-1 plants: label forms and S2 look-alike cuts through the transport', () => {
+  const secret = ['Zk4', 'pVw9'].join('')
+  const ev = (value: string, ua: string) => ({
+    event_id: 'b'.repeat(32),
+    exception: { values: [{ type: 'Error', value }] },
+    request: { headers: { 'user-agent': ua } },
+  })
+  it.each(LABEL_FORMS.map((f) => [f(secret)]))('%s at exception.value and the user-agent', (form) => {
+    const out = JSON.stringify(rebuildEnvelope([{}, [[{ type: 'event' }, ev(`failed ${form}`, `Mozilla/5.0 ${form}`)]]]))
+    expect(out).not.toContain(secret)
+    expect(out).toContain('failed') // positive control: the value itself left, masked
+  })
+  it.each(S2_CUT_SHAPES)('%s cut at 2000 in exception.value leaves no digit group or local part', (_n, shape) => {
+    for (let k = 1965; k <= 1999; k++) {
+      const out = JSON.stringify(rebuildEnvelope([{}, [[{ type: 'event' }, ev('あ'.repeat(k) + shape + 'ん'.repeat(60), 'x')]]]))
+      expect(out).not.toMatch(/090|1234|5678|tanak|hanak/)
+    }
   })
 })
