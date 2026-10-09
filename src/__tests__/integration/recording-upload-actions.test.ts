@@ -148,7 +148,7 @@ import {
   extFromMime,
   MIME_TO_EXT,
 } from '@/lib/recording/key-grammar'
-import { transcriptLeaseKey, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
+import { transcriptLeaseClaimKey, transcriptLeaseKey, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
@@ -1911,7 +1911,20 @@ describe('composeTranscriptKey — the paid answer, named for its audio', () => 
       const trueUp = transcriptTrueUpKey(memo)
       expect(lease).toBe(`trc/${audio()}.${locale}.lease.json`)
       expect(trueUp).toBe(`trc/${audio()}.${locale}.trueup.json`)
-      for (const key of [lease, trueUp]) {
+      // ⚖ S115: the claim keys — a nonce generation, a pre-S114 expiry generation, and the next
+      // link a dead claim chains to (named by that claim's nonce: the same shape).
+      const nonce = '0b5e7c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d'
+      const claims = [
+        transcriptLeaseClaimKey(memo, { until: 1_800_000_000_000, nonce }),
+        transcriptLeaseClaimKey(memo, { until: 1_800_000_000_000 }),
+        transcriptLeaseClaimKey(memo, { until: 0, nonce: 'dead0000-0000-4000-8000-000000000000' }),
+      ]
+      expect(claims).toEqual([
+        `trc/${audio()}.${locale}.lease.${nonce}.claim.json`,
+        `trc/${audio()}.${locale}.lease.t1800000000000.claim.json`,
+        `trc/${audio()}.${locale}.lease.dead0000-0000-4000-8000-000000000000.claim.json`,
+      ])
+      for (const key of [lease, trueUp, ...claims]) {
         expect(parseRecordingKey(key, 'biz-1')).toBeNull()
         expect(parseRecordingKey(key, 'biz-2')).toBeNull()
         expect(isOwnRecordingKey(key, 'biz-1')).toBe(false)
