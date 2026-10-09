@@ -148,6 +148,8 @@ describe('S3 — clock skew against the TTL margin', () => {
 
   it('the reader boundary: EXACTLY TTL + the reader bound reads live; 1 ms past is unusable (warned) and taken over (S120 G5)', async () => {
     const now = T0 + DAY
+    // The take advances `now` by the real time its create took (S120, R-S118-7): freeze it at a 1-ms boundary.
+    jest.spyOn(Date, 'now').mockReturnValue(now)
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number), nonce: OTHER }), now)
     expect((await take(now)).state).toBe('busy')
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number) + 1, nonce: OTHER }), now)

@@ -3791,6 +3791,8 @@ describe('charge once — the durable transcript memo', () => {
       const NOW = 1_700_000_000_000
       expect(TRANSCRIPT_LEASE_CLOCK_SKEW_MS).toBe(60_000)
       const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS
+      // The take advances `now` by the real time its create took (S120, R-S118-7): freeze it at a 1-ms boundary.
+      const frozen = jest.spyOn(Date, 'now').mockReturnValue(NOW)
       leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
       expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
       expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
@@ -3799,6 +3801,7 @@ describe('charge once — the durable transcript memo', () => {
       expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
       expect((await takeTranscriptLease(memoKey(AUDIO), NOW)).state).toBe('held')
       expect(expiryWarned(warn)).toBe(true)
+      frozen.mockRestore()
     })
   })
 })

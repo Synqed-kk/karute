@@ -126,6 +126,7 @@ describe('claim errors that are not ours → busy (never unknown: a claim error 
   it('the claim create fails without landing → busy for one poll hint, warned', async () => {
     await expiredHolder()
     mockRules.push({ op: 'create', key: /\.claim\.json$/, kind: '500', times: 1 })
+    jest.spyOn(Date, 'now').mockReturnValue(EXPIRED) // the take adds the create's real time to `now` (S120, R-S118-7)
     const r = await take(EXPIRED)
     expect(r).toEqual({ state: 'busy', until: EXPIRED + 5_000 })
     expect(warns).toContain('transcript-lease.claim')
@@ -169,6 +170,7 @@ describe('after a won claim', () => {
   it('release straddle, second ordering (the old holder\'s release lands between our upsert and read-back) → busy, then one TTL later one payer, nothing lost', async () => {
     const old = await expiredHolder()
     mockRules.push({ op: 'upsert', key: /\.lease\.json$/, kind: 'overwrite', times: 1, body: JSON.stringify({ v: 1, expires_at: 0, nonce: old }) })
+    jest.spyOn(Date, 'now').mockReturnValue(EXPIRED) // the take adds the create's real time to `now` (S120, R-S118-7)
     expect(await take(EXPIRED)).toEqual({ state: 'busy', until: EXPIRED + 5_000 })
     expect((await take(EXPIRED + 10_000)).state).toBe('busy')
     const rs = await Promise.all([1, 2, 3].map(() => take(EXPIRED + TTL + 1)))
