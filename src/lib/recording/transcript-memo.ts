@@ -289,7 +289,12 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     let claimKey = transcriptLeaseClaimKey(memoKey, seen)
     let theirs: { until: number; nonce?: string } | null | undefined
     for (let link = 0; ; link++) {
-      const claim = await storageUpload(claimKey, JSON.stringify({ v: 1, at: now, nonce }), false)
+      let claim: { error: unknown }
+      try {
+        claim = await createServiceClient().storage.from('recordings').upload(claimKey, JSON.stringify({ v: 1, at: now, nonce }), { contentType: 'application/json', upsert: false })
+      } catch (err) {
+        claim = { error: err ?? new Error('claim upload threw') }
+      }
       // A non-refusal error may still have landed the claim: read it back
       // instead of paying unclaimed (S115) — ours means we won the link.
       const won = !claim.error || (!isDuplicateRefusal(claim.error) && (await readClaim(claimKey))?.nonce === nonce)
@@ -313,7 +318,12 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // that storage will not confirm therefore still answers HELD (the caller
     // pays, holding the claim; its release is a no-op and the claim falls open
     // after one TTL) — never 'unknown', which left a payer holding nothing.
-    const taken = await storageUpload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), true)
+    let taken: { error: unknown }
+    try {
+      taken = await createServiceClient().storage.from('recordings').upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
+    } catch (err) {
+      taken = { error: err ?? new Error('takeover upload threw') }
+    }
     if (taken.error) {
       warnStorageUnknown('transcript-lease.takeover', taken.error)
       return held()
@@ -338,16 +348,6 @@ const TRANSCRIPT_LEASE_CLAIM_BUSY_MS = 5_000
  *  this many in a row the caller is told busy (warned), never paid unclaimed.
  *  A loop bound, not a business number. */
 const TRANSCRIPT_LEASE_MAX_LINKS = 32
-
-/** One storage write, its throw folded into `error` (the caller decides). */
-async function storageUpload(key: string, text: string, upsert: boolean): Promise<{ error: unknown }> {
-  try {
-    const { error } = await createServiceClient().storage.from('recordings').upload(key, text, { contentType: 'application/json', upsert })
-    return { error }
-  } catch (err) {
-    return { error: err ?? new Error('storage upload threw') }
-  }
-}
 
 /** A claim object's `{ at, nonce }`, or null when it cannot be read. */
 async function readClaim(key: string): Promise<{ at: number; nonce: string } | null> {
