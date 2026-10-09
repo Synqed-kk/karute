@@ -1,6 +1,6 @@
 // Masking for free text that may leave Karute (log lines, error reports).
 // Import-free on purpose: it runs in node, edge and the browser (moved
-// byte-for-byte from src/lib/app-api/errors.ts, item 102 / PR-A0b).
+// out of src/lib/app-api/errors.ts, item 102 / PR-A0b, and grown since).
 
 // A canonical UUID (8-4-4-4-12 hex) is exempt from the blob rule below — ids
 // are already on the log line via other fields, and a UUID's hyphens don't
@@ -154,7 +154,10 @@ export function maskSensitive(s: string): string {
 }
 
 /** Defense-in-depth against a huge text (perf, errors.ts fix round 2, MUST-2):
- *  bound to 2000 chars BEFORE any masking regex runs. ONE definition:
+ *  the masking regexes run on at most 2,000 characters; NFKC may grow the
+ *  input up to 18× first (one scan for format characters runs on the grown
+ *  text — measured 0.07 ms), so the bound is applied again after it. ONE
+ *  definition:
  *  errors.ts and the Sentry exit both import this. The cut must never leave
  *  a PARTIAL shape the masks can no longer see (Greptile #1159 G2: a cut
  *  email 「tanaka.ha」 is not an email; 「090 1234」 is not a phone):

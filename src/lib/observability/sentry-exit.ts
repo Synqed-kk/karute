@@ -11,7 +11,9 @@
 // - Masked in the error text, and the field dropped when it sits in a web
 //   address, file path or code field:
 //   - Japanese writing, raw or percent-encoded.
-//   - An email address, whole: with @, a full-width ＠, or an @ that is
+//   - An email address, whole (except the NOT whole cases below: an
+//     apostrophe, a broken byte or a non-ASCII character in its local
+//     part): with @, a full-width ＠, or an @ that is
 //     percent-encoded (`%40`; `%2540` at every `%25` depth; fully re-encoded
 //     up to six times, the most a 2000-character text holds, as each round
 //     triples the length; a full-width ％ U+FF05 or small ﹪ U+FE6A read as
@@ -20,7 +22,9 @@
 //     with a broken byte or a non-ASCII character in its local part — the
 //     marker splits it (`tanaka.hanako%FF@example.com` →
 //     `tanaka.hanako[enc]@example.com`, a raw `ÿ` → `tanaka.hanako<text>@…`),
-//     so the part before the marker and the domain leave.
+//     so the part before the marker and the domain leave. An apostrophe in
+//     the local part ends the match, so its first part leaves
+//     (`hanako.o'connor@example.com` → `hanako.o'<email>`).
 //   - A phone or card number of 10-16 digits split by spaces, tabs, line
 //     breaks, dots, dashes, brackets, `+ _ , /`, ・, 〜, the ideographic comma
 //     、 (and ､), ー (and ｰ) or a box-drawing line ─ ━, gaps of up to 3 such
@@ -55,10 +59,38 @@
 //     (24+ characters mixing upper case, lower case and digits).
 // - The server log line (errors.ts describeUnknownThrow, not the exit):
 //   err.name and the message are bounded, decoded and masked like the exit
-//   text; every C0 control character (ESC included) and DEL becomes a space
+//   text EXCEPT two shapes the log line keeps (GPT-6 findings 1 and 4
+//   below): a Japanese URL path leaves re-percent-encoded, and a
+//   Base64-looking run holding `/` is kept; every C0 control character
+//   (ESC included) and DEL becomes a space
 //   (in the name also LF, CR, LS and PS: the name is one line; the message
 //   keeps LF, CR, LS and PS and cuts at the first of them: `a`, LS U+2028,
 //   `b` logs `a`).
+// - Named from the GPT-6 read of #1159 (R-S116-12, R-S117-1): none of the five
+//   is new in this PR, and no src path carries their shape into an
+//   Error message.
+//   1. Log line only: a Japanese name in a URL path leaves re-percent-encoded
+//      (`GET https://example.com/customers/田中花子 failed` logs
+//      `…/customers/%E7%94%B0%E4%B8%AD%E8%8A%B1%E5%AD%90 failed`, the exit
+//      gives `[non-ascii]`), because the URL rule in maskSensitive re-encodes
+//      the path after the decode; src builds URL paths from ids only.
+//   2. Japanese written as JSON backslash-u escapes (real backslashes:
+//      `{"name":"\u7530\u4e2d\u82b1\u5b50"}`) leaves whole at the exit and on
+//      the log line, as no backslash-u decode exists; JSON.stringify never
+//      writes that form and no provider error body holds a customer name.
+//   3. A Postgres key detail, `Key (token)=(…) already exists.`, keeps its
+//      value at the exit and on the log line (the label sits in parentheses,
+//      so the label rule does not see it), for single and composite keys
+//      (`Key (business_id, token)=(…, …)`); no path in this app or in core
+//      produces it today.
+//   4. Log line only: a Base64-looking run holding `/`
+//      (`Decrypt failed: AbCdEfGhIjKlMnOpQrS7Uv/WxYz9AbCdEfGhIjKlMn0=`) is
+//      kept, the exit gives `<blob>` — two blob definitions on purpose (the
+//      log rule drops `/` so kept URLs are not mangled, maskSensitive's
+//      comment); src handles no raw key material.
+//   5. An apostrophe in an email's local part leaves its first part, at the
+//      exit and on the log line (`hanako.o'connor@example.com` →
+//      `hanako.o'<email>`); salon addresses are romaji without apostrophes.
 // - A name in English letters WITH a space (「Tanaka Hanako」) can leave in the
 //   places that keep spaces: function names in a stack trace, the browser's
 //   user-agent and accept text and its copy in span data, the system name
@@ -88,7 +120,8 @@
 //   (`\u0022`; `{\u0022password\u0022:\u0022x\u0022}` leaves whole), the
 //   same with two backslashes (`\\u0022`), `\x22`, the HTML entity `&#34;`,
 //   `&amp;quot;`, or a backslash-slash before the quote (`\/"`), a label
-//   broken by an exotic character (`password\0=x` and `password%00=x` leave
+//   broken by an exotic character (`password`, a NUL (U+0000), `=x`, and
+//   `password%00=x` leave
 //   at the exit but are masked on the log line, where control characters
 //   become spaces before masking; `pass∶x` with U+2236, a Cyrillic
 //   look-alike letter, `apiKey => x`, `token -> x`,
@@ -139,9 +172,10 @@
 //   value, which stops at the first quote (and cannot start at `&`), so the
 //   secret after the quote leaves — with two backslashes before each quote,
 //   `{\\"password\\":\\"x` → `{\\"<label>=<redacted>"x`;
-//   `{&quot;password&quot;:&quot;x` leaves whole. Only when a
-//   doubly-stringified value is cut by the 2,000 bound or another truncation
-//   inside the value; depth 1 (one backslash) and a plain quote still mask
+//   `{&quot;password&quot;:&quot;x` leaves whole. Arises when a value with
+//   two or more backslashes, or an `&quot;` value, is left unclosed (a
+//   truncation, such as the 2,000 bound, is the known way); depth 1 (one
+//   backslash) and a plain quote still mask
 //   the first word. The same leak, closed or not, for a malformed value at
 //   depth 2+ that holds a lower-depth quote (two backslashes, a quote, `a`,
 //   one backslash, a quote, then the secret: only up to the first quote is
