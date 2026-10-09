@@ -102,6 +102,8 @@ const STALE_LINE = 'この店舗のReserve 受付の設定が、このページ�
 
 
 import { LATE_FROM_BOOKING_NOTE } from '@/business/lib/data'
+import { minutesLabel } from '@/business/lib/settings'
+import { opsConfig as FIXTURE_OPS } from '@/business/lib/fixtures-today'
 const blk = (id: string) => document.getElementById(`st-blk-${id}`)!
 // a locked control's accessible name carries its reason (「直前締切 — 保存しています」), so match the prefix
 const inp = (aria: string) => document.querySelector(`input[aria-label^="${aria}"]`) as HTMLInputElement
@@ -283,6 +285,21 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
     expect(fetchLog.length).toBe(1)
     expect(fetchLog[0].body.policy).toEqual({ ...SIX, booking_open_days: 22, reserve_start_grid_min: 45 })
     expect(inp('お客様が選べる開始時刻').value).toBe('45')
+  })
+
+  it('S68 L1: live store with grid 45 → the window facts carry no 「今日の運営」 grid line (今日の運営 reads the fixture)', async () => {
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: 45, updated_at: null })
+    await mount()
+    expect(inp('お客様が選べる開始時刻').value).toBe('45')
+    const w = blk('reserve.window').textContent ?? ''
+    expect(w).not.toContain('今日の運営のお客様向け表示が読む値です')
+  })
+
+  it('S68 L1: a sample store (switch OFF) → the line prints the fixture grid, exactly as before S66', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await mount()
+    const w = blk('reserve.window').textContent ?? ''
+    expect(w).toContain(`お客様が選べる開始時刻の${minutesLabel(FIXTURE_OPS.reserveStartGridMin)}きざみは、今日の運営のお客様向け表示が読む値です。`)
   })
 
   it('JP rulings: 標準（30分） + its 初期値, the full-sentence lead lock, 来店時刻まで無料, the shorter R5 note', async () => {
