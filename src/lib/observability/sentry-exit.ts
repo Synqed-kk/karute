@@ -8,9 +8,12 @@
 // shape, or dropped):
 // - Japanese writing, raw or percent-encoded to any depth, can leave in no
 //   position; nor can an email address (with @, a full-width ＠ or %40, also
-//   encoded, or with a domain in Japanese writing), a phone or card number of
+//   encoded to any depth — each `%XX` run decodes on its own, so a stray `%`
+//   or a run that does not decode elsewhere in the text no longer stops it,
+//   R-S115-10 SF3 — or with a domain in Japanese writing), a phone or card number of
 //   10-16 digits (split by spaces, tabs, line breaks, dots, dashes, brackets,
-//   `+ _ , /`, ・ or 〜, gaps of up to 3 such characters, +81 or 0), an
+//   `+ _ , /`, ・, 〜, the ideographic comma 、 (and ､), ー (and ｰ) or a
+//   box-drawing line ─ ━ (R-S115-10 N2), gaps of up to 3 such characters, +81 or 0), an
 //   unbroken run of 10+ digits, a `Bearer` value, a credential-looking
 //   `Basic` / `Token` value, anything after `Authorization:` or
 //   `authorization=`, a value after a credential label followed by `:` or
@@ -18,10 +21,19 @@
 //   labels: token, api key, key, secret, pass, password, passwd, passcode,
 //   passphrase, pwd, pw, psw, auth, authorization, session, session id,
 //   credential(s), pin — also as the end of a longer name (`access_token`,
-//   `dbPass`, `userPin`), as a quoted JSON key (`"password":"x"`), with a
-//   quoted value read to its closing quote (`password="a b"`), and inside a
-//   cookie (`Cookie: session=x`). Also a JWT (even glued to a word,
-//   `wordeyJ…`), or a Base64-looking run (24+ characters mixing
+//   `dbPass`, `userPin`), with ONE suffix from a closed list (hash, code,
+//   digest, id, value, confirm(ation), plain, raw, old, new, current, with an
+//   optional `_` or `-`: `token_hash=`, `pinCode=`, `passwordHash=`), in
+//   brackets or with an index (`user[password]=`, `password[]=`,
+//   `token[0]=`), as a quoted JSON key (`"password":"x"`) or an
+//   escaped-quoted one (a JSON body inside a string, `{\"password\":\"x\"}`,
+//   R-S115-10 SF2/SF4), with a quoted value read to its closing quote
+//   (`password="a b"`; an escaped quote inside it is part of it), and inside
+//   a cookie (`Cookie: session=x`). Also a JWT (even glued to a word,
+//   `wordeyJ…`) whose header segment has 10+ characters after `eyJ` (a JWT
+//   with a shorter header is caught only through its parts: a payload or
+//   signature that is a Base64-looking run of 24+ at the exit, or any 32+
+//   run on the log line; 「eyJhIjoxfQ.eyJ4IjoxfQ.sig」 leaves whole), or a Base64-looking run (24+ characters mixing
 //   upper case, lower case and digits). In a web address, file path or code
 //   field such a value drops the whole field; in the error text it is
 //   replaced by a marker.
@@ -41,13 +53,32 @@
 //   label the list above does not hold (「Cookie: sid=…」, `otp=`, `cvv=`),
 //   a label with no `:` or `=` (「SECRET_KEY abc」, 「password x」), a secret
 //   in prose (「password is x」, 「the PIN was 1234」 — four digits are not a
-//   phone), and the part after `&` in an unquoted value (`password=a&b`
-//   leaves `&b`).
+//   phone), the part after `&` or a space in an unquoted value
+//   (`password=a&b` leaves `&b`, `password=correct horse` leaves 「horse」), a
+//   label with a suffix outside the closed list or after a dot
+//   (`password1=`, `pinNumber=`, `tokenString=`, `key.value=`) or in nested
+//   brackets (`user[password][0]=`), a label broken by an exotic character
+//   (`password\0=x`, `password%00=x`, `pass∶x` with U+2236, a Cyrillic
+//   look-alike letter, `apiKey => x`, `token -> x`, `pass&#61;x`,
+//   `password%u003Dx`, `password:"" x`), and a YAML block value
+//   (`password: |` with the value on the next line; the log line keeps only
+//   its first line, the exit keeps the value).
 //   Error-text eats from the label rule (masked in the text, the field
 //   dropped at code positions): `missing env key: X` → `missing env
 //   <label>=<redacted>`, `invalid token: expired`, `session: expired`,
 //   `OAuth: …`, and any word that merely ENDS in a label before `:`/`=`
-//   (`bypass=`, `compass:`, `oauth=`, `spin=`, `monkey:banana`).
+//   (`bypass=`, `compass:`, `oauth=`, `spin=`, `monkey:banana`), and the
+//   diagnosis lines that hold a label then `:` (both round-3 reads):
+//   `INVALID_AUTH: Invalid credentials` → `INVALID_<label>=<redacted>
+//   credentials`, `{"session":null}`, `Failed to get session: …`,
+//   `Invalid API key: …`, `sessionId: undefined`, `pin: must be 4 digits`,
+//   `key: list-item`, `Missing required key: X`. The suffix list also eats
+//   `keyCode:`, `keyId=`, `tokenId=`, `authCode=`, `keyValue:` and an index
+//   or bracket before `=` (`map[key]=`). The phone rule also eats a 、-list
+//   of 10-16 digits (「100、200、300、400」 → `<phone>`), as it does a
+//   `,`-list. The decode: on the log line too, every `%XX` code decodes
+//   however deep its `%25` layers go, and a run that is not valid UTF-8
+//   logs as `[enc]`.
 //   Over-masking the other way: a date-plus-id route inside the error text
 //   (「/api/2026/10/08/12345」) becomes `<phone>`, and the label rule turns
 //   「Invalid Refresh Token: Refresh Token Not Found」 into 「Invalid Refresh
@@ -87,8 +118,9 @@
 //   separators before it (all of it when it has no whitespace and is ASCII
 //   once normalised; look-alikes such as ․ ﹐ and math-bold letters or digits
 //   are normalised before the cut is judged, R-S115-1 S2). Still possible
-//   at that cut: a phone whose separators are outside the phone rule's list
-//   (「090·1234·5678」 with U+00B7) is not masked whole, cut or not. Also: a
+//   anywhere, cut or not: a phone whose separators are outside the phone
+//   rule's list (「090·1234·5678」 with U+00B7, 「090の1234の5678」 — の is a
+//   word, not a separator) is not masked whole. Also: a
 //   16-digit chunk hash drops its frame field; a
 //   user-agent whose version has a 4-digit build AND a 4-digit patch
 //   (「130.0.6723.1000」) drops at spaced positions and masks to `<phone>` in

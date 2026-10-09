@@ -117,3 +117,13 @@ describe('R4 N4 — err.name is bounded before it is masked', () => {
     }
   })
 })
+
+describe('R4 header — a JWT whose header is under 10 characters after eyJ', () => {
+  const payload = Buffer.from(JSON.stringify({ sub: '9876543210', name: 'x', iat: 1700000000 })).toString('base64url')
+  it('the JWT rule misses it, but a payload of 32+ characters is a blob', () => {
+    const v = `bad eyJhIjoxfQ.${payload}.sig here`
+    expect(payload.length).toBeGreaterThanOrEqual(32)
+    expect(leaks(masked(v, 300), payload)).toEqual([])
+    expect(leaks(log(v), payload)).toEqual([])
+  })
+})
