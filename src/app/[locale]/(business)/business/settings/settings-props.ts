@@ -2274,7 +2274,9 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         },
         facts: [
           ...(unread ? [RESERVE_UNREAD_LINE] : []),
-          `お客様が選べる開始時刻の${minutesLabel(p.reserve_start_grid_min ?? RESERVE_GRID_UNSET_STEP)}きざみは、今日の運営のお客様向け表示が読む値です。`,
+          // S68 L1 — 今日の運営 reads the fixture's opsConfig.reserveStartGridMin, not core's row: when core's six
+          // are shown the line would be untrue, so it is absent; otherwise it prints exactly as before S66.
+          ...(live ? [] : [`お客様が選べる開始時刻の${minutesLabel(opsConfig.reserveStartGridMin)}きざみは、今日の運営のお客様向け表示が読む値です。`]),
           `受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`,
         ],
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
