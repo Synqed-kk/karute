@@ -297,7 +297,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       }
       // A non-refusal error may still have landed the claim: read it back
       // instead of paying unclaimed (S115) — ours means we won the link.
-      const won = !claim.error || (!isDuplicateRefusal(claim.error) && (await readClaim(claimKey))?.nonce === nonce)
+      const won = !claim.error || (!isDuplicateRefusal(claim.error) && (await readClaimOk(claimKey, now))?.nonce === nonce)
       if (won) break
       if (!isDuplicateRefusal(claim.error)) {
         warnStorageUnknown('transcript-lease.claim', claim.error)
@@ -306,13 +306,17 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       // Another caller won this link. A live lease behind it = it is transcribing.
       if (theirs === undefined) theirs = await readLease(key, now)
       if (theirs !== null && theirs.until > now) return { state: 'busy', until: theirs.until }
-      const winner = await readClaim(claimKey)
-      if (winner === null) {
+      const read = await readClaim(claimKey, now)
+      if (read.kind !== 'ok') {
         // ⚖ S115 round 3 (S2) — AN UNREADABLE CLAIM FALLS OPEN TOO. Its body cannot
         // say its age, so storage's own created_at for the object does (the storage
         // server's clock, not the writer's). Past one TTL the caller pays unleased
         // ('unknown', warned). Never a next link named from this key: callers that
         // can and cannot read the claim would chain to two links and both pay.
+        // ⚖ S116 round 4 (SF2) — ONLY A PERSISTENT OR INVALID CLAIM GETS HERE: a
+        // transient read fault was re-read inside readClaim (CLAIM_READ_ATTEMPTS), so
+        // one blip never makes this caller pay unleased beside another that walks on.
+        // (SF1) A claim `at` past now + the reader bound is invalid too.
         const born = await claimCreatedAt(claimKey)
         if (born !== null && born + TRANSCRIPT_LEASE_TTL_MS <= now) {
           warnStorageUnknown('transcript-lease.claim-unreadable', null)
@@ -320,6 +324,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
         }
         return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       }
+      const winner = read
       if (winner.at + TRANSCRIPT_LEASE_TTL_MS > now) return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       // ⚖ S115 round 3 (S1) — PAST THE CAP A DEAD CHAIN FALLS OPEN. The cap only bounds
       // one call's walk (each call wins at most one link, each next link is named by
@@ -368,22 +373,50 @@ const TRANSCRIPT_LEASE_CLAIM_BUSY_MS = 5_000
  *  ('unknown', warned — S115 round 3, S1). A loop bound, not a business number. */
 const TRANSCRIPT_LEASE_MAX_LINKS = 32
 
-/** A claim object's `{ at, nonce }`, or null when it cannot be read. */
-async function readClaim(key: string): Promise<{ at: number; nonce: string } | null> {
-  try {
-    const { data, error } = await createServiceClient().storage.from('recordings').download(key)
-    if (error || !data) {
-      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.claim-read', error)
-      return null
+/** ⚖ S116 round 4 (SF2) — how many times one take reads a claim whose read
+ *  FAILED (a download error, a throw, a body that is not JSON — a truncated
+ *  read) before it calls the claim persistently unreadable; the waits between
+ *  reads. A retry bound, not a business number. */
+const CLAIM_READ_ATTEMPTS = 3
+const CLAIM_READ_BACKOFF_MS = [150, 300]
+
+/** What one read of a claim object says (S116 round 4, SF1 + SF2):
+ *  `ok` — `{ at, nonce }`, believable;
+ *  `invalid` — READABLE but no claim this code could have written: not v 1, an
+ *    `at` that is not a finite number or lies past now + the reader bound (SF1),
+ *    a nonce outside the generation grammar — deterministic, never re-read;
+ *  `unreadable` — every one of CLAIM_READ_ATTEMPTS reads failed (download error,
+ *    throw, or a body that is not JSON): persistent, not a blip.
+ *  Only `invalid` and `unreadable` go to storage's created_at (the S2 path). */
+type ClaimRead = { kind: 'ok'; at: number; nonce: string } | { kind: 'invalid' } | { kind: 'unreadable' }
+
+async function readClaim(key: string, now: number): Promise<ClaimRead> {
+  for (let attempt = 0; attempt < CLAIM_READ_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, CLAIM_READ_BACKOFF_MS[attempt - 1]))
+    let claim: { v?: unknown; at?: unknown; nonce?: unknown } | null
+    try {
+      const { data, error } = await createServiceClient().storage.from('recordings').download(key)
+      if (error || !data) {
+        if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.claim-read', error)
+        continue
+      }
+      claim = JSON.parse(await data.text()) as typeof claim
+    } catch (err) {
+      warnStorageUnknown('transcript-lease.claim-read', err)
+      continue
     }
-    const claim = JSON.parse(await data.text()) as { v?: unknown; at?: unknown; nonce?: unknown } | null
-    if (claim?.v !== 1 || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return null
-    if (typeof claim.nonce !== 'string' || !CLAIM_GENERATION_RE.test(claim.nonce)) return null
-    return { at: claim.at, nonce: claim.nonce }
-  } catch (err) {
-    warnStorageUnknown('transcript-lease.claim-read', err)
-    return null
+    if (claim?.v !== 1 || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return { kind: 'invalid' }
+    if (claim.at > now + LEASE_CLOCK_SKEW_MS) return { kind: 'invalid' }
+    if (typeof claim.nonce !== 'string' || !CLAIM_GENERATION_RE.test(claim.nonce)) return { kind: 'invalid' }
+    return { kind: 'ok', at: claim.at, nonce: claim.nonce }
   }
+  return { kind: 'unreadable' }
+}
+
+/** The claim's `{ at, nonce }` when it reads `ok`, else null. */
+async function readClaimOk(key: string, now: number): Promise<{ at: number; nonce: string } | null> {
+  const read = await readClaim(key, now)
+  return read.kind === 'ok' ? read : null
 }
 
 const CLAIM_GENERATION_RE = /^[0-9a-f-]{8,64}$/i
