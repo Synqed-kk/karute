@@ -59,9 +59,12 @@
 //     (24+ characters mixing upper case, lower case and digits).
 // - The server log line (errors.ts describeUnknownThrow, not the exit):
 //   err.name and the message are bounded, decoded and masked like the exit
-//   text EXCEPT two shapes the log line keeps (GPT-6 findings 1 and 4
-//   below): a Japanese URL path leaves re-percent-encoded, and a
-//   Base64-looking run holding `/` is kept; every C0 control character
+//   text EXCEPT three shapes the log line keeps (GPT-6 findings 1 and 4
+//   below): a Japanese URL path leaves re-percent-encoded, a
+//   Base64-looking run holding `/` is kept, and a Base64-looking run of
+//   24-31 characters is kept (the exit masks from 24, B64_RUN and
+//   base64Looking in mask-sensitive.ts; the log line from 32, the blob rule
+//   in maskSensitive); every C0 control character
 //   (ESC included) and DEL becomes a space
 //   (in the name also LF, CR, LS and PS: the name is one line; the message
 //   keeps LF, CR, LS and PS and cuts at the first of them: `a`, LS U+2028,
@@ -81,16 +84,22 @@
 //   3. A Postgres key detail, `Key (token)=(…) already exists.`, keeps its
 //      value at the exit and on the log line (the label sits in parentheses,
 //      so the label rule does not see it), for single and composite keys
-//      (`Key (business_id, token)=(…, …)`); no path in this app or in core
-//      produces it today.
+//      (`Key (business_id, token)=(…, …)`), unless the value is itself
+//      caught by another rule: a run of 32+ letters, digits or `+ _ = -`
+//      (`<blob>` at both), 7+ digits (`<digits>` at both), or at the exit
+//      also a Base64-looking run of 24+ (`<blob>`); no path in this app or
+//      in core produces it today.
 //   4. Log line only: a Base64-looking run holding `/`
 //      (`Decrypt failed: AbCdEfGhIjKlMnOpQrS7Uv/WxYz9AbCdEfGhIjKlMn0=`) is
-//      kept, the exit gives `<blob>` — two blob definitions on purpose (the
-//      log rule drops `/` so kept URLs are not mangled, maskSensitive's
-//      comment); src handles no raw key material.
+//      kept when each piece between slashes is under 32 characters (a run
+//      of 36, `/`, 36 logs `<blob>/<blob>`; 32, `/`, 31 logs `<blob>/` and
+//      the 31 kept), the exit gives `<blob>` — two blob definitions on
+//      purpose (the log rule drops `/` so kept URLs are not mangled,
+//      maskSensitive's comment); src handles no raw key material.
 //   5. An apostrophe in an email's local part leaves its first part, at the
 //      exit and on the log line (`hanako.o'connor@example.com` →
-//      `hanako.o'<email>`); salon addresses are romaji without apostrophes.
+//      `hanako.o'<email>`); addresses here are romaji and an apostrophe in
+//      one is rare.
 // - A name in English letters WITH a space (「Tanaka Hanako」) can leave in the
 //   places that keep spaces: function names in a stack trace, the browser's
 //   user-agent and accept text and its copy in span data, the system name
