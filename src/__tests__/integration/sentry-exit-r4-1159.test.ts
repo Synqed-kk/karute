@@ -32,3 +32,33 @@ describe('R4 SF2 — an escaped-quote JSON label (a JSON body inside a string)',
     expect(spaced(`Mozilla/5.0 ${v}`, 400)).toBeUndefined()
   })
 })
+
+describe('R4 SF3 — each percent-encoded run decodes on its own', () => {
+  const forms = [
+    `100% ${LOCAL}%2540example.com`,
+    `100% /cb?code=x&email=${LOCAL}%2540example.com`,
+    `redirect=%2Flogin%3Ftoken%3D${PW} at 100%`,
+    `50%25 off password%3D${PW}`,
+    `%s failed password%3A${PW}`,
+    `bad %E3%8 run, then password%3D${PW}`,
+  ]
+  it.each(forms)('the exit text, the log line and exception.value: %s', (v) => {
+    expect(leaks(masked(v, 300), PW, 'hanako', 'example')).toEqual([])
+    expect(leaks(log(v), PW, 'hanako', 'example')).toEqual([])
+    expect(leaks(exitOut(v), PW, 'hanako', 'example')).toEqual([])
+  })
+  // the header: an email cannot leave with its @ encoded to any depth, beside
+  // a stray % and a run that does not decode
+  const AT = ['%40', '%2540', '%252540', '%25252540', '%2525252540', '%25252525252525252540']
+  it.each(AT)('an email whose @ is %s leaves no part', (at) => {
+    const v = `100% off, bad %FF%FE then ${LOCAL}${at}example.com`
+    expect(leaks(masked(v, 300), 'hanako', 'example')).toEqual([])
+    expect(leaks(log(v), 'hanako', 'example')).toEqual([])
+    expect(leaks(exitOut(v), 'hanako', 'example')).toEqual([])
+  })
+  it('a run that fails becomes [enc] (its ASCII codes still decode); decoding never lengthens', () => {
+    const v = 'a %E3%8 b %FF%3D c %3D d 100%'
+    expect(decodeText(v)).toBe('a [enc]%8 b [enc]= c = d 100%')
+    for (const s of [v, ...forms, ...AT]) expect(decodeText(s).length).toBeLessThanOrEqual(s.length)
+  })
+})

@@ -200,19 +200,57 @@ const PCT_NON_ASCII_RUN = /(%[89A-Fa-f][0-9A-Fa-f])+/g
  *  (`%25E7`, `%25252525E7`): what replaces them when decoding fails. */
 const PCT_RUN = /(%(?:25)*[0-9A-Fa-f]{2})+/g
 
+/** One `%XX` code with its `%25` re-encodings folded in: its byte. */
+const PCT_CODE = /%(?:25)*([0-9A-Fa-f]{2})/g
+
+/** One maximal `%XX` run (R-S115-10 SF3), decoded on its own: every code to
+ *  its byte however deep its `%25` layers go (`%25252540` → `@`); ASCII
+ *  bytes always decode; each run of non-ASCII bytes decodes as UTF-8 or, when
+ *  it is not valid UTF-8, becomes `[enc]`. */
+function decodeRun(run: string): string {
+  const bytes = Array.from(run.matchAll(PCT_CODE), (m) => parseInt(m[1], 16))
+  let out = ''
+  let i = 0
+  while (i < bytes.length) {
+    if (bytes[i] < 0x80) {
+      out += String.fromCharCode(bytes[i++])
+      continue
+    }
+    let j = i
+    while (j < bytes.length && bytes[j] >= 0x80) j++
+    const utf8 = bytes.slice(i, j).map((b) => `%${b.toString(16)}`).join('')
+    try {
+      out += decodeURIComponent(utf8)
+    } catch {
+      out += '[enc]'
+    }
+    i = j
+  }
+  return out
+}
+
 /** THE text decode (R-S115-1 N1) — one definition, used by the Sentry
  *  exit's masked() and the errors.ts server log line. Runs on BOUNDED text
- *  (after preBound; decoding never lengthens): `%40` → `@`, then the stable
- *  percent-decoded copy (pctDecode); when decoding fails every `%XX` run
- *  becomes `[enc]`. */
+ *  (after preBound): `%40` → `@`, then EACH maximal `%XX` run decoded on its
+ *  own (decodeRun; R-S115-10 SF3: one stray `%` or one bad run no longer
+ *  turns every decode off), repeated while the text changes (a decoded
+ *  `%25%33%44` is `%3D`, decoded again to `=`), at most 4 rounds; a run still
+ *  left after that becomes `[enc]`. Decoding never lengthens; the `[enc]`
+ *  marker (5 characters) can replace a 3-character code, so the text is at
+ *  most 5/3 of the bound (3,334 characters). */
 export function decodeText(bound: string): string {
-  const at = bound.split('%40').join('@')
-  return pctDecode(at) ?? at.replace(PCT_RUN, '[enc]')
+  let cur = bound.split('%40').join('@')
+  for (let round = 0; round < 4; round++) {
+    const next = cur.replace(PCT_RUN, decodeRun)
+    if (next === cur) return cur
+    cur = next
+  }
+  return cur.replace(PCT_RUN, '[enc]')
 }
 
 /** The Sentry exit's `masked(n)` (item 102 § 2.0; R-S113-6 F-S113-2): bound
- *  (preBound) → `%40`→`@` → the stable percent-decoded copy (pctDecode; when
- *  decoding fails every `%XX` run becomes `[enc]`) → the content guard →
+ *  (preBound) → decodeText (`%40`→`@`, each `%XX` run decoded on its own, a
+ *  run that is not valid UTF-8 becomes `[enc]`) → the content guard →
  *  maskSensitive → non-ASCII runs → encoded non-ASCII runs → the guard again
  *  (masks) → cut to n. A text position MASKS, so the decoded-and-masked text
  *  is what leaves. A non-string, an empty result or a value whose only
