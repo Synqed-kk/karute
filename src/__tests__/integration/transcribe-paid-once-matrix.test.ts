@@ -521,6 +521,7 @@ const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   onStillWorking = lock === 'held' ? () => finish() : () => stillWorkingServed >= 2 && finish()
   const lockManager = testLockManager()
   const locks = installLocks(lock === 'held' ? lockManager : undefined)
+  let runBefore = -1
   try {
     expect(typeof navigator.locks?.request).toBe(lock === 'held' ? 'function' : 'undefined')
     // S120 r1b: the field shape — attempt 1's connection drops on both POSTs (fetchWithRetry's
@@ -534,7 +535,12 @@ const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     if (lock === 'absent') for (let i = 0; i < 200 && globalPipeline.state === 'processing'; i++) await tick()
     expect(globalPipeline.state).toBe(lock === 'absent' ? 'error' : 'processing')
+    runBefore = globalPipeline.runId
     globalPipeline.retry() // the manual 再試行 while attempt 1 is still live
+    // S120 r1a: with the tab lock held, attempt 1 is still the live client run, so the state is
+    // 'processing' and no production caller can retry (a client run in 'error' has released its
+    // lock). The retry here must be a no-op: no new run, attempt 1's POST is the only one.
+    if (lock === 'held') expect(globalPipeline.runId).toBe(runBefore)
     for (let i = 0; i < 40; i++) await tick()
     if (lock === 'held') finish()
     for (let i = 0; i < 4 && globalPipeline.state === 'processing'; i++) {
@@ -550,6 +556,10 @@ const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   expect(mints).toHaveLength(1) // attempt 1's own mint; the 再試行 mints none
   expect(new Set(transcribePosted.map((body) => body.match(KEY)?.[0]))).toEqual(new Set([mints[0]])) // one key, pinned
   expect((globalPipeline.result as { transcript?: string } | null)?.transcript).toBe('answer-1') // one transcript
+  if (lock === 'held') {
+    expect(globalPipeline.runId).toBe(runBefore) // still attempt 1's run
+    expect(transcribePosted).toHaveLength(1) // the retry sent nothing
+  }
   if (lock === 'absent') {
     // The lease's 409 was met at least twice, and every wait the run took for it was the capped one.
     expect(stillWorkingServed).toBeGreaterThanOrEqual(2)
