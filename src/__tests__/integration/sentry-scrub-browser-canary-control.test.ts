@@ -15,11 +15,26 @@
  *
  * PLANT RULE: every plant is joined from fragments.
  */
+import { KEY32, PHONE_HY } from './helpers/sentry-exit-plants'
+
 const C = ['BCAN', 'ARY'].join('')
 const LCP = C + '-LCP'
 const INP = C + '-INP'
+// item 102 C3: lcp.element on the root span, and THE HEADER PLANT in a route-sourced
+// root name (it carries a space so the event-level `transaction` rule drops it too).
+const ELEM = C + '-ELEM'
+const HDR = C + '-HDR'
+const hdrRoute = () => '/ja/customers/' + HDR + ' x'
+// item 102 fix batch 1 (N8): phone, key and Bearer plants on the root span's data.
+const n8Data = () => ({
+  'next.route': '/search/' + PHONE_HY,
+  'http.route': '/k/' + KEY32,
+  'user_agent.original': 'Mozilla Bearer ' + KEY32.slice(4),
+})
 
 jest.mock('@/lib/observability/sentry-scrub', () => ({ sentryScrubOptions: {} }))
+// The exit imports from sentry-scrub, so its wrapper is mocked to identity too (item 102, COLD D2).
+jest.mock('@/lib/observability/sentry-exit', () => ({ wrapTransport: (inner: unknown) => inner }))
 
 const sent: string[] = []
 
@@ -71,7 +86,13 @@ async function runPipeline(): Promise<Item[]> {
   const root = Sentry.getActiveSpan()
   expect(root).toBeDefined()
   root!.setAttribute('lcp.url', lcpUrl())
-  Sentry.startInactiveSpan(inpOptions()).end()
+  root!.setAttribute('lcp.element', 'div.' + ELEM)
+  root!.updateName(hdrRoute())
+  root!.setAttribute('sentry.source', 'route')
+  for (const [k, v] of Object.entries(n8Data())) root!.setAttribute(k, v)
+  const inp = Sentry.startInactiveSpan(inpOptions())
+  inp.addEvent('inp', { 'sentry.measurement_unit': 'millisecond', 'sentry.measurement_value': 120 })
+  inp.end()
   root!.end()
   await Sentry.flush(3000)
   return items()
@@ -86,6 +107,10 @@ describe('PR-A0 browser canary control: real instrumentation-client WITHOUT the 
     expect(txItems.length).toBeGreaterThanOrEqual(1)
     expect(JSON.stringify(txItems.map((i) => i.payload))).toContain(LCP)
     expect(JSON.stringify(spanItems.map((i) => i.payload))).toContain(INP)
+    expect(JSON.stringify(txItems.map((i) => i.payload))).toContain(ELEM)
+    for (const p of [PHONE_HY, KEY32.slice(4)]) expect(JSON.stringify(txItems.map((i) => i.payload))).toContain(p)
+    // THE HEADER PLANT arrives raw in an envelope header (trace.transaction).
+    expect(sent.map((e) => e.split('\n')[0]).join('\n')).toContain(HDR)
   }, 20000)
 })
 
