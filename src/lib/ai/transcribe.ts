@@ -748,7 +748,7 @@ export const LEASE_TAKEOVER_RESERVE_MS =
 /** The limit less the reserve: 135 s. */
 export const LEASE_WORKER_WAIT_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
 /** ⚖ S116 round 5 (R-S116-9): the last attempt's pay starts by this long after its INVOCATION began — the limit less the takeover reserve (135 s).
- *  That keeps the reserve only for a last attempt claimed in its invocation's first 135 s; one claimed later pays after one busy look and one 3 s poll, with whatever time is left (named residual, R-S118-1). */
+ *  That keeps about 160 s of the 165 s reserve (the pay starts up to one 3 s poll past +135 s) only for a last attempt claimed in its invocation's first 135 s; one claimed later pays after one busy look and one 3 s poll, with whatever time is left (named residual, R-S118-1). */
 export const LEASE_LAST_ATTEMPT_PAY_BY_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
 const LEASE_POLL_MS = 3_000
 

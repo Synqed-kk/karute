@@ -321,8 +321,8 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       if (read.kind !== 'ok') {
         // ⚖ S115 round 3 (S2) — AN UNREADABLE CLAIM FALLS OPEN TOO. Its body cannot
         // say its age, so storage's own created_at for the object does (the storage
-        // server's clock, not the writer's). Past one TTL the caller pays unleased
-        // ('unknown', warned). Never a next link named from this key: callers that
+        // server's clock, not the writer's). Past one TTL the take re-roots (warned): it
+        // writes its own lease and answers held ('unknown', an unleased pay, only if that lease write or the first lease read fails). Never a next link named from this key: callers that
         // can and cannot read the claim would chain to two links and both pay.
         // ⚖ S116 round 4 (SF2) — ONLY A PERSISTENT OR INVALID CLAIM GETS HERE: a
         // transient read fault was re-read inside readClaim (CLAIM_READ_ATTEMPTS), so
@@ -341,8 +341,8 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       // ⚖ S115 round 3 (S1) — PAST THE CAP A DEAD CHAIN FALLS OPEN. The cap only bounds
       // one call's walk (each call wins at most one link, each next link is named by
       // the one winner before it, so the chain cannot loop). Past it, with the last
-      // winner dead, the caller pays unleased ('unknown', warned), like an unreadable
-      // lease above — never busy for ever.
+      // winner dead, the take re-roots (warned): it writes its own lease and answers
+      // held ('unknown', an unleased pay, only if that lease write or the first lease read fails) — never busy for ever.
       if (link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) {
         warnStorageUnknown('transcript-lease.links', null)
         rerooting = true

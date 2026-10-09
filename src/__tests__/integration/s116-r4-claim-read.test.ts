@@ -170,7 +170,8 @@ describe('SF2 — a transient claim-read fault never makes a second payer', () =
     expect([a.state, b.state]).toEqual(['held', 'busy'])
   })
 
-  it('two faults in a row are still re-read (bounded: three reads) → one payer', async () => {
+  // The read count itself (CLAIM_READ_ATTEMPTS = 3) is pinned in s117-r5-pins-1088.test.ts (pin a, SF-A); this test passes with one read too.
+  it('two faults in a row on a claim storage dates old → the take ends held', async () => {
     deadClaim(T0 + TTL, T0 + TTL)
     mockRules.push({ op: 'download', key: /claim\.json$/, kind: '500', times: 2 })
     const P = T0 + DAY

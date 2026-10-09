@@ -2958,7 +2958,7 @@ describe('charge once — the durable transcript memo', () => {
       expect(fail).not.toHaveBeenCalled()
     }, 30_000)
 
-    it('the LATE-claimed last attempt (claimed 260 s into its invocation) pays before the 300 s limit', async () => {
+    it('the LATE-claimed last attempt (claimed 260 s into its invocation) starts its pay before the 270 s claim edge', async () => {
       fakeClock()
       liveLease(AUDIO, 600_000 - 270_000)
       const st = core(3, { burned: 2, claimDelayMs: 260_000 })
