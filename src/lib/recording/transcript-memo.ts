@@ -269,8 +269,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
   const held = (): TranscriptLeaseTake => ({ state: 'held', lease: { memoKey, nonce } as HeldTranscriptLease })
   const body = (at: number) => JSON.stringify({ v: 1, expires_at: at, nonce } satisfies TranscriptLease)
   try {
-    const bucket = createServiceClient().storage.from('recordings')
-    const created = await bucket.upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: false })
+    const created = await createServiceClient().storage.from('recordings').upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: false })
     if (!created.error) return held()
     if (!isDuplicateRefusal(created.error)) {
       warnStorageUnknown('transcript-lease.take', created.error)
@@ -281,7 +280,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     if (seen.until > now) return { state: 'busy', until: seen.until }
     // Expired or released: CLAIM this generation first (create-only), so two
     // callers meeting one expired lease cannot both take it over (S114 F-CT-5a).
-    const claim = await bucket.upload(
+    const claim = await createServiceClient().storage.from('recordings').upload(
       transcriptLeaseClaimKey(memoKey, seen),
       JSON.stringify({ v: 1, at: now, nonce }),
       { contentType: 'application/json', upsert: false },
@@ -295,7 +294,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       const theirs = await readLease(key, now)
       return { state: 'busy', until: theirs !== null && theirs.until > now ? theirs.until : now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
     }
-    const taken = await bucket.upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
+    const taken = await createServiceClient().storage.from('recordings').upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
     if (taken.error) {
       warnStorageUnknown('transcript-lease.takeover', taken.error)
       return { state: 'unknown' }
