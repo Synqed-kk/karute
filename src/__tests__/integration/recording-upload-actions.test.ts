@@ -1908,9 +1908,10 @@ describe('composeTranscriptKey — the paid answer, named for its audio', () => 
     for (const locale of ['ja', 'en'] as const) {
       const memo = composeTranscriptKey('biz-1', audio(), locale)!.key
       const lease = transcriptLeaseKey(memo)
-      const trueUp = transcriptTrueUpKey(memo)
+      const trueUp = transcriptTrueUpKey(memo, '2026-10-10T01:02:03.456Z')
       expect(lease).toBe(`trc/${audio()}.${locale}.lease.json`)
-      expect(trueUp).toBe(`trc/${audio()}.${locale}.trueup.json`)
+      // S120 (G6): one true-up object per memo generation, named by the memo's written_at.
+      expect(trueUp).toBe(`trc/${audio()}.${locale}.g20261010T010203456Z.trueup.json`)
       // ⚖ S115: the claim keys — a nonce generation, a pre-S114 expiry generation, and the next
       // link a dead claim chains to (named by that claim's nonce: the same shape).
       const nonce = '0b5e7c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d'

@@ -155,23 +155,41 @@ export async function writeTranscriptMemo(
 // never deleted. Once it exists the debt is recorded, and nothing can un-record
 // it. Numbers only (the delta in cents and when it was recorded) — never a word
 // of the transcript, never a key.
+//
+// ⚖ S120 (G6, Greptile thread 4131459898: "Old marker masks new debt"): the
+// fact is ONE MEMO GENERATION's, not the audio's. A proven-corrupt memo is
+// repaired by a later paid answer with a debt of its own; a marker keyed by
+// audio alone made that new debt read as recorded, and the replays never
+// asked the ledger for it. The key now names the memo's `written_at` (each
+// memo write sets its own), so every generation's debt has its own create-only
+// witness and an old one can neither answer for nor block a new one. A marker
+// at the pre-S120 key (`.trueup.json`, preview runs only — #1088 never
+// shipped) is no longer read: its debt reads owed and is recorded once more,
+// the safe direction (an over-count, never a loss).
 
-type TranscriptTrueUpRecord = { v: 1; deltaCents: number; recorded_at: string }
+type TranscriptTrueUpRecord = { v: 1; deltaCents: number; recorded_at: string; memo_written_at: string }
 
-/** The true-up object's key: the memo's own, one suffix further —
- *  `trc/<audio>.<locale>.trueup.json`. Like the lease's, it parses as no key
- *  kind at all (the grammar's transcript arm needs the locale last). */
-export function transcriptTrueUpKey(memoKey: string): string {
-  return memoKey.replace(/\.json$/, '.trueup.json')
+/** The memo generation's name in a key: its `written_at` with only letters and
+ *  digits kept (`2026-10-10T01:02:03.456Z` → `g20261010T010203456Z`). */
+function trueUpGeneration(memoWrittenAt: unknown): string {
+  return `g${String(memoWrittenAt).replace(/[^0-9A-Za-z]/g, '').slice(0, 64)}`
 }
 
-/** Is this audio's owed true-up recorded? `recorded` = the object exists (its
- *  existence IS the fact); `absent` = storage says there is none; `unknown` =
- *  storage would not say (warned once) — the caller never records on that.
- *  Never throws. */
-export async function readTranscriptTrueUp(memoKey: string): Promise<'recorded' | 'absent' | 'unknown'> {
+/** The true-up object's key: the memo's own, two suffixes further —
+ *  `trc/<audio>.<locale>.g<memo written_at>.trueup.json`, one per memo
+ *  generation (S120, above). Like the lease's, it parses as no key kind at all
+ *  (the grammar's transcript arm needs the locale last). */
+export function transcriptTrueUpKey(memoKey: string, memoWrittenAt: unknown): string {
+  return memoKey.replace(/\.json$/, `.${trueUpGeneration(memoWrittenAt)}.trueup.json`)
+}
+
+/** Is this memo generation's owed true-up recorded? `recorded` = its object
+ *  exists (its existence IS the fact); `absent` = storage says there is none;
+ *  `unknown` = storage would not say (warned once) — the caller never records
+ *  on that. Never throws. */
+export async function readTranscriptTrueUp(memoKey: string, memoWrittenAt: unknown): Promise<'recorded' | 'absent' | 'unknown'> {
   try {
-    const { data, error } = await createServiceClient().storage.from('recordings').download(transcriptTrueUpKey(memoKey))
+    const { data, error } = await createServiceClient().storage.from('recordings').download(transcriptTrueUpKey(memoKey, memoWrittenAt))
     if (!error && data) return 'recorded'
     if (error && isStorageNotFound(error)) return 'absent'
     warnStorageUnknown('transcript-trueup.read', error ?? null)
@@ -182,7 +200,7 @@ export async function readTranscriptTrueUp(memoKey: string): Promise<'recorded' 
   }
 }
 
-/** Write down that the ledger took this audio's owed true-up — create-only,
+/** Write down that the ledger took this memo generation's owed true-up — create-only,
  *  never upserted. `taken` = it was already recorded (another call recorded a
  *  true-up for this audio too — possible only where the lease fell open; one
  *  line says so); `failed` = storage would not take it (warned). Its callers
@@ -192,12 +210,17 @@ export async function readTranscriptTrueUp(memoKey: string): Promise<'recorded' 
  *  replay, until the marker can be written — an over-count, the safe
  *  direction, closable only by an idempotency key on the usage writer (the
  *  queued core ask). Never throws. */
-export async function recordTranscriptTrueUp(memoKey: string, deltaCents: number): Promise<TranscriptMemoWrite> {
-  const record: TranscriptTrueUpRecord = { v: 1, deltaCents, recorded_at: new Date().toISOString() }
+export async function recordTranscriptTrueUp(memoKey: string, memoWrittenAt: unknown, deltaCents: number): Promise<TranscriptMemoWrite> {
+  const record: TranscriptTrueUpRecord = {
+    v: 1,
+    deltaCents,
+    recorded_at: new Date().toISOString(),
+    memo_written_at: String(memoWrittenAt),
+  }
   try {
     const { error } = await createServiceClient()
       .storage.from('recordings')
-      .upload(transcriptTrueUpKey(memoKey), JSON.stringify(record), {
+      .upload(transcriptTrueUpKey(memoKey, memoWrittenAt), JSON.stringify(record), {
         contentType: 'application/json',
         upsert: false,
       })

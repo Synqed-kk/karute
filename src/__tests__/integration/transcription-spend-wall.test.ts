@@ -413,7 +413,7 @@ import {
 } from '@/lib/ai/transcribe'
 import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
 import { maxDuration as JOB_ROUTE_MAX_DURATION_S } from '@/app/api/jobs/process/route'
-import { readTranscriptMemo, takeTranscriptLease, transcriptLeaseLive } from '@/lib/recording/transcript-memo'
+import { readTranscriptMemo, takeTranscriptLease, transcriptLeaseLive, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
 import { TRANSCRIPT_LEASE_CLOCK_SKEW_MS, TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
@@ -2026,6 +2026,17 @@ describe('charge once — the durable transcript memo', () => {
   afterEach(() => afterThis.splice(0).forEach((undo) => undo()))
   const AUDIO = conformingKey('biz-1')
   const memoKey = (audio: string, locale: 'ja' | 'en' = 'ja') => `trc/${audio}.${locale}.json`
+  /** S120 (G6): the true-up object of the memo generation stored for this audio NOW — one object per
+   *  memo generation, named by that memo's written_at (an unreadable memo names none). */
+  const currentTrueUpKey = (audio: string) => {
+    let writtenAt: unknown
+    try {
+      writtenAt = (JSON.parse(memoStore.get(memoKey(audio)) ?? '{}') as { written_at?: unknown }).written_at
+    } catch {
+      writtenAt = undefined
+    }
+    return transcriptTrueUpKey(memoKey(audio), writtenAt)
+  }
   const call = (audioKey: string | null | undefined, locale = 'ja') =>
     runMeteredTranscription(
       {
@@ -2459,7 +2470,7 @@ describe('charge once — the durable transcript memo', () => {
   // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer costs 45 ¢ → 44 ¢ owed.
   describe('s56 the true-up debt — a replay never hides an unrecorded delta', () => {
     const DELTA = 44
-    const trueUpKey = (audio: string) => `trc/${audio}.ja.trueup.json`
+    const trueUpKey = (audio: string) => currentTrueUpKey(audio)
     const stored = () => JSON.parse(memoStore.get(memoKey(AUDIO))!) as Record<string, unknown> & {
       trueUp?: Record<string, unknown>
     }
@@ -3235,7 +3246,7 @@ describe('charge once — the durable transcript memo', () => {
   // the 5,400 s answer costs 45 ¢ → 44 ¢ owed.
   const F1_DELTA = 44
   const f1DeltaCalls = () => recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === F1_DELTA)
-  const f1TrueUpKey = () => `trc/${AUDIO}.ja.trueup.json`
+  const f1TrueUpKey = () => currentTrueUpKey(AUDIO)
   /** A memo as another call left it: no debt (`none`), a debt still owed (`owed`), or a debt already recorded (`recorded` — its true-up object stands). */
   const seedMemo = (debt: 'none' | 'owed' | 'recorded') => {
     const memo: Record<string, unknown> = { v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '' }
@@ -3477,6 +3488,8 @@ describe('charge once — the durable transcript memo', () => {
       while (transcribeUrlWithDeepgram.mock.calls.length < 2) await new Promise(setImmediate)
       releaseX(answer('X'))
       const xRes = await x
+      // S120 (G6): a real millisecond apart, so X's and Y's memos are two generations (written_at).
+      await new Promise((resolve) => setTimeout(resolve, 2))
       // Y's re-check right before ITS repair ran before X's repair landed: it still saw the garbage,
       // so both repair writes succeed (Greptile's case exactly).
       storageDownload.mockResolvedValueOnce({ data: new Blob([CORRUPT]), error: null } as never)
@@ -3484,9 +3497,11 @@ describe('charge once — the durable transcript memo', () => {
       const yRes = await y
       return { xRes, yRes, warn }
     }
-    const trueUpKey = () => `trc/${AUDIO}.ja.trueup.json`
+    /** S120 (G6): X's true-up object — the generation of X's repair, the FIRST memo write. */
+    const trueUpKey = () =>
+      transcriptTrueUpKey(memoKey(AUDIO), (JSON.parse(String(storageUpload.mock.calls[0][1])) as { written_at: string }).written_at)
 
-    it('f2a X records its delta, Y’s true-up is lost → the recorded fact STANDS (never reverted); the memo is written exactly twice (the two repairs) and never rewritten; a later replay records nothing more', async () => {
+    it('f2a X records its delta, Y’s true-up is lost → the recorded fact STANDS (never reverted); the memo is written exactly twice (the two repairs) and never rewritten; the next replay records Y’s lost delta ONCE (S120, G6), and nothing after', async () => {
       const { xRes, yRes } = await twoRepairs(false)
       expect(xRes.receipt).toMatchObject({ replayed: false, debit_recorded: true })
       expect(yRes.receipt).toMatchObject({ replayed: false, debit_recorded: false })
@@ -3499,26 +3514,40 @@ describe('charge once — the durable transcript memo', () => {
       expect(trueUpStore.has(trueUpKey())).toBe(true)
       expect(trueUpUpload).toHaveBeenCalledTimes(1)
 
-      // One home per AUDIO, not per paid answer: Y's own lost delta is not retried by a replay once
-      // X's record stands — Y's own receipt said false (the countable warning row). A residual of
-      // the lease falling open, named in the PR body; the two provider payments themselves are
-      // A5's stated fall-open.
-      recordUsage.mockClear()
+      // ⚖ S120 (G6, thread 4131459898): one home per MEMO GENERATION, not per audio. Y's repair is
+      // the memo that stands, and its lost delta stays owed — X's record no longer answers for it —
+      // so the next replay records Y's delta ONCE under the lease, and the one after records nothing.
+      // The two provider payments themselves are A5's stated fall-open. Core answers again from here.
+      recordUsage.mockReset()
+      recordUsage.mockResolvedValue(undefined)
       const later = await call(AUDIO)
       expect(later.receipt).toMatchObject({ replayed: true, debit_recorded: true })
-      expect(recordUsage).not.toHaveBeenCalled()
+      expect(recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === 44)).toHaveLength(1)
       expect(trueUpStore.has(trueUpKey())).toBe(true)
+      expect(trueUpStore.has(currentTrueUpKey(AUDIO))).toBe(true)
+      expect(currentTrueUpKey(AUDIO)).not.toBe(trueUpKey())
+      recordUsage.mockClear()
+      const again = await call(AUDIO)
+      expect(again.receipt).toMatchObject({ replayed: true, debit_recorded: true })
+      expect(recordUsage).not.toHaveBeenCalled()
     })
 
-    it('f2b both deltas land (two recorders, where the lease fell open) → the second create meets the duplicate refusal: ONE line says so, the FIRST record stands byte-for-byte, and no write was ever an upsert', async () => {
+    // S120 (G6): X and Y repaired two memo generations, so each records its own delta under its own
+    // create-only object — no duplicate refusal any more — and a later replay records nothing.
+    it('f2b both deltas land (two recorders, where the lease fell open) → each generation\'s record is created once, create-only, under its own key; X\'s stands byte-for-byte, no write was ever an upsert, and a later replay records nothing', async () => {
       const { xRes, yRes, warn } = await twoRepairs(true)
       expect(xRes.receipt.debit_recorded).toBe(true)
       expect(yRes.receipt.debit_recorded).toBe(true)
       expect(trueUpUpload).toHaveBeenCalledTimes(2)
       for (const c of trueUpUpload.mock.calls) expect(c[2]).toEqual({ contentType: 'application/json', upsert: false })
+      expect(trueUpUpload.mock.calls.map((c) => c[0])).toEqual([trueUpKey(), currentTrueUpKey(AUDIO)])
       expect(trueUpStore.get(trueUpKey())).toBe(trueUpUpload.mock.calls[0][1])
       const taken = warn.mock.calls.filter((c) => String(c[0]).includes('already recorded'))
-      expect(taken).toHaveLength(1)
+      expect(taken).toHaveLength(0)
+      recordUsage.mockClear()
+      const later = await call(AUDIO)
+      expect(later.receipt).toMatchObject({ replayed: true, debit_recorded: true })
+      expect(recordUsage).not.toHaveBeenCalled()
     })
 
     it('f2c the true-up object cannot be read (storage erred) → the replay never records and never takes the lease: debit_recorded false, storage_unknown', async () => {
@@ -3539,7 +3568,7 @@ describe('charge once — the durable transcript memo', () => {
       // This replay's FIRST (free) read still finds no object; by the time it holds the lease the
       // previous holder has recorded the delta and created it.
       trueUpDownload.mockImplementationOnce(async () => {
-        trueUpStore.set(`trc/${AUDIO}.ja.trueup.json`, JSON.stringify({ v: 1, deltaCents: 44, recorded_at: '' }))
+        trueUpStore.set(currentTrueUpKey(AUDIO), JSON.stringify({ v: 1, deltaCents: 44, recorded_at: '' }))
         return { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } } as never
       })
       const res = await call(AUDIO)

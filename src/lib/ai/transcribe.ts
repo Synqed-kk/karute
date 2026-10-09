@@ -549,10 +549,10 @@ type TrueUpSettled = { recorded: boolean; deferred?: TranscriptionDebitDeferred;
  *  marked it) counts as marked. The final answer goes back so the caller can
  *  put a marker that still failed on the receipt (`debit_mark: 'failed'`,
  *  filed at warning) instead of leaving it to the writer's console line. */
-async function markTrueUpRecorded(key: string, deltaCents: number): Promise<TranscriptMemoWrite> {
-  const first = await recordTranscriptTrueUp(key, deltaCents)
+async function markTrueUpRecorded(key: string, memoWrittenAt: unknown, deltaCents: number): Promise<TranscriptMemoWrite> {
+  const first = await recordTranscriptTrueUp(key, memoWrittenAt, deltaCents)
   if (first !== 'failed') return first
-  return recordTranscriptTrueUp(key, deltaCents)
+  return recordTranscriptTrueUp(key, memoWrittenAt, deltaCents)
 }
 
 /** The delta a memo says its answer owes: null = nothing owed (no numbers —
@@ -625,13 +625,15 @@ async function finishOwedTrueUp(
   if (delta === null) return { recorded: true }
   if (delta === 'unreadable') return unreadableTrueUp()
   // A free read of the recorded fact first: a recorded debt needs no lease.
-  const seen = await readTranscriptTrueUp(key)
+  // S120 (G6): the fact of THIS memo's generation — an older memo's marker
+  // never answers for a repaired memo's new debt.
+  const seen = await readTranscriptTrueUp(key, memo.written_at)
   if (seen === 'recorded') return { recorded: true }
   if (seen === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
   const taken = await takeLease()
   if (taken.state === 'busy') return { recorded: false, deferred: 'lease_busy' }
   if (taken.state === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
-  return recordOwedTrueUp(meter, key, delta, taken.lease)
+  return recordOwedTrueUp(meter, key, memo.written_at, delta, taken.lease)
 }
 
 /** ⚖ S57 — THE ONE PLACE A REPLAY RECORDS AN OWED TRUE-UP, and it cannot be
@@ -650,16 +652,17 @@ async function finishOwedTrueUp(
 async function recordOwedTrueUp(
   meter: TranscriptionMeter,
   key: string,
+  memoWrittenAt: unknown,
   deltaCents: number,
   held: HeldTranscriptLease,
 ): Promise<TrueUpSettled> {
   if (held.memoKey !== key) throw new Error('an owed true-up is recorded only under its own audio\'s lease')
-  const now = await readTranscriptTrueUp(key)
+  const now = await readTranscriptTrueUp(key, memoWrittenAt)
   if (now === 'recorded') return { recorded: true }
   if (now === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
   const recorded = await reportTranscriptionUsageWithClient(meter.synqed, deltaCents)
   if (!recorded) return { recorded }
-  const mark = await markTrueUpRecorded(key, deltaCents)
+  const mark = await markTrueUpRecorded(key, memoWrittenAt, deltaCents)
   return mark === 'failed' ? { recorded, markFailed: true } : { recorded }
 }
 
@@ -1077,7 +1080,8 @@ async function meteredTranscription(
   if (delta > 0) {
     debitRecorded = await reportTranscriptionUsageWithClient(meter.synqed, delta)
     if (debitRecorded && ownsDebt && memoKey !== null) {
-      markFailed = (await markTrueUpRecorded(memoKey, delta)) === 'failed'
+      // writtenAt is the memo this call just wrote (ownsDebt): its generation.
+      markFailed = (await markTrueUpRecorded(memoKey, writtenAt, delta)) === 'failed'
     }
   }
   const receipt: TranscriptionReceipt = {
