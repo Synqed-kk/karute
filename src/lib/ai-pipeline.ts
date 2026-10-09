@@ -381,7 +381,7 @@ export async function runAIPipeline(
   // (S33 R1 — ports/recording-port.ts:507, v1/ai/transcribe/route.ts:50).
   let attachOutcome: AttachOutcome | null = null
   // ⚖ S120 G2: the take's sealed object is provably SHORTER than this run's audio
-  // (the length its finalize re-proved). No length recorded = today's rule.
+  // (the byte length this device sent to be sealed). No length recorded = today's rule.
   // Local on purpose: suites that mock take-store need no new export.
   const sealedShorter = (m: { finalizedBytes?: number } | null | undefined) =>
     m?.finalizedBytes !== undefined && m.finalizedBytes < audioBlob.size

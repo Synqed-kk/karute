@@ -150,7 +150,7 @@ export async function writeTranscriptMemo(
 // caller that pays regardless (a colleague's key), and two callers taking one
 // expired lease over at once all write without holding it alone — so the lease
 // could not make that rewrite safe. The fact now lives BESIDE the memo in its
-// own object, `trc/<audio>.<locale>.trueup.json`: created ONCE, create-only,
+// own object, `trc/<audio>.<locale>.g<memo written_at>.trueup.json`: created ONCE, create-only,
 // by the call that just had the ledger take the owed delta, and never upserted,
 // never deleted. Once it exists the debt is recorded, and nothing can un-record
 // it. Numbers only (the delta in cents and when it was recorded) — never a word
@@ -393,7 +393,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     if (rerooting) {
       // ⚖ S116 round 5 (SF-A): a READ ERROR here answers busy, never 「no lease」 — one
       // blip must not overwrite a live holder. A lasting failure already paid above
-      // (the first read, `seen === null` → unknown), so this cannot stick.
+      // (the first read, `seen.kind` none/error → unknown), so this cannot stick.
       const live = await readLeaseOutcome(key, now)
       if (live.kind === 'error') return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       if (live.kind === 'lease' && live.until > now) return { state: 'busy', until: live.until }

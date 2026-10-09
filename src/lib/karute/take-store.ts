@@ -261,8 +261,9 @@ export type TakeMeta = {
    *  existed — read as "no pointer of my own", which sends that take down the
    *  in-tab fallback leg instead of naming an object nobody proved. */
   finalizedPath?: string
-  /** S120 G2: the byte length of the object sealed at `finalizedPath` — the
-   *  length the finalize door re-proved server-side (secure-take's byteLength).
+  /** S120 G2: the byte length this device sent to be sealed at `finalizedPath`
+   *  (secure-take's byteLength). Usually re-proved by the finalize door, but not
+   *  on its already-completed or superseded paths (finalize-take.ts), which skip the probe.
    *  Absent on takes sealed before S120 and on keys recomposed or adopted. */
   finalizedBytes?: number
   /** Capture pipeline PR4 fix round 4: where this take's audio was STAGED — the
