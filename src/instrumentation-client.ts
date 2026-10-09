@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs'
+import { wrapTransport } from './lib/observability/sentry-exit'
 import { sentryScrubOptions } from './lib/observability/sentry-scrub'
 
 if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
@@ -11,6 +12,7 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     sendDefaultPii: false,
     integrations: [],
     ...sentryScrubOptions,
+    transport: wrapTransport(Sentry.makeFetchTransport),
   })
 }
 
