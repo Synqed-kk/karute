@@ -2884,6 +2884,118 @@ describe('charge once — the durable transcript memo', () => {
     expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
   })
 
+  // ── ⚖ S116 round 5 (R-S116-9) — THE WORKER'S LAST ATTEMPT NEVER ENDS BUSY ──
+  // A tiny core: claim counts attempts ON CLAIM; fail() requeues while attempts <
+  // max_attempts, else FAILED (process-recording.ts:811-813). Invocations run back
+  // to back with the route's 270 s budget. A DEAD holder: its lease reads live for
+  // `stallMs`, it never writes a memo and never releases.
+  describe('R-S116-9 — the last attempt falls open and pays (never FAILED behind a dead holder)', () => {
+    const lastAttemptWarns = () =>
+      (console.warn as unknown as jest.Mock).mock?.calls?.filter((c) => String(c[0]).includes('transcript-lease.last-attempt-fall-open')).length ?? 0
+    const core = (max: number | null, opts: { burned?: number; claimDelayMs?: number } = {}) => {
+      const st = { attempts: opts.burned ?? 0, status: 'QUEUED' as string, claimedAt: [] as number[] }
+      const row = () => ({ ...baseJob, attempts: st.attempts, max_attempts: max, payload: { ...baseJob.payload, audio_path: AUDIO } })
+      claim.mockImplementation(async () => {
+        if (st.status !== 'QUEUED') return null
+        if (opts.claimDelayMs) await new Promise((r) => setTimeout(r, opts.claimDelayMs))
+        st.attempts++
+        st.status = 'RUNNING'
+        st.claimedAt.push(Date.now())
+        return row()
+      })
+      fail.mockImplementation(async () => {
+        st.status = max !== null && st.attempts < max ? 'QUEUED' : 'FAILED'
+        return { ...row(), status: st.status }
+      })
+      complete.mockImplementation(async () => {
+        st.status = 'DONE'
+        return {}
+      })
+      afterThis.push(() => {
+        claim.mockReset()
+        fail.mockReset().mockImplementation(async () => ({}))
+        complete.mockReset().mockImplementation(async () => ({}))
+      })
+      return st
+    }
+    const invoke = async () => {
+      const startedAt = Date.now()
+      let done = false
+      void processRecordingJobs(270_000).then(
+        () => (done = true),
+        () => (done = true),
+      )
+      for (let i = 0; i < 400 && !done; i++) await tick(3_000)
+      return startedAt
+    }
+    const runUntilSettled = async (st: { status: string }) => {
+      for (let inv = 0; inv < 6 && st.status === 'QUEUED'; inv++) await invoke()
+    }
+
+    it.each([
+      ['max_attempts 2, a dead holder for one TTL (330 s)', 2, 0],
+      ['max_attempts 3, one attempt already burned by a late claim killed at the wall (stale reclaim)', 3, 1],
+    ])('%s → the last attempt PAYS (transcribed), never FAILED', async (_n, max, burned) => {
+      fakeClock()
+      jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => (console.warn as unknown as jest.Mock).mockRestore?.())
+      liveLease(AUDIO, 330_000)
+      const st = core(max, { burned })
+      await runUntilSettled(st)
+      expect(st.status).toBe('DONE')
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(fail).toHaveBeenCalledTimes(max - burned - 1)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(lastAttemptWarns()).toBe(1)
+    }, 30_000)
+
+    it('an unreadable max_attempts counts as the last attempt → pays on the first', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(null)
+      await runUntilSettled(st)
+      expect(st.status).toBe('DONE')
+      expect(fail).not.toHaveBeenCalled()
+    }, 30_000)
+
+    it('the LATE-claimed last attempt (claimed 260 s into its invocation) pays before the 300 s limit', async () => {
+      fakeClock()
+      liveLease(AUDIO, 600_000 - 270_000)
+      const st = core(3, { burned: 2, claimDelayMs: 260_000 })
+      let paidAt = 0
+      transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
+        paidAt = Date.now()
+        return { ...deepgramResult }
+      })
+      const startedAt = await invoke()
+      expect(st.status).toBe('DONE')
+      expect(paidAt - startedAt).toBeGreaterThanOrEqual(260_000)
+      expect(paidAt - startedAt).toBeLessThan(270_000)
+    }, 30_000)
+
+    it('a NON-last attempt behind the same holder still answers busy (unchanged): fail(), nothing paid', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(3)
+      await invoke()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledTimes(2)
+      expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${TRANSCRIPTION_IN_PROGRESS}`)
+      expect(st.attempts).toBe(2)
+    }, 30_000)
+
+    it('RESIDUAL (named, R-S116-9): a holder still WORKING at the last attempt → the last attempt pays beside it = 2 payers', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(1)
+      await invoke()
+      expect(st.status).toBe('DONE')
+      // The holder (outside this call) pays once; the last attempt paid once more while its lease was live.
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+    }, 30_000)
+  })
+
   // ── ⚖ S56 — THE WORKER DOOR NEVER PAYS AGAINST A LIVE LEASE ───────────────
   // Fake timers, as the row above: the wait is LEASE_WORKER_WAIT_MS of 3 s
   // polls (LEASE_POLL_MS). `settle` records how a call ended without awaiting

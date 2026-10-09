@@ -430,6 +430,12 @@ export interface TranscriptionMeter {
   takeId?: string | null
   /** The job's attempt number, so a repeating spend is visible in the log. */
   attempt?: number | null
+  /** ⚖ S116 round 5 (R-S116-9) — the worker's LAST attempt (attempts ≥ max_attempts,
+   *  or a count it cannot read): its lease wait never ends busy — it falls open and
+   *  pays (see LEASE_LAST_ATTEMPT_PAY_BY_MS). Absent/false on every other door. */
+  lastAttempt?: boolean
+  /** When THIS function invocation started (epoch ms) — bounds the last attempt's wait. */
+  invocationStartedAt?: number
   rescued?: boolean
   requestId?: string
   /** The storage key of the audio this call transcribes, when the caller holds
@@ -739,6 +745,8 @@ export const LEASE_TAKEOVER_RESERVE_MS =
   LEASE_WORKER_REPORT_HEADROOM_MS + (LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_WORKER_REPORT_HEADROOM_MS) / 2
 /** The limit less the reserve: 135 s. */
 export const LEASE_WORKER_WAIT_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
+/** ⚖ S116 round 5 (R-S116-9): the last attempt's pay starts by this long after its INVOCATION began — the limit less the takeover reserve (135 s), so the paid call keeps its reserve even when the job was claimed late. */
+export const LEASE_LAST_ATTEMPT_PAY_BY_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
 const LEASE_POLL_MS = 3_000
 
 async function meteredTranscription(
@@ -844,7 +852,17 @@ async function meteredTranscription(
     RECORDING_SWITCHES.transcribePaidOnce &&
     (meter.replayMemo !== false || meter.memoHitRefuses === true)
   ) {
-    const waitUntil = Date.now() + LEASE_WORKER_WAIT_MS
+    // ⚖ S116 round 5 (R-S116-9) — THE LAST ATTEMPT NEVER ENDS BUSY. A busy answer
+    // fails the attempt; on the job's last one that left the take FAILED with no
+    // memo when the holder had died (core never re-arms FAILED on its own). So the
+    // last attempt's wait is also bounded by its invocation (pay-by above), and at
+    // its end it falls open to the 'unknown' path: memo re-read, then an unleased
+    // pay. Cost (named residual): a holder still working then = 2 payers.
+    const last = meter.lastAttempt === true
+    const waitUntil = Math.min(
+      Date.now() + LEASE_WORKER_WAIT_MS,
+      last && meter.invocationStartedAt != null ? meter.invocationStartedAt + LEASE_LAST_ATTEMPT_PAY_BY_MS : Infinity,
+    )
     let busyUntil = 0
     for (;;) {
       // ⚖ S56: THE BUDGET IS ASKED BEFORE THE TAKE. Past it, a waiting door
@@ -853,9 +871,13 @@ async function meteredTranscription(
       // time (free) and throws. Never true on the first pass, and never reached
       // again by the two interactive doors, which answer on their first busy
       // look below.
-      if (Date.now() >= waitUntil) {
-        const last = await readTranscriptMemo(memoKey)
-        if (last.state === 'hit') return await answerFromMemo(memoKey, last.memo, () => takeOnce(memoKey))
+      if (Date.now() >= waitUntil && busyUntil > 0) {
+        const final = await readTranscriptMemo(memoKey)
+        if (final.state === 'hit') return await answerFromMemo(memoKey, final.memo, () => takeOnce(memoKey))
+        if (last) {
+          console.warn(JSON.stringify({ evt: 'transcript_lease_fall_open', where: 'transcript-lease.last-attempt-fall-open', recordingSessionId: meter.recordingSessionId ?? null, attempt: meter.attempt ?? null }))
+          break
+        }
         throw new AppApiError('conflict', TRANSCRIPTION_IN_PROGRESS, {
           reason: 'transcribing',
           retry_after_seconds: Math.max(1, Math.ceil((busyUntil - Date.now()) / 1000)),
