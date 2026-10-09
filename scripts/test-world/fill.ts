@@ -192,6 +192,7 @@ export function limiter(t: Throttle, sleep: (ms: number) => Promise<unknown> = (
   const lim = {
     ...t,
     stopped: false,
+    hardStop: false, // set by apply() when the stop came before the read-back: the run's exit is 1
     async run<T>(fn: () => Promise<T>): Promise<T> {
       while (active >= t.concurrency) await new Promise<void>((r) => queue.push(r))
       active++
@@ -479,6 +480,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     // once a write was sent, the epoch stays — rows may exist on those dates.
     if (!prior && sent === 0) delete m.stores[storeId]
     if (!(e instanceof Saturated)) throw e
+    lim.hardStop = true
     run.errors.push(`stopped: ${message(e)}`) // S90: core's database is full — the rest of this run is skipped
     summary() // what was written before the stop: the resume needs these counts
     log(SATURATED_LINE)
@@ -538,64 +540,81 @@ export function summarize(p: Plan, today: string, hours: WeeklyHours) {
 }
 
 // ── CLI (lazy client import, so the test loads this file under CommonJS ts-node) ───────────────
-if (process.argv[1]?.endsWith('fill.ts')) {
-  const [cmd, ...rest] = process.argv.slice(2)
+export interface CliIo { log?: (...l: unknown[]) => void; sleep?: (ms: number) => Promise<unknown>; now?: () => number; today?: string }
+/** The command line, testable: `makeClient` is called only once every flag has passed (the real one checks the env there). */
+export async function runCli(argv: string[], makeClient: () => Promise<FillCore>, io: CliIo = {}): Promise<number> {
+  const log = io.log ?? console.log
+  const [cmd, ...rest] = argv
   const flag = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-  const [store, type, path, dry, today] = [flag('--store'), flag('--type'), flag('--manifest'), rest.includes('--dry-run'), jstToday()]
+  const [store, type, path, dry, today] = [flag('--store'), flag('--type'), flag('--manifest'), rest.includes('--dry-run'), io.today ?? jstToday()]
   const load = (): Manifest => (path && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { businessId: DEV_SALON_BUSINESS_ID, stores: {}, runs: [] })
-  const main = async (): Promise<number> => {
-    const targets = targetsFor(store, type)
-    if (cmd === 'plan') {
-      const m = load()
-      for (const storeId of targets) {
-        const t = registry.stores[storeId].type
-        const st = m.stores[storeId]
-        const r = await loadRecipe(t, storeId, st?.pastDays)
-        const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
-        console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
-        if (rest.includes('--rows')) for (const a of p.appointments)
-          console.log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
+  const targets = targetsFor(store, type)
+  if (cmd === 'plan') {
+    const m = load()
+    for (const storeId of targets) {
+      const t = registry.stores[storeId].type
+      const st = m.stores[storeId]
+      const r = await loadRecipe(t, storeId, st?.pastDays)
+      const hours = st?.weeklyHours ?? r.policy.weekly_hours
+      const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
+      log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
+      if (rest.includes('--rows')) for (const a of p.appointments)
+        log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
+    }
+    return 0
+  }
+  if (cmd !== 'apply' || (!store && !type) || !path) {
+    log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run] [--concurrency <1–4>] [--pause-ms <n> | --no-pause]')
+    return 1
+  }
+  const throttle = parseThrottle(rest)
+  if (typeof throttle === 'string') {
+    log(`REFUSED: ${throttle}`)
+    return 2 // before any core call
+  }
+  log(`throttle: ${throttle.concurrency} in flight, ${throttle.pauseMs} ms between requests`)
+  const lim = limiter(throttle, io.sleep, io.now)
+  const core = await makeClient()
+  const m = load()
+  if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
+  let code = 0
+  try {
+    for (const [i, storeId] of targets.entries()) {
+      const recipe = await loadRecipe(registry.stores[storeId].type, storeId, m.stores[storeId]?.pastDays)
+      let result: number
+      try {
+        result = await apply(core, { recipe, storeId, manifest: m, today, dry, log, readBack: true, limiter: lim })
+      } catch (e) {
+        if (!(e instanceof Saturated)) throw e
+        log(SATURATED_LINE) // a full database before this store's run began
+        lim.hardStop = true
+        result = 1
       }
-      return 0
+      if (result === 2) return 2 // a refusal stops the whole run, including --store all
+      code = Math.max(code, result)
+      if (lim.stopped) { // core's database is full: no later store is started
+        if (i + 1 < targets.length) log(`not started (core's database is full): ${targets.slice(i + 1).join(', ')}`)
+        break
+      }
     }
-    if (cmd !== 'apply' || (!store && !type) || !path) {
-      console.log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run] [--concurrency <1–4>] [--pause-ms <n> | --no-pause]')
-      return 1
-    }
-    const throttle = parseThrottle(rest)
-    if (typeof throttle === 'string') {
-      console.log(`REFUSED: ${throttle}`)
-      return 2 // before any core call
-    }
-    console.log(`throttle: ${throttle.concurrency} in flight, ${throttle.pauseMs} ms between requests`)
-    const lim = limiter(throttle)
+  } finally {
+    if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
+  }
+  if (!dry) log(`manifest: ${path}`)
+  return lim.hardStop ? 1 : code // a write-phase stop exits 1, even after an earlier store's 409s (4)
+}
+
+if (process.argv[1]?.endsWith('fill.ts')) {
+  const makeClient = async (): Promise<FillCore> => {
     const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
     if (!baseUrl || !apiKey) throw new Error('set SYNQED_CORE_URL and SYNQED_CORE_API_KEY first (values are never printed)')
     const { SynqedClient } = await import('@synqed-kk/client')
-    const core = new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })
-    const m = load()
-    if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
-    let code = 0
-    try {
-      for (const storeId of targets) {
-        const recipe = await loadRecipe(registry.stores[storeId].type, storeId, m.stores[storeId]?.pastDays)
-        const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true, limiter: lim })
-        if (result === 2) return 2 // a refusal stops the whole run, including --store all
-        code = Math.max(code, result)
-        if (lim.stopped) break // core's database is full: no later store is started
-      }
-    } finally {
-      if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
-    }
-    if (!dry) console.log(`manifest: ${path}`)
-    return code
+    return new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })
   }
-  main().then(
+  runCli(process.argv.slice(2), makeClient).then(
     (code) => { process.exitCode = code },
     (e) => {
-      if (e instanceof Saturated) console.log(SATURATED_LINE) // a full database before a store's run began
-      else console.error('fill failed:', message(e))
+      console.error('fill failed:', message(e))
       process.exitCode = 1
     },
   )

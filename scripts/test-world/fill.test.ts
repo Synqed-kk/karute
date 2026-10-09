@@ -3,12 +3,13 @@
 // An in-memory core stands in for SynqedClient. Like core, it answers a double-booked practitioner or bed with a 409
 // (a CANCELLED / NO_SHOW booking frees its slot: the app's isTerminalStatus).
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, runCli, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -651,8 +652,8 @@ async function main() {
   {
   const full = Object.assign(new Error('connect EMAXCONN: max client connections reached'), { status: 500 })
   // Every method of a fake core, watched: requests in flight, start times on a fake clock, an optional failure.
-  const watched = (fail?: (call: string) => boolean, err: Error = full) => {
-    const f = fakeCore()
+  const watched = (fail?: (call: string) => boolean, err: Error = full, fo: Parameters<typeof fakeCore>[0] = {}) => {
+    const f = fakeCore(fo)
     Object.assign(f.core.staffStores, { counts: async () => ({ counts: { [STORE]: f.t.links.size } }) })
     const s = { calls: 0, inFlight: 0, max: 0, starts: [] as number[], clock: 0, failedAt: 0, names: [] as string[] }
     for (const [ns, obj] of Object.entries(f.core as unknown as Record<string, Record<string, (...a: unknown[]) => Promise<unknown>>>))
@@ -741,6 +742,34 @@ async function main() {
   assert.equal(await apply(r5.core, { ...opts(empty()), readBack: true, log: (l: string) => void r5Log.push(l), limiter: r5.lim(DEFAULT_THROTTLE) }), 0)
   const rerun = r5.s.starts.slice(r5.s.failedAt - 2)
   assert.ok(r5Log.some((l) => l.startsWith('section |')) && r5.s.max === 1 && Math.min(...gaps(rerun)) >= 150, `5xx read-back re-run: max ${r5.s.max}, min gap ${Math.min(...gaps(rerun))}`)
+  // the CLI itself (runCli): flags reach the limiter; a stop ends the store loop; the exit code
+  const dir = mkdtempSync(join(tmpdir(), 'fill-cli-'))
+  const allStores = Object.keys(registry.stores)
+  const cli = async (args: string[], w: ReturnType<typeof watched>) => {
+    const out: string[] = []
+    const code = await runCli(['apply', '--manifest', join(dir, `${Math.random()}.json`), ...args], async () => w.core,
+      { log: (...l: unknown[]) => void out.push(l.join(' ')), sleep: async (ms) => void (w.s.clock += ms), now: () => w.s.clock, today: TODAY })
+    return { code, out, stores: w.s.names.filter((n) => n === 'orgSettings.get').length, stops: out.filter((l) => l === SATURATED_LINE).length, notStarted: out.find((l) => l.startsWith('not started')) }
+  }
+  for (const bad of [['--concurrency', '5'], ['--pause-ms', '60001'], ['--pause-ms', '0']]) {
+    const w = watched()
+    assert.deepEqual([(await cli(['--store', STORE, ...bad], w)).code, w.s.calls], [2, 0], `CLI ${bad.join(' ')}: exit 2, zero core calls`)
+  }
+  let k = 0
+  const wc = watched(() => ++k >= 100)
+  const rc = await cli(['--store', STORE, '--concurrency', '2'], wc)
+  assert.ok(rc.out[0] === 'throttle: 2 in flight, 150 ms between requests' && wc.s.max === 2 && Math.min(...gaps(wc.s.starts)) >= 150 && rc.code === 1, `CLI --concurrency 2: max ${wc.s.max}, exit ${rc.code}`)
+  const w1 = watched((call) => call === 'appointments.create', full, { stores: allStores })
+  const r1 = await cli(['--store', 'all'], w1)
+  assert.deepEqual([r1.code, r1.stores, r1.stops, w1.s.calls - w1.s.failedAt, r1.notStarted?.split(', ').length], [1, 1, 1, 0, allStores.length - 1], r1.out.filter((l) => !l.includes('|')).join('\n'))
+  let begun = 0
+  const w4 = watched((call) => ((begun += +(call === 'orgSettings.get')), begun === 2 && call === 'resources.list'), full, { stores: allStores, fail409: true })
+  const r4 = await cli(['--store', 'all'], w4)
+  assert.deepEqual([r4.code, r4.stores, r4.stops], [1, 2, 1], 'an earlier store\'s 409s (4) and a later write-phase stop: exit 1')
+  const w5 = watched((call) => call === 'staffStores.counts', full, { stores: allStores })
+  const r5c = await cli(['--store', 'all'], w5)
+  assert.deepEqual([r5c.code, r5c.stores, r5c.stops, !!r5c.notStarted], [0, 1, 1, true], 'a read-back stop: later stores not started, exit unchanged')
+  console.log(`✓ S90 CLI: refusals 0 calls; --concurrency 2 max ${wc.s.max}; write stop exit ${r1.code} after ${r1.stores} store (${allStores.length - 1} not started); 409 then stop exit ${r4.code}; read-back stop exit ${r5c.code}`)
   console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
   }
 
