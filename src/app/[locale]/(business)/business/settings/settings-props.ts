@@ -354,7 +354,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     demoSaveLine: '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。',
     // S67 F4 — its true twin, the foot of Reserve 受付 while the six save to core (the demo line would be false
     // there); it lives beside demoSaveLine so the page's persistence lines have one home.
-    reserveSaveLine: '保存すると、この店舗の受付ルールがReserveの予約ページに反映されます（「サンプル」の印がある項目は、この画面の中だけに反映されます）。',
+    reserveSaveLine: '保存すると、この店舗の受付ルールがReserveの予約ページに反映されます。「サンプル」の印がある項目は、この画面の中だけの保存になります。',
     selfSaveLine: 'この設定はこの端末のこのブラウザに保存され、ほかのスタッフの画面は変わりません。',
     boundaryFallback: '設定を変更できる権限がありません。店舗の設定は、権限のあるアカウントでのみ表示されます。',
     // ⚖ S17 fix round 5 · G3 — and WHO they are, as the roster id the shell
@@ -431,7 +431,7 @@ interface Ctx {
 // Reserve S66/S67 — 受付's own lines (native JP, listed for the blind pass).
 const RESERVE_LEAD_LOCK = '上の「直前締切」と同じ値です。変えるときは「直前締切」を変更してください'
 const RESERVE_UNREAD_LOCK = '受付ルールを読み込めなかったため、いまは変更できません'
-const RESERVE_UNREAD_LINE = 'この店舗の受付ルールを、いま読み込めませんでした。表示しているのは見本の値のため、変更や保存はできません。時間をおいて開き直してください。'
+const RESERVE_UNREAD_LINE = 'この店舗の受付ルールを、いま読み込めませんでした。表示しているのはサンプルの値のため、変更や保存はできません。時間をおいて開き直してください。'
 const CANCEL_FREE_TO_START = 'ご来店の時刻までは、無料でキャンセルできます。'
 const CANCEL_FREE_BEFORE = 'ご来店の{reserve.free}前までは、無料でキャンセルできます。'
 const CANCEL_LATE = '期限を過ぎたキャンセルは、料金の{reserve.sameday}です。'
@@ -2328,12 +2328,13 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         // R5 — a note, never a refusal: the store's saved rules make some bookings late from the start.
         ...(live && lateFromBooking(p) ? { facts: [LATE_FROM_BOOKING_NOTE] } : unread ? { facts: [RESERVE_UNREAD_LINE] } : {}),
         // S67 F6 — one sentence per case, so every value reads naturally: a 0 free deadline is 「来店の時刻まで」, a 0 %
-        // fee has no fee sentence at all (never 「0%」).
+        // fee has no fee sentence at all (never 「0%」). S68 — a 0 % 当日キャンセル料 makes cancelling free up to the visit
+        // whatever the free deadline, so it too reads 「来店の時刻まで」 (a deadline with a number would imply a fee after it).
         preview: {
           template: CANCEL_FREE_TO_START + CANCEL_FREE_BEFORE + CANCEL_LATE + CANCEL_NOSHOW,
           dropWhen: [
-            { controlId: 'reserve.free', is: '0', sentence: CANCEL_FREE_TO_START, not: true },
-            { controlId: 'reserve.free', is: '0', sentence: CANCEL_FREE_BEFORE },
+            { controlId: 'reserve.free', is: '0', orWhen: [{ controlId: 'reserve.sameday', is: '0' }], sentence: CANCEL_FREE_TO_START, not: true },
+            { controlId: 'reserve.free', is: '0', orWhen: [{ controlId: 'reserve.sameday', is: '0' }], sentence: CANCEL_FREE_BEFORE },
             { controlId: 'reserve.sameday', is: '0', sentence: CANCEL_LATE },
             { controlId: 'reserve.noshow', is: '0', sentence: CANCEL_NOSHOW },
           ],

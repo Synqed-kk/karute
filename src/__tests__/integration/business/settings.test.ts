@@ -3063,6 +3063,12 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(previewTemplate(noDropWhen!, seed)).toBe(preview.template)
   })
 
+  it('S68 — previewTemplate orWhen: a drop matches when its own control OR any orWhen control matches; not inverts both', () => {
+    const p = (not?: true): NonNullable<SettingsBlock['preview']> => ({ template: 'A。B。', dropWhen: { controlId: 'x', is: '0', orWhen: [{ controlId: 'y', is: '0' }], sentence: 'A。', ...(not ? { not } : {}) } })
+    const at = (x: string, y: string) => [previewTemplate(p(), { x, y }), previewTemplate(p(true), { x, y })]
+    expect([at('0', '5'), at('5', '0'), at('0', '0'), at('5', '5')]).toEqual([['B。', 'A。B。'], ['B。', 'A。B。'], ['B。', 'A。B。'], ['A。B。', 'B。']])
+  })
+
   it('⚖ D-35 (2) pin (ii) — a guard leg: the Reserve window template really contains the sentence it can drop', async () => {
     const props = await room({ store: STORE_A })
     const preview = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.preview!

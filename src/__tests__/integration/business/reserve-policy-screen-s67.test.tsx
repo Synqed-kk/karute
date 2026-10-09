@@ -115,7 +115,7 @@ const previewText = () => {
   const t = blk('reserve.cancel').textContent ?? ''
   return t.match(/(ご来店の[^。]*。)(期限を過ぎた[^。]*。)?(ご連絡のない[^。]*。)?/)?.[0] ?? null
 }
-const READ_FAIL_LINE = 'この店舗の受付ルールを、いま読み込めませんでした。表示しているのは見本の値のため、変更や保存はできません。時間をおいて開き直してください。'
+const READ_FAIL_LINE = 'この店舗の受付ルールを、いま読み込めませんでした。表示しているのはサンプルの値のため、変更や保存はできません。時間をおいて開き直してください。'
 
 describe('Reserve S67 — 受付 screen fix batch', () => {
   it('F1: the six are locked while the PUT is in flight; an edit cannot land; core’s saved values show after', async () => {
@@ -179,7 +179,7 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
   it('F4: live and savable → the foot says 保存 reaches Reserve, never the demo line', async () => {
     await mount()
     const foot = [...document.querySelectorAll('.st-foot')].map((e) => e.textContent).join('|')
-    expect(foot).toContain('保存すると、この店舗の受付ルールがReserveの予約ページに反映されます')
+    expect(foot).toContain('保存すると、この店舗の受付ルールがReserveの予約ページに反映されます。「サンプル」の印がある項目は、この画面の中だけの保存になります。')
     expect(foot).not.toContain('保存はこの画面の中だけに反映されます')
   })
 
@@ -193,7 +193,8 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
   it.each([
     ['0', '0', 'ご来店の時刻までは、無料でキャンセルできます。ご連絡のないキャンセルは、料金の100%です。'],
     ['0', '30', 'ご来店の時刻までは、無料でキャンセルできます。期限を過ぎたキャンセルは、料金の30%です。ご連絡のないキャンセルは、料金の100%です。'],
-    ['24', '0', 'ご来店の24時間前までは、無料でキャンセルできます。ご連絡のないキャンセルは、料金の100%です。'],
+    // S68 — a 0 % 当日キャンセル料 is free up to the visit, whatever the deadline: never 「24時間前までは」
+    ['24', '0', 'ご来店の時刻までは、無料でキャンセルできます。ご連絡のないキャンセルは、料金の100%です。'],
     ['24', '30', 'ご来店の24時間前までは、無料でキャンセルできます。期限を過ぎたキャンセルは、料金の30%です。ご連絡のないキャンセルは、料金の100%です。'],
   ])('F6: cancel preview reads naturally — free %sh × late %s%%', async (free, late, line) => {
     await mount()
@@ -201,6 +202,30 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
     set('当日キャンセル料', late)
     expect(previewText()).toBe(line)
     process.stdout.write(`\n[S67 F6] ${free}h × ${late}% → ${previewText()}\n`)
+  })
+
+  it.each([
+    ['3', '0', '50', 'ご来店の時刻までは、無料でキャンセルできます。ご連絡のないキャンセルは、料金の50%です。'],
+    ['3', '30', '100', 'ご来店の3時間前までは、無料でキャンセルできます。期限を過ぎたキャンセルは、料金の30%です。ご連絡のないキャンセルは、料金の100%です。'],
+    ['0', '0', '0', 'ご来店の時刻までは、無料でキャンセルできます。'],
+  ])('S68 0%% preview: free %sh × late %s%% × no-show %s%%', async (free, late, noshow, line) => {
+    await mount()
+    set('無料キャンセル期限', free)
+    set('当日キャンセル料', late)
+    set('無断キャンセル料', noshow)
+    expect(previewText()).toBe(line)
+    process.stdout.write(`\n[S68 0%] ${free}h × ${late}% × ${noshow}% → ${previewText()}\n`)
+  })
+
+  it('S68 busy finally: a save whose network throws leaves the six unlocked and says so', async () => {
+    await mount()
+    global.fetch = jest.fn(async () => { throw new TypeError('network down') }) as unknown as typeof fetch
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    await press()
+    expect(inp('直前締切').getAttribute('aria-disabled')).toBeNull()
+    expect(alertLine()).not.toBeNull()
+    fireEvent.change(inp('直前締切'), { target: { value: '60' } })
+    expect(inp('直前締切').value).toBe('60')
   })
 
   it.each([[''], ['1.5'], ['abc']])('F7: 直前締切 = %j pressed without a blur → the range line, nothing sent', async (v) => {
@@ -238,13 +263,26 @@ describe('Reserve S67 — 受付 screen fix batch', () => {
     expect(fetchLog).toEqual([])
   })
 
-  it('F10: a row that fails the writer’s parse (grid 45, open_days null) is a failed read, never an empty dial', async () => {
-    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: 45, booking_open_days: null, updated_at: null })
+  it('F10: a row that fails the writer’s parse (open_days null) is a failed read, never an empty dial', async () => {
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, booking_open_days: null, updated_at: null })
     await mount()
     expect(blk('reserve.cancel').textContent).toContain(READ_FAIL_LINE)
     expect(daysInput().value).not.toBe('')
     await press()
     expect(fetchLog).toEqual([])
+  })
+
+  it('S68 grid 45 end to end: core 45 is SHOWN as 45, KEPT by a save that never touches it, SENT as 45', async () => {
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: 45, updated_at: null })
+    await mount()
+    expect(blk('reserve.cancel').textContent).not.toContain(READ_FAIL_LINE)
+    expect(inp('お客様が選べる開始時刻').value).toBe('45')
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    replies = [{ status: 200, body: { ok: true, row: { ...SIX, booking_open_days: 22, reserve_start_grid_min: 45, updated_at: STAMP }, basedOn: 'h' } }]
+    await press()
+    expect(fetchLog.length).toBe(1)
+    expect(fetchLog[0].body.policy).toEqual({ ...SIX, booking_open_days: 22, reserve_start_grid_min: 45 })
+    expect(inp('お客様が選べる開始時刻').value).toBe('45')
   })
 
   it('JP rulings: 標準（30分） + its 初期値, the full-sentence lead lock, 来店時刻まで無料, the shorter R5 note', async () => {

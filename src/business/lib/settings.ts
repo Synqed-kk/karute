@@ -898,11 +898,13 @@ export function fillTemplate(template: string, label: (id: string) => string | n
  *  string); otherwise the template is returned unchanged. The template
  *  still CONTAINS the sentence either way — dropping it is a fact about the
  *  live values, never about the template's own text. */
-/** One sentence a preview drops: when the control's live value is `is` — or, with `not`, when it is anything else. */
-export type PreviewDrop = { controlId: string; is: string; sentence: string; not?: true }
+/** One sentence a preview drops: when the control's live value is `is` (or, S68, when ANY `orWhen` control's live
+ *  value is its `is`) — or, with `not`, when none of them matches. */
+export type PreviewDrop = { controlId: string; is: string; sentence: string; not?: true; orWhen?: readonly { controlId: string; is: string }[] }
 export function previewTemplate(preview: NonNullable<SettingsBlock['preview']>, values: Record<string, RowValue>): string {
   const drops: readonly PreviewDrop[] = preview.dropWhen === undefined ? [] : 'sentence' in preview.dropWhen ? [preview.dropWhen] : preview.dropWhen
-  return drops.reduce((t, d) => ((String(values[d.controlId]) === d.is) !== (d.not === true) ? t.replace(d.sentence, '') : t), preview.template)
+  const hit = (c: { controlId: string; is: string }) => String(values[c.controlId]) === c.is
+  return drops.reduce((t, d) => ((hit(d) || (d.orWhen ?? []).some(hit)) !== (d.not === true) ? t.replace(d.sentence, '') : t), preview.template)
 }
 
 /** ⚠ ARRAY VALUES COMPARE BY CONTENT, NOT BY REFERENCE. A chips control whose
