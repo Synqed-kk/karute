@@ -1236,16 +1236,40 @@ export async function stampTakeTranscript(
  *  patchTakeMeta like every stamp here: a pin that cannot land only means a
  *  lost answer is re-bought under a new key, which is today's behaviour. The
  *  C3 guard is the transcript stamp's own, in the write's own transaction: a
- *  take finalized at ANOTHER key is never pinned. */
+ *  take finalized at ANOTHER key is never pinned.
+ *  ⚖ S114 (F-CT-4, Greptile #5) — A LIVE PIN FOR THE SAME BYTES AND LANGUAGE
+ *  IS NEVER REPLACED. Two attempts on one take (two tabs, or no tab lock) can
+ *  both read "no pin", both mint, and the later pin used to overwrite a key
+ *  that may already be paid for. In the same transaction: a live (unretired)
+ *  pin at another key, same locale, same size/type and the same SHA-256 on
+ *  both sides, stands — and is answered, so the later run re-sends THAT key.
+ *  Anything else (no hash on either side, other bytes, another locale, a
+ *  retired pin) is replaced as before: such a pin can never be re-presented
+ *  for this audio anyway (pinForSameBytes / the locale filter in ai-pipeline).
+ *  Answers the pin that stands after the write (this one, or the kept one),
+ *  or null when nothing landed. */
 export async function pinTakeFallback(
   takeId: string,
   pin: Omit<TakeFallbackPin, 'at'>,
-): Promise<void> {
-  await patchTakeMeta(
-    takeId,
-    { fallbackPin: { ...pin, at: Date.now() } },
-    (meta) => !meta.finalizedPath || meta.finalizedPath === pin.finalizedPath,
-  )
+): Promise<TakeFallbackPin | null> {
+  const fresh: TakeFallbackPin = { ...pin, at: Date.now() }
+  let kept: TakeFallbackPin | null = null
+  const wrote = await patchTakeMeta(takeId, { fallbackPin: fresh }, (meta) => {
+    kept = null
+    if (meta.finalizedPath && meta.finalizedPath !== pin.finalizedPath) return false
+    const live = meta.fallbackPin
+    if (live && !live.retiredAt && live.finalizedPath !== pin.finalizedPath && live.locale === pin.locale && samePinnedBytes(live.audio, pin.audio)) {
+      kept = live
+      return false
+    }
+    return true
+  })
+  return wrote ? fresh : kept
+}
+
+/** Same bytes, provably: size, type and a SHA-256 present on BOTH sides and equal. */
+function samePinnedBytes(a: TakeAudioFingerprint, b: TakeAudioFingerprint): boolean {
+  return a.sha256 !== undefined && a.sha256 === b.sha256 && a.size === b.size && a.type === b.type
 }
 
 /** ⚖ S54 F10: the server refused the pinned key outright — MARK the pin retired (kept whole, never

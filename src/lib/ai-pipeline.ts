@@ -552,9 +552,9 @@ export async function runAIPipeline(
             upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
           },
         )
-    const { body: transcribeBody, path: mintedPath } = prepared
+    let { body: transcribeBody, path: mintedPath } = prepared
     // S54 F9: a re-presented key's row comes from the pin (the port names none).
-    const minted = pinned ? pinned.recordingSessionId : prepared.recordingSessionId
+    let minted = pinned ? pinned.recordingSessionId : prepared.recordingSessionId
     if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
     // The fallback's PUT has landed (prepareTranscription throws before this
     // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
@@ -566,14 +566,29 @@ export async function runAIPipeline(
     if (pinning && !finalizedPath && !pinned) {
       const sha256 = await audioDigest()
       const pinAudio: TakeAudioFingerprint = sha256 === undefined ? audio : { ...audio, sha256 }
-      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio: pinAudio }
-      if (takeId)
-        await pinTakeFallback(takeId, {
-          finalizedPath: mintedPath,
-          recordingSessionId: pin.recordingSessionId,
-          locale,
-          audio: pinAudio,
-        })
+      const kept = takeId
+        ? await pinTakeFallback(takeId, {
+            finalizedPath: mintedPath,
+            recordingSessionId: minted ?? null,
+            locale,
+            audio: pinAudio,
+          })
+        : null
+      // ⚖ S114 (F-CT-4): another attempt on this take pinned the same bytes
+      // first — its key may already be paid for. This run re-sends THAT key
+      // (the re-presentation path above) instead of paying for the one it
+      // just minted; the minted object stays where it is (nothing is deleted).
+      if (kept && kept.finalizedPath !== mintedPath) {
+        const again = await recordingPort.prepareTranscription(
+          audioBlob,
+          kept.finalizedPath,
+          kept.recordingSessionId ? { takeRow: kept.recordingSessionId } : undefined,
+        )
+        transcribeBody = again.body
+        mintedPath = again.path
+        minted = kept.recordingSessionId
+      }
+      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio: kept?.audio ?? pinAudio }
       ctx.onFallbackPinned?.(pin)
     }
 

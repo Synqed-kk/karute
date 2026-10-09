@@ -1097,6 +1097,36 @@ describe('pinTakeFallback — the key a fallback is about to pay for (S53 A4)', 
     await pinTakeFallback(takeId, { finalizedPath: F, recordingSessionId: 'sess-x', locale: 'ja', audio })
     expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: F, recordingSessionId: 'sess-x' })
   })
+
+  // ⚖ S114 (F-CT-4, Greptile #5): two attempts on one take minted K1 and K2 for the SAME bytes —
+  // the later pin never replaces the live, possibly paid K1, and is told K1 so it re-sends it.
+  it('two attempts, same bytes and locale → one key: the first pin survives and is answered to the second', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const hashed = { ...audio, sha256: 'ab'.repeat(32) }
+    const K1 = 'app_biz-1_server-named-1.webm'
+    const K2 = 'app_biz-1_server-named-2.webm'
+    const first = await pinTakeFallback(takeId, { finalizedPath: K1, recordingSessionId: 'sess-1', locale: 'ja', audio: hashed })
+    expect(first).toMatchObject({ finalizedPath: K1 })
+    const second = await pinTakeFallback(takeId, { finalizedPath: K2, recordingSessionId: 'sess-2', locale: 'ja', audio: hashed })
+    expect(second).toMatchObject({ finalizedPath: K1, recordingSessionId: 'sess-1' })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: K1, recordingSessionId: 'sess-1' })
+  })
+
+  it('other bytes, another locale or a retired pin → replaced as before (such a pin is never re-presented for this audio)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const h1 = { ...audio, sha256: 'ab'.repeat(32) }
+    const h2 = { ...audio, sha256: 'cd'.repeat(32) }
+    await pinTakeFallback(takeId, { finalizedPath: 'k1.webm', recordingSessionId: null, locale: 'ja', audio: h1 })
+    expect(await pinTakeFallback(takeId, { finalizedPath: 'k2.webm', recordingSessionId: null, locale: 'ja', audio: h2 })).toMatchObject({ finalizedPath: 'k2.webm' })
+    expect(await pinTakeFallback(takeId, { finalizedPath: 'k3.webm', recordingSessionId: null, locale: 'en', audio: h2 })).toMatchObject({ finalizedPath: 'k3.webm' })
+    await retireTakeFallback(takeId, 'k3.webm', 9, 'transcribe_404')
+    expect(await pinTakeFallback(takeId, { finalizedPath: 'k4.webm', recordingSessionId: null, locale: 'en', audio: h2 })).toMatchObject({ finalizedPath: 'k4.webm' })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin?.finalizedPath).toBe('k4.webm')
+  })
 })
 
 // ⚖ S54 F10 — a refused key's pin is MARKED retired in the write's own
