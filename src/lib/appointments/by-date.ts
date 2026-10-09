@@ -6,6 +6,7 @@
 // store-scope + cached-name resolution and passes them in.
 
 import { isTerminalStatus } from '@/lib/appointments/status'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import type { Appointment, SynqedClient } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
@@ -204,6 +205,8 @@ export function isCountedBooking(a: Appointment): boolean {
  *  `truncated` = the window could not be read to exhaustion; every array is
  *  then EMPTY and no number derived from it may render. */
 export type AppointmentWindow = {
+  /** Retained only for shift capacity; never a counted booking. */
+  blocks?: Appointment[]
   counted: Appointment[]
   cancelled: Appointment[]
   noShow: Appointment[]
@@ -292,10 +295,12 @@ export async function fetchAppointmentWindow(
   if (rows.length < total) return { ...EMPTY_WINDOW, truncated: true }
 
   const counted: Appointment[] = []
+  const blocks: Appointment[] = []
   const cancelled: Appointment[] = []
   const noShow: Appointment[] = []
   for (const a of rows) {
     if (!isShownBooking({ staffId: a.staff_id }, shownUnder)) continue
+    if (BOOKING_SWITCHES.shiftLanes && a.kind === 'BLOCK' && !isTerminalStatus(a.status)) blocks.push(a)
     if (isCountedBooking(a)) {
       counted.push(a)
       continue
@@ -307,7 +312,7 @@ export async function fetchAppointmentWindow(
     if (a.status === 'CANCELLED') cancelled.push(a)
     else if (a.status === 'NO_SHOW') noShow.push(a)
   }
-  return { counted, cancelled, noShow, truncated: false }
+  return { counted, cancelled, noShow, truncated: false, ...(BOOKING_SWITCHES.shiftLanes ? { blocks } : {}) }
 }
 
 /**

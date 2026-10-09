@@ -46,7 +46,7 @@ import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
 import type { WeekStart } from '@/lib/date/week-start'
 import { jstMidnight } from '@/lib/date/calendar-range'
 import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
-import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
+import type { ShiftCapacityInput, CapacityFact, LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
 
 /** ⚖ R1-2 — the withheld answer, shared so every surface of a screen whose
@@ -89,6 +89,7 @@ export function parseStaffParam(value: string | undefined): string {
 // No `view` input: the week/month ranges (null = day view) already encode it —
 // the caller resolves view → ranges before the build.
 export interface AppointmentsScreenInputs {
+  shiftCapacity?: Omit<ShiftCapacityInput, 'date'>
   locale: string
   /** Resolved by the caller; older facade callers retain Monday cells. */
   weekStart?: WeekStart
@@ -606,7 +607,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded, workedRows: workedRowsOf(win) },
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded, workedRows: workedRowsOf(win), shiftCapacity: input.shiftCapacity, blockAppointments: win.blocks },
     )
 
   let weekData: WeekDayRowData[] | null = null
@@ -640,7 +641,7 @@ export function buildAppointmentsScreen(
         workedRowsOf(monthWin),
         monthRange.monthStart,
         monthRange.monthEnd,
-        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded, shiftCapacity: input.shiftCapacity, blockAppointments: monthWin.blocks },
       )
       // Same window, same memo as the week rows would take — a month cell's
       // 新規 and the week row's 新規 for one day are one number.

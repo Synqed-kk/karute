@@ -2,15 +2,16 @@
 // type (registry.json maps store → type; recipes/<type>.ts holds the data; plan.ts turns it into rows).
 //
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.ts <cmd>
-//     plan  [--type <id>] [--manifest <path>]           counts per section, no network
-//     apply --type <id> --manifest <path> [--dry-run]  live; --dry-run does every READ and writes nothing
+//     plan  --store <uuid|all> [--rows] [--type <id>] [--manifest <path>]           counts per section, no network
+//     apply --store <uuid|all> --manifest <path> [--dry-run]  live; --dry-run does every READ and writes nothing
 //   CADENCE: re-run `apply` WEEKLY. The window is epoch − pastDays … today + futureDays; a re-run only
 //   adds the days that appeared since (the top-up). Rows are matched by stable keys, so a re-run of
 //   an unchanged window creates 0.
 //
-// It ADDS and never takes away: no delete call, and no update of an existing row's fields — Liam's own
-// changes in Business survive every top-up. The one exception is staffStores.set, used only to ADD this
-// store to a staff member's list (the list already there is kept).
+// It ADDS and never takes away: no delete call, and no edit of an existing row's fields — Liam's own changes in
+// Business survive every top-up. Two exceptions: staffStores.set, used only to ADD this store to a staff member's
+// list (the list already there is kept); and the status of today's still-予約済み loader bookings (non-legacy, no
+// person set it), written through close-out.ts's setPlannedStatus — this file itself has no update call.
 //
 // Why it does NOT import scripts/lib/core-target-guard.ts: that guard refuses every non-local core
 // because it protects a DELETING seeder (seed-booking-data.ts). This loader targets the shared core on
@@ -26,23 +27,28 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
-import { addDays, bookingNotes, hoursOn, jstIso, plan, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { setPlannedStatus, todayStatusFixes } from './close-out'
+import { namePoolFor, STAFF_NAMES } from './names'
+import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
   SynqedClient,
   'orgSettings' | 'stores' | 'staff' | 'staffStores' | 'storePolicies' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords'
 >
-type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions'
+type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions' | 'todayStatus'
 interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[] }
 export interface Manifest {
   businessId: string
   // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
-  stores: Record<string, { type: string; epoch: string; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
+  stores: Record<string, { type: string; epoch: string; pastDays?: number; legacyThrough?: string | null; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
   runs: Run[]
 }
 interface Registry {
   types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null; realism?: Realism }>
-  stores: Record<string, string>
+  // identityIndex: ⚖ G3 (S87) the store's FIXED identity slot (staff names, member series, phones) — never its position in this map
+  stores: Record<string, { type: string; keyPrefix: string; namePool: number; identityIndex: number }>
+  pastDays: number
+  futureDays: number
   slotMinutes: Record<string, number>
   cancelReasons: Record<string, number>
 }
@@ -50,20 +56,87 @@ interface Registry {
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))
 
 /** The recipe for a registry type: data from recipes/<id>.ts, counts and realism values from registry.json. */
-export async function loadRecipe(id: string): Promise<Recipe> {
+export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)[0], recordedPastDays?: number): Promise<Recipe> {
   const counts = registry.types[id]?.recipe
   if (!/^[a-z_]+$/.test(id) || !counts) throw new Error(`type ${id} has no recipe in registry.json`)
   const mod = (await import(`./recipes/${id}`)) as { recipe: RecipeData }
-  return { ...mod.recipe, id, counts, realism: registry.types[id].realism }
+  const entry = registry.stores[storeId]
+  if (!entry || entry.type !== id) throw new Error(`store ${storeId} is not mapped to ${id}`)
+  const data = mod.recipe
+  const size = counts.customers
+  const original = entry.keyPrefix === id
+  // ⚖ G3 (S87): identities derive from the store's fixed identityIndex (registry.json), never from its position in the map —
+  // reordering or inserting stores never changes a saved member number, staff name or phone
+  const storeIndex = entry.identityIndex
+  if (!Number.isInteger(storeIndex) || storeIndex < 0 || (storeIndex + 1) * data.staff.length > STAFF_NAMES.length || Object.entries(registry.stores).some(([sid, s]) => sid !== storeId && s.identityIndex === storeIndex))
+    throw new Error(`store ${storeId}: registry.json identityIndex must be a non-negative integer no other store carries, inside the staff-name pool`)
+  // ⚖ R6/Q2: an applied store sizes its window AND its 新規 first visits by the pastDays its manifest recorded; registry.json only for a new store
+  const pastDays = recordedPastDays ?? registry.pastDays ?? 105
+  const legacyCount = original ? data.customers.length : 0
+  // ⚖ R9: the type's surname × given-name pool (names.ts), seeded order, a disjoint slice per store
+  const names = namePoolFor(id).slice(entry.namePool * size, (entry.namePool + 1) * size) // never a hand-written customer's name, of any type
+  if (names.length !== size) throw new Error(`recipe ${id}: name pool too short for store ${storeId}`)
+  const practitioners = data.staff.filter((s) => s.role !== 'ASSISTANT')
+  // ⚖ R8: a generated store's staff are plain names from its own slice of STAFF_NAMES (disjoint by identityIndex)
+  const staffOf = new Map(data.staff.map((s, i) => [s.name, original ? s.name : STAFF_NAMES[storeIndex * data.staff.length + i]]))
+  const series = data.customers[0].member.split('-')[0]
+  const pad = (n: number, w = 4) => String(n).padStart(w, '0')
+  const member = (i: number) => (original ? `${series}-${pad(i + 1)}` : `${series}${storeIndex + 1}-${pad(i + 1)}`)
+  const customers: Recipe['customers'] = names.map(([name, kana, gender], i) => {
+    if (i < legacyCount) return data.customers[i]
+    const r = rng(`${entry.keyPrefix}|customer|${i}`)
+    const t = rng(`${entry.keyPrefix}|template|${i}`)
+    const templates = data.customers.filter((c) => c.gender === gender)
+    // the first thirty keep their template by index (the 回数券 holders' menus); the rest pick theirs by seed
+    const c = i < data.customers.length && data.customers[i].gender === gender ? data.customers[i] : templates[Math.floor(t() * templates.length)]
+    const [lo, hi] = data.profile!.cadence
+    const every = lo + Math.floor(r() * (hi - lo + 1))
+    const menus = data.menus.filter((m) => m.duration >= data.profile!.menuMinutes[0] && m.duration <= data.profile!.menuMinutes[1])
+    const usual = menus.find((m) => m.name === c.menu) ?? menus[i % menus.length]
+    const alt = menus.find((m) => m.name === c.alt) ?? usual
+    const staff = practitioners.find((s) => s.name === c.staff) ?? practitioners[i % practitioners.length]
+    const birth = `${Number(c.birth.slice(0, 4)) + Math.floor(t() * 9) - 4}-${pad(1 + Math.floor(t() * 12), 2)}-${pad(1 + Math.floor(t() * 28), 2)}`
+    return { ...c, member: member(i), name, kana, gender, birth, staff: staffOf.get(staff.name)!, menu: usual.name, alt: alt.name,
+      every, start: Math.floor(r() * every), isNew: false,
+      phone: `090-0000-${String(4000 + storeIndex * 700 + i + 1).padStart(4, '0')}`, email: `${id}.${entry.namePool}.${i + 1}@example.jp` }
+  })
+  // ⚖ R10: 9 % of every store's members are 新規 — their first visit (the 初回 menu) falls inside the window
+  const holders = new Set(data.packs.map((p) => data.customers.findIndex((c) => c.member === p.member)))
+  const owed = Math.round(size * 0.09) - customers.filter((c) => c.isNew).length
+  const fresh = customers.map((_, i) => ({ i, w: rng(`${entry.keyPrefix}|new|${i}`)() })).filter(({ i }) => i >= legacyCount && !holders.has(i))
+    .sort((a, b) => a.w - b.w).slice(0, Math.max(0, owed))
+  for (const { i } of fresh) customers[i] = { ...customers[i], isNew: true, start: Math.floor(rng(`${entry.keyPrefix}|new-start|${i}`)() * (pastDays + registry.futureDays)) }
+  return { ...data, id, storeId, customers, staff: data.staff.map((s) => ({ ...s, name: staffOf.get(s.name)! })),
+    packs: data.packs.map((p) => ({ ...p, member: member(data.customers.findIndex((c) => c.member === p.member)) })),
+    counts: { ...counts, pastDays, futureDays: registry.futureDays },
+    addedStaff: data.addedStaff?.map((n) => staffOf.get(n)!),
+    legacyMembers: original ? data.customers.map((c) => c.member) : [], legacyPastDays: counts.pastDays,
+    realism: registry.types[id].realism }
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
-export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string }): StoreCtx =>
-  ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], realismFrom: st.realismFrom })
+/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + futureDays; null = none. */
+export const lastWindowEnd = (runs: readonly { store: string; today: string }[], storeId: string): string | null =>
+  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, registry.futureDays)).sort().pop() ?? null
 
-/** One recipe = one store: a recipe's member numbers and keys belong to exactly one store in registry.json. */
-export function assertOneStore(stores: Record<string, string>, type: string): void {
-  if (Object.values(stores).filter((t) => t === type).length !== 1) throw new Error(`type ${type} must map exactly one store in registry.json (one recipe = one store; a second store of a type needs its own recipe and member-number series)`)
+export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number; legacyThrough?: string | null }, runs: readonly { store: string; today: string }[] = []): StoreCtx => {
+  // ⚖ R6: an applied store plans from the pastDays its manifest recorded at first apply; a differing registry value is logged and ignored
+  if (st.pastDays !== undefined && st.pastDays !== registry.pastDays) console.warn(`store ${storeId}: manifest pastDays ${st.pastDays} kept, registry.json pastDays ${registry.pastDays} ignored`)
+  return { storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom, pastDays: st.pastDays,
+    legacyThrough: st.legacyThrough !== undefined ? st.legacyThrough : lastWindowEnd(runs, storeId) } // unrecorded: derived from the runs
+}
+
+/** --type is the original store alias; --store all preserves registry order. Unknown selectors fail closed. */
+export function targetsFor(store?: string, type?: string): string[] {
+  if (store && type) throw new Error('choose --store or --type, not both')
+  if (type) {
+    const original = Object.keys(registry.stores).find((id) => registry.stores[id].type === type && registry.stores[id].keyPrefix === type)
+    if (!original) throw new Error(`unknown type ${type}`)
+    return [original]
+  }
+  if (!store || store === 'all') return Object.keys(registry.stores)
+  if (!Object.hasOwn(registry.stores, store)) throw new Error(`unmapped store ${store}`)
+  return [store]
 }
 
 export const jstToday = (now = new Date()) => new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10)
@@ -97,6 +170,7 @@ export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest
 /** One store of one type. Mutates opts.manifest (the caller saves it, even after a throw). */
 export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const { recipe, storeId, today, dry, log } = o
+  if (o.manifest.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
   const read = <T,>(fn: () => Promise<T>) => withRetry(fn, false, o.wait)
   let cards: Awaited<ReturnType<typeof assertDevSalon>>
   try {
@@ -106,8 +180,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     log(`REFUSED: ${e.message}`)
     return 2
   }
-  if (registry.stores[storeId] !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
-  assertOneStore(registry.stores, recipe.id)
+  if (registry.stores[storeId]?.type !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
+  if (recipe.storeId && recipe.storeId !== storeId) throw new Error(`recipe was prepared for store ${recipe.storeId}, not ${storeId}`)
   const { stores } = await read(() => core.stores.list())
   if (!stores.some((s) => s.id === storeId)) throw new Error(`store ${storeId} is not in core`)
   const dev = cards.find((s) => s.email?.toLowerCase() === DEV_EMAIL)!
@@ -115,8 +189,12 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const m = o.manifest
   const policy = await read(() => core.storePolicies.get(storeId))
   const prior = m.stores[storeId]
-  const st = prior ?? { type: recipe.id, epoch: today, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
+  if (prior && prior.type !== recipe.id) throw new Error(`manifest type ${prior.type} ≠ registry type ${recipe.id}`)
+  const st = prior ?? { type: recipe.id, epoch: today, pastDays: registry.pastDays ?? 105, legacyThrough: null, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
   if (!dry) m.stores[storeId] = st
+  if (!dry && st.pastDays === undefined) st.pastDays = registry.pastDays ?? 105 // ⚖ R6: recorded once, at the first apply of this code
+  // ⚖ E2: recorded once, at the first apply of this code, from the runs before it (a new entry records null above)
+  if (st.legacyThrough === undefined) st.legacyThrough = lastWindowEnd(m.runs, storeId)
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
@@ -205,9 +283,10 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
 
     // ours = the id this loader recorded, else the notes/tag (a staff edit of the notes must not make a second row).
     // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
-    // makes its own tagged one beside it.
+    // makes its own tagged one beside it. ⚖ F2 (S88): the window is business-wide (every store, like close-out.ts) so the
+    // staff clash sees the same practitioner's bookings at another store; ownership (mine) stays this store's rows only.
     const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
-    const mine = new Map<string, { id: string; status: string; customer_id: string | null }>()
+    const mine = new Map<string, Appointment>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
       if (tag && a.store_id === storeId) mine.set(tag, a)
@@ -222,6 +301,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
     }
     const apptRow = new Map<string, { id: string; status: string }>()
+    const ownedRows: { row: Appointment; planned: Plan['appointments'][number]; staffId: string }[] = []
     await pool(p.appointments, async (a) => {
       const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
@@ -231,17 +311,35 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id}'s customer differs from the planned customer, left alone`)
       if (have) {
         if (!dry) (st.created.appointments ??= {})[a.key] = have.id
+        ownedRows.push({ row: have, planned: a, staffId: sid })
         return void apptRow.set(a.key, have)
       }
       const other = clash(a, sid, rid)
       if (other) return void run.skipped.push(`appointments ${a.key}: overlaps existing booking ${other.id}`)
       const row = await write('appointments', a.key, () => core.appointments.create({
         customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
-        duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
-        title: null, notes: bookingNotes(a),
+        duration_minutes: a.duration, booked_price_amount: a.booked_price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
+        // Create has no status_reason in this SDK; realism.ts writes the reason and its label together later.
+        // ⚖ G-P2 (S88): no status_reason is saved by this create, so no cancel label either (realism.ts writes both, together)
+        title: null, notes: bookingNotes({ ...a, cancelReason: null }),
       }, { idempotencyKey: `test-world:${a.key}` }))
       if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
     })
+
+    // ⚖ G1 (S87): today's owned rows still SCHEDULED take the plan's status, on EVERY run (the board's live session is
+    // not a first-fill-only state). The write is close-out.ts's one status write; this file still has no update call.
+    for (const { row, planned } of todayStatusFixes(ownedRows, recipe, today, run.skipped)) {
+      run.created.todayStatus = (run.created.todayStatus ?? 0) + 1
+      if (dry) continue
+      try {
+        sent++
+        await withRetry(() => setPlannedStatus(core, row, planned.status), 'keyed', o.wait) // an update restated is the same update
+        apptRow.set(planned.key, { id: row.id, status: planned.status })
+      } catch (e) {
+        run.created.todayStatus!--
+        run.errors.push(`todayStatus ${planned.key}: ${message(e)}`)
+      }
+    }
 
     // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
     const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
@@ -260,13 +358,17 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const pid = packId.get(k.key)
       if (!pid) return
       const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
-      const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
+      const redeemed = pid.startsWith('dry:') ? [] : await read(() => core.packs.listRedemptions(cid))
+      const burnt = new Set(redeemed.map((r) => `${r.pack_id}|${r.redeemed_on}`))
+      let used = redeemed.filter((r) => r.pack_id === pid).length // ⚖ Q7: every burn counts, a same-day double burn too (never distinct dates)
       for (const key of k.redeem) {
+        if (used >= k.size) break // ⚖ R5: never more burns than the pack holds (never 6 on a 5)
         const aid = done(key)
         if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
         await write('redemptions', key, () => core.packs.addRedemption({
           pack_id: pid, customer_id: cid, redeemed_on: dateOf.get(key)!, appointment_id: aid, source: 'manual', created_by: staffId.get(k.staff) ?? null,
         }, { idempotencyKey: `test-world:${key}:redeem` }))
+        used++
       }
     })
 
@@ -339,22 +441,26 @@ export function summarize(p: Plan, today: string, hours: WeeklyHours) {
 if (process.argv[1]?.endsWith('fill.ts')) {
   const [cmd, ...rest] = process.argv.slice(2)
   const flag = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-  const [type, path, dry, today] = [flag('--type'), flag('--manifest'), rest.includes('--dry-run'), jstToday()]
+  const [store, type, path, dry, today] = [flag('--store'), flag('--type'), flag('--manifest'), rest.includes('--dry-run'), jstToday()]
   const load = (): Manifest => (path && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { businessId: DEV_SALON_BUSINESS_ID, stores: {}, runs: [] })
   const main = async (): Promise<number> => {
-    const targets = Object.entries(registry.stores).filter(([, t]) => (type ? t === type : registry.types[t]?.recipe))
+    const targets = targetsFor(store, type)
     if (cmd === 'plan') {
       const m = load()
-      for (const [storeId, t] of targets) {
-        const r = await loadRecipe(t)
+      for (const storeId of targets) {
+        const t = registry.stores[storeId].type
         const st = m.stores[storeId]
+        const r = await loadRecipe(t, storeId, st?.pastDays)
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        console.log(storeId, t, JSON.stringify(summarize(plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom }), today, st?.epoch ?? today), today, hours), null, 1))
+        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
+        console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
+        if (rest.includes('--rows')) for (const a of p.appointments)
+          console.log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
       }
       return 0
     }
-    if (cmd !== 'apply' || !type || !path) {
-      console.log('usage: fill.ts plan [--type <id>] [--manifest <path>] | apply --type <id> --manifest <path> [--dry-run]')
+    if (cmd !== 'apply' || (!store && !type) || !path) {
+      console.log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run]')
       return 1
     }
     const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
@@ -363,10 +469,14 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     const core = new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })
     const m = load()
     if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
-    const recipe = await loadRecipe(type)
     let code = 0
     try {
-      for (const [storeId] of targets) code = Math.max(code, await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true }))
+      for (const storeId of targets) {
+        const recipe = await loadRecipe(registry.stores[storeId].type, storeId, m.stores[storeId]?.pastDays)
+        const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true })
+        if (result === 2) return 2 // a refusal stops the whole run, including --store all
+        code = Math.max(code, result)
+      }
     } finally {
       if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
     }
@@ -374,10 +484,10 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     return code
   }
   main().then(
-    (code) => process.exit(code),
+    (code) => { process.exitCode = code },
     (e) => {
       console.error('fill failed:', message(e))
-      process.exit(1)
+      process.exitCode = 1
     },
   )
 }
