@@ -129,10 +129,7 @@ export function maskSensitive(s: string): string {
   out = out.replace(/[^\x00-\x7F]+/g, '<text>')
   out = out.replace(AUTH_HEADER_RE, 'Authorization: <redacted>')
   out = out.replace(BEARER_RE, 'Bearer <token>')
-  out = out.replace(
-    /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
-    '<label>=<redacted>',
-  )
+  out = out.replace(LABELLED_CRED_RE, '<label>=<redacted>')
   out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
   // after the JWT rule, so `token eyJ…` stays `<jwt>` on errors.ts log lines
   out = out.replace(SCHEME_CRED_RE, '$1 <token>')
@@ -197,6 +194,12 @@ const AUTH_HEADER_RE = /\bAuthorization\s*[:=].*$/gim
  *  Token: Refresh Token Not Found」 or 「Token expired」 keep their meaning. */
 const CRED_VALUE = /[A-Za-z0-9+/=._-]{16,}/
 const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'gi')
+/** THE labelled-credential rule (Greptile #1159 G1) — the one definition,
+ *  used by maskSensitive (text: masks) AND guardOne (every shape position:
+ *  token · path and frame file per segment · spaced · transaction name · iso ·
+ *  content-type — a hit drops the field). A label word (no leading `\b`, so
+ *  access_token / clientSecret match too) then `:` or `=` then a value. */
+export const LABELLED_CRED_RE = /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
 const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
@@ -243,6 +246,7 @@ function maskUnbrokenDigits(s: string): string {
 function guardOne(s: string): string {
   let out = s.replace(AUTH_HEADER_RE, 'Authorization: <redacted>')
   out = out.replace(BEARER_RE, (m) => `${m.split(/\s/)[0]} <token>`)
+  out = out.replace(LABELLED_CRED_RE, '<label>=<redacted>')
   out = out.replace(SCHEME_CRED_RE, '$1 <token>')
   out = out.replace(JWT_RE, '<jwt>')
   out = out.replace(B64_RUN, (m) => (base64Looking(m) ? '<blob>' : m))
@@ -251,7 +255,8 @@ function guardOne(s: string): string {
 
 /** guardContent(s): masks 10-16-digit runs with up to five separators and
  *  every unbroken 10+-digit run unless inside an id or hash (the F1 rule),
- *  base64-looking runs, a JWT, `Bearer <x>`, `Basic|Token <CRED_VALUE>` and everything after
+ *  base64-looking runs, a JWT, `Bearer <x>`, a labelled credential
+ *  (LABELLED_CRED_RE), `Basic|Token <CRED_VALUE>` and everything after
  *  `Authorization:`. `perSegment` (path and frame-file positions): the rule
  *  runs on each `/`-separated segment, never across the whole path. */
 export function guardContent(s: string, perSegment = false): string {

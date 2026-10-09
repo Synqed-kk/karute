@@ -167,11 +167,20 @@ describe('M5 data: and blob: are judged on both copies in path() (R-S113-5 D4, R
 
 describe('M6 Basic and Token mask only a credential-looking value (R-S113-6 F-S113-4)', () => {
   const SUPA = 'Invalid Refresh Token: Refresh Token Not Found'
-  it.each([SUPA, 'Token expired', 'basic validation failed'])('%j keeps its meaning: no <token>, kept at spaced', (v) => {
+  it.each(['Token expired', 'basic validation failed'])('%j keeps its meaning: no <token>, kept at spaced', (v) => {
     expect(maskSensitive(v)).not.toMatch(/<token>/)
     expect(masked(v, 200)).not.toMatch(/<token>/)
     expect(guardHits(v)).toBe(false)
     expect(spaced(v, 200)).toBe(v)
+  })
+  // Greptile #1159 G1: the labelled-credential rule is ONE rule at every
+  // position, so 「Token: …」 drops at spaced positions as it masks in text
+  // (no <token>; the residual list names this over-masking).
+  it('the Supabase line: no <token>, the label rule masks it in text and drops it at spaced', () => {
+    expect(maskSensitive(SUPA)).not.toMatch(/<token>/)
+    expect(masked(SUPA, 200)).toBe('Invalid Refresh <label>=<redacted> Token Not Found')
+    expect(guardHits(SUPA)).toBe(true)
+    expect(spaced(SUPA, 200)).toBeUndefined()
   })
   it.each(['Token expired', 'basic validation failed'])('%j is unchanged in text', (v) => {
     expect(maskSensitive(v)).toBe(v)

@@ -13,7 +13,9 @@
 //   `+ _ , /`, ・ or 〜, gaps of up to 3 such characters, +81 or 0), an
 //   unbroken run of 10+ digits, a `Bearer` value, a credential-looking
 //   `Basic` / `Token` value, anything after `Authorization:` or
-//   `authorization=`, a JWT, or a Base64-looking run (24+ characters mixing
+//   `authorization=`, a value after a credential label (`password=`,
+//   `token:`, `api_key=`, `secret:` …; one rule at every position, Greptile
+//   #1159 G1), a JWT, or a Base64-looking run (24+ characters mixing
 //   upper case, lower case and digits). In a web address, file path or code
 //   field such a value drops the whole field; in the error text it is
 //   replaced by a marker.
@@ -35,7 +37,9 @@
 //   (「/api/2026/10/08/12345」) becomes `<phone>`, and the label rule turns
 //   「Invalid Refresh Token: Refresh Token Not Found」 into 「Invalid Refresh
 //   <label>=<redacted> Token Not Found」 (kept on purpose: a label followed
-//   by `:` or `=` is masked).
+//   by `:` or `=` is masked; at a user-agent, accept, function-name or other
+//   spaced or code field the same text now drops the field, as does any
+//   path or code value holding `key=…` / `token:…`, e.g. 「monkey:banana」).
 // - Wherever digits are judged: ten single digits spaced (「0 9 0 1 2 3 4 5 6
 //   7」), letters for digits (「O9O-1234-5678」), JSON `\u002d` escapes for
 //   the dashes, a number with a colon anywhere in it (「090:1234:5678」,
