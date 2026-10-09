@@ -8,7 +8,7 @@ import {
 import { scrubEvent } from '@/lib/observability/sentry-scrub'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { guardContent, preBound } from '@/lib/text/mask-sensitive'
-import { LABEL_FORMS, S2_CUT_SHAPES, residue } from './helpers/sentry-exit-plants'
+import { KEY32, LABEL_FORMS, S2_CUT_SHAPES, residue } from './helpers/sentry-exit-plants'
 
 const EID = 'a'.repeat(32)
 const PW = ['Q7m', '!rT2'].join('')
@@ -153,5 +153,19 @@ describe('R-S115-1 S2 — the pre-bound cut normalises before its tail scan', ()
   it('a cut that splits an astral character drops the lone high surrogate', () => {
     const v = 'あ'.repeat(1999) + String.fromCodePoint(0x1d7ce) + 'ん'.repeat(10)
     expect(/[\uD800-\uDBFF]$/.test(preBound(v))).toBe(false)
+  })
+})
+
+describe('R-S115-1 N2 — the cut strips a separate digit run, never the end of a kept word', () => {
+  it('a 32-char key ending in a digit, kept whole before the cut word, stays masked on the log line', () => {
+    expect(/\d$/.test(KEY32)).toBe(true)
+    const v = 'あ'.repeat(1960) + ' ' + KEY32 + ' ' + 'z'.repeat(100)
+    expect(describeUnknownThrow(new Error(v)).errMessage).not.toContain(KEY32.slice(8, 20))
+    expect(preBound(v).endsWith(KEY32)).toBe(true)
+  })
+
+  it('a phone stub before the cut word is still dropped', () => {
+    const v = 'あ'.repeat(1980) + ' 090 1234 ' + 'z'.repeat(100)
+    expect(preBound(v)).toBe('あ'.repeat(1980))
   })
 })

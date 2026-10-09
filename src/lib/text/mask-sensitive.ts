@@ -166,7 +166,13 @@ export function maskSensitive(s: string): string {
  *  whitespace the cut word is dropped back to. */
 const BOUND = 2000
 const CUT_WORD_TAIL = /[\x21-\x7E\uFF01-\uFF5E\p{Cf}]+$/u
-const CUT_PHONE_TAIL = new RegExp(`[\\s0-9\uFF10-\uFF19\\p{Cf}${PHONE_SEP}]+$`, 'u')
+/** R-S115-1 N2: the trailing run starts at a separator or whitespace, or at a
+ *  digit that follows one (or the start): a SEPARATE run (a phone cut between
+ *  groups). The last digits of a complete word kept before the cut word
+ *  (a 32-char key ending in `6`) are never stripped. */
+const CUT_SEP = `\\s\\p{Cf}${PHONE_SEP}`
+const CUT_DIGIT = '0-9\uFF10-\uFF19'
+const CUT_PHONE_TAIL = new RegExp(`(?:(?<=^|[${CUT_SEP}])[${CUT_DIGIT}]|[${CUT_SEP}])[${CUT_DIGIT}${CUT_SEP}]*$`, 'u')
 const LONE_HIGH_SURROGATE = /[\uD800-\uDBFF]$/
 function sliceToBound(t: string): string {
   const c = t.slice(0, BOUND)
