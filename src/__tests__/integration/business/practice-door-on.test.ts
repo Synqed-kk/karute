@@ -2618,7 +2618,7 @@ describe('(12) Reserve S66 — 受付 reads the store\'s six booking rules live 
     const props = await read({})
     expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map((id) => controlOf(props, id).value))
       .toEqual(['21', '90', '15', '12', '30', '100'])
-    expect(controlOf(props, 'reserve.lead')).toMatchObject({ value: '90', locked: '直前締切と同じ' })
+    expect(controlOf(props, 'reserve.lead')).toMatchObject({ value: '90', locked: '上の「直前締切」と同じ値です。変えるときは「直前締切」を変更してください' })
     const lead = props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows)).find((r) => r.controls.some((c) => c.id === 'reserve.lead'))!
     expect(lead.trio!.base).toBe('初期値: 直前締切と同じ')
   })

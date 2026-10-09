@@ -76,6 +76,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '
 import { jstClock } from '@/business/lib/clock'
 // Types only: a 'use client' file never value-imports the practice door (foundation.test.ts, TRANSITIVE).
 import type { ReserveGrid, ReservePolicy } from '@/business/lib/practice-door/reserve-policy'
+import { lateFromBooking, policyAuditLine } from '@/business/lib/reserve-policy-view'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
@@ -490,7 +491,7 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
 // ── Reserve S66 §9 R10 — Reserve 受付's six booking rules, saved per store (予約の色分け's twin) ──────────
 // page.tsx hands this over ONLY while the door is ON, a store is in the lens and its rules read live. `basedOn`
 // is the fingerprint of the six as read; every save sends it and takes the next one from core's answer.
-export type ReservePolicySave = { businessId: string; storeId: string; canSave: boolean; basedOn: string }
+export type ReservePolicySave = { businessId: string; storeId: string; canSave: boolean; basedOn: string; updatedAt: string | null; lateNote: string }
 const RESERVE_POLICY_URL = '/api/business/reserve-policy'
 const RESERVE_SECTION_ID = 'reserve-acceptance'
 const RESERVE_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', reserve_start_grid_min: 'reserve.grid', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
@@ -504,6 +505,30 @@ export const reservePolicyOf = (values: Record<string, RowValue>): ReservePolicy
   no_show_pct: Number(values[RESERVE_IDS.no_show_pct]),
 })
 const RESERVE_FIELDS = Object.keys(RESERVE_IDS) as Array<keyof ReservePolicy>
+/** S67 F7 — the five number dials; a value that is not a whole number never reaches the PUT (no Number('') = 0). */
+const RESERVE_NUMBER_IDS = [RESERVE_IDS.booking_open_days, RESERVE_IDS.cutoff_minutes, RESERVE_IDS.cancel_free_until_hours, RESERVE_IDS.cancel_late_pct, RESERVE_IDS.no_show_pct]
+const RESERVE_CONTROL_IDS: ReadonlySet<string> = new Set<string>(Object.values(RESERVE_IDS))
+/** S67 F1 — the six while a save is in flight (lock reason, sibling register). */
+const RESERVE_BUSY_LOCK = '保存しています'
+/** S67 F4 — the section foot while the six save to core (the demo line would be false). */
+const RESERVE_SAVE_NOTE = '保存すると、この店舗の受付ルールがReserveの予約ページに反映されます（「サンプル」の印がある項目は、この画面の中だけに反映されます）。'
+const reserveSixOf = (row: Record<string, unknown>) => Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy
+const reserveStampOf = (row: Record<string, unknown>) => (typeof row.updated_at === 'string' ? row.updated_at : null)
+/** S67 F1/F2 — Reserve 受付 while it saves live: the late note follows the DRAFT, 最終変更 the last saved row, and
+ *  the six are locked while a save is in flight. The rest of the section is the server's, unchanged. */
+function reserveViewOf(s: SettingsSection, lateNote: string, values: Record<string, RowValue>, savedAt: string | null, busy: boolean): SettingsSection {
+  const late = lateFromBooking(reservePolicyOf(values))
+  const audit = policyAuditLine(savedAt)
+  return {
+    ...s,
+    blocks: s.blocks.map((b) => {
+      if (b.id !== 'reserve.window' && b.id !== 'reserve.cancel') return b
+      const rows = busy ? b.rows.map((r) => ({ ...r, controls: r.controls.map((c) => (RESERVE_CONTROL_IDS.has(c.id) ? { ...c, locked: RESERVE_BUSY_LOCK } : c)) })) : b.rows
+      const facts = b.id === 'reserve.cancel' ? [...(b.facts ?? []).filter((f) => f !== lateNote), ...(late ? [lateNote] : [])] : b.facts
+      return { ...b, rows, facts, audit: audit ?? null }
+    }),
+  }
+}
 /** Core's six → the dials' values (the linked 直前の空きは売らない follows 直前締切). */
 const reserveValuesOf = (p: ReservePolicy): Record<string, RowValue> => ({
   ...Object.fromEntries(RESERVE_FIELDS.map((k) => [RESERVE_IDS[k], k === 'reserve_start_grid_min' && p[k] === null ? 'default' : String(p[k])])),
@@ -518,7 +543,9 @@ const RESERVE_SAVE_FAIL = {
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（受付ルールはこれまでのままです）。',
 } as const
 const reserveFallback = (reason: string): string => (reason === 'forbidden' || reason === 'tenant' || reason === 'invalid' ? RESERVE_SAVE_FAIL[reason] : RESERVE_SAVE_FAIL.core)
-export type ReservePolicyAnswer = { ok: true; row: ReservePolicy; basedOn: string } | { ok: false; reason: string; message: string; basedOn?: string }
+export type ReservePolicyAnswer =
+  | { ok: true; row: ReservePolicy; updatedAt: string | null; basedOn: string }
+  | { ok: false; reason: string; message: string; stale?: { basedOn: string; current: ReservePolicy | null; updatedAt: string | null } }
 /** The route's answer → the room's: core's six and the next `basedOn` on 200, else the door's own line. */
 export async function putReservePolicy(save: ReservePolicySave, policy: ReservePolicy, basedOn: string): Promise<ReservePolicyAnswer> {
   try {
@@ -527,15 +554,19 @@ export async function putReservePolicy(save: ReservePolicySave, policy: ReserveP
       headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
       body: JSON.stringify({ storeId: save.storeId, policy, basedOn }),
     })
-    const answer = ((await res.json().catch(() => null)) ?? {}) as { ok?: unknown; row?: unknown; basedOn?: unknown; reason?: unknown; message?: unknown }
+    const answer = ((await res.json().catch(() => null)) ?? {}) as { ok?: unknown; row?: unknown; basedOn?: unknown; reason?: unknown; message?: unknown; current?: unknown }
     if (res.ok && answer.ok === true && typeof answer.basedOn === 'string' && answer.row !== null && typeof answer.row === 'object') {
       const row = answer.row as Record<string, unknown>
-      return { ok: true, row: Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy, basedOn: answer.basedOn }
+      return { ok: true, row: reserveSixOf(row), updatedAt: reserveStampOf(row), basedOn: answer.basedOn }
     }
     const reason = typeof answer.reason === 'string' ? answer.reason : 'core'
     const message = typeof answer.message === 'string' && answer.message !== '' ? answer.message : reserveFallback(reason)
-    // A 'stale' 409 carries the fingerprint of core's current six: the next press is measured against it.
-    return reason === 'stale' && typeof answer.basedOn === 'string' ? { ok: false, reason, message, basedOn: answer.basedOn } : { ok: false, reason, message }
+    // A 'stale' 409 carries core's current six and their fingerprint: the screen merges them (S67 F3).
+    if (reason === 'stale' && typeof answer.basedOn === 'string') {
+      const cur = answer.current !== null && typeof answer.current === 'object' ? (answer.current as Record<string, unknown>) : null
+      return { ok: false, reason, message, stale: { basedOn: answer.basedOn, current: cur && reserveSixOf(cur), updatedAt: cur && reserveStampOf(cur) } }
+    }
+    return { ok: false, reason, message }
   } catch {
     return { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
   }
@@ -704,6 +735,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const bookingSaving = useRef(false)
   const [reserveFail, setReserveFail] = useState<string | null>(null)
   const reserveSaving = useRef(false)
+  const [reserveBusy, setReserveBusy] = useState(false)
+  const [reserveSavedAt, setReserveSavedAt] = useState<string | null>(props.saveReservePolicy?.updatedAt ?? null)
+  const reserveLinked = props.saveReservePolicy !== undefined
   const reserveBasedOn = useRef(props.saveReservePolicy?.basedOn ?? '')
   const freshBasedOn = props.saveReservePolicy?.basedOn
   useEffect(() => { if (freshBasedOn !== undefined) reserveBasedOn.current = freshBasedOn }, [freshBasedOn]) // a re-read's row
@@ -836,6 +870,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const at = id === DENSITY_ID || id === EMPHASIS_ID ? jstClock(new Date()) : ''
     setValues((prev) => {
       const merged = { ...prev, [id]: next }
+      if (id === RESERVE_IDS.cutoff_minutes && reserveLinked) merged['reserve.lead'] = next // S67 F5 — the linked row shows the draft
       if (id === DENSITY_ID || id === EMPHASIS_ID) {
         try {
           // ⚖ G3 — no identity, no row. The choice still applies to what is on
@@ -857,10 +892,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
     })
     // ⚖ G3 — keyed on `prefKey`, so the writer can never capture the FIRST
     // reader's key for the life of the page (the F20 lesson, one door over).
-  }, [prefKey])
+  }, [prefKey, reserveLinked])
 
   const shownId = picked ?? props.openingSectionId
-  const section = props.sections.find((s) => s.id === shownId) ?? null
+  const shownSection = props.sections.find((s) => s.id === shownId) ?? null
+  const section = shownSection !== null && shownSection.id === RESERVE_SECTION_ID && props.saveReservePolicy
+    ? reserveViewOf(shownSection, props.saveReservePolicy.lateNote, values, reserveSavedAt, reserveBusy)
+    : shownSection
   const isDetail = picked !== null
   /** ⚖ S17 fix round 4 · H2 + M6 — IS THAT SECTION'S PANEL REALLY ON SCREEN?
    *
@@ -1084,20 +1122,34 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  no request, the section commits locally (its sample rows are page-only), exactly like 予約の色分け. */
   const saveReserveSection = useCallback(async (target: SettingsSection, save: ReservePolicySave) => {
     if (reserveSaving.current) return
+    if (RESERVE_NUMBER_IDS.some((id) => !/^\d+$/.test(String(values[id] ?? '')))) {
+      setReserveFail(RESERVE_SAVE_FAIL.invalid) // S67 F7 — nothing is sent
+      return
+    }
     const policy = reservePolicyOf(values)
-    if (RESERVE_FIELDS.every((k) => policy[k] === reservePolicyOf(saved)[k])) {
+    const base = reservePolicyOf(saved)
+    if (RESERVE_FIELDS.every((k) => policy[k] === base[k])) {
       commitSection(target, false)
       return
     }
     reserveSaving.current = true
+    setReserveBusy(true) // S67 F1 — the six are locked until core answers
     setReserveFail(null)
     const result = await putReservePolicy(save, policy, reserveBasedOn.current)
     reserveSaving.current = false
+    setReserveBusy(false)
     if (!result.ok) {
       setReserveFail(result.message)
-      // stale (lead's ruling): the draft stays and the line says another save happened; the fingerprint moves to
-      // core's current six, so a second press saves the draft over them — no re-read, no refresh.
-      if (result.basedOn !== undefined) reserveBasedOn.current = result.basedOn
+      if (result.stale === undefined) return
+      // S67 F3 (the lead's ruling) — a three-way merge: a field the manager left as it was (draft == base) takes core's
+      // current value, a field they changed keeps theirs; the next press sends the merged six against the new basedOn.
+      reserveBasedOn.current = result.stale.basedOn
+      const theirs = result.stale.current
+      if (theirs === null) return
+      const merged = Object.fromEntries(RESERVE_FIELDS.map((k) => [k, policy[k] === base[k] ? theirs[k] : policy[k]])) as unknown as ReservePolicy
+      setValues((prev) => ({ ...prev, ...reserveValuesOf(merged) }))
+      setSaved((prev) => ({ ...prev, ...reserveValuesOf(theirs) }))
+      setReserveSavedAt(result.stale.updatedAt)
       return
     }
     reserveBasedOn.current = result.basedOn
@@ -1105,6 +1157,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setValues((prev) => ({ ...prev, ...next }))
     commitSection(target, true)
     setSaved((prev) => ({ ...prev, ...next }))
+    setReserveSavedAt(result.updatedAt) // S67 F2 — 最終変更 follows core's answer, no second GET
   }, [values, saved, commitSection])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
@@ -2051,6 +2104,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       )
                     : liveReserve && !liveReserve.canSave
                       ? <p className="st-foot">{READ_ONLY_NOTE}</p>
+                    : liveReserve
+                      ? <p className="st-foot">{RESERVE_SAVE_NOTE}</p>
                     : storeDaysLive
                       ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
                       : <p className="st-foot">{props.demoSaveLine}</p>}

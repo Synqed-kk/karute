@@ -33,6 +33,7 @@
  * guard for the room-8 N8-1 class, which this room shipped once. Read it before
  * adding any string.
  */
+import type { PreviewDrop } from '@/business/lib/settings'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -2817,10 +2818,10 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(controlOf(props, 'reserve.cutoff').control).toMatchObject({ min: 0, max: 10080, zeroLabel: '締め切らない' })
     expect(controlOf(props, 'reserve.free').control).toMatchObject({ min: 0, max: 720 })
     expect(controlOf(props, 'reserve.sameday').control).toMatchObject({ min: 0, max: 100, unit: '%' })
-    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'segment', options: [{ value: '15', label: '15分' }, { value: '30', label: '30分' }, { value: '60', label: '60分' }, { value: 'default', label: 'お店の標準（30分）' }] })
+    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'segment', options: [{ value: '15', label: '15分' }, { value: '30', label: '30分' }, { value: '60', label: '60分' }, { value: 'default', label: '標準（30分）' }] })
     // Reserve S66 T6 — the grid's options, the ranges and the six 初期値 come from reserve-policy.ts, never retyped.
     const gridOpts = (controlOf(props, 'reserve.grid').control as { options: Array<{ value: string; label: string }> }).options
-    expect(gridOpts).toEqual([...RESERVE_GRID_CHOICES.map((g) => ({ value: String(g), label: `${g}分` })), { value: 'default', label: `お店の標準（${RESERVE_GRID_UNSET_STEP}分）` }])
+    expect(gridOpts).toEqual([...RESERVE_GRID_CHOICES.map((g) => ({ value: String(g), label: `${g}分` })), { value: 'default', label: `標準（${RESERVE_GRID_UNSET_STEP}分）` }])
     const SIX_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
     for (const [k, id] of Object.entries(SIX_IDS) as Array<[keyof typeof SIX_IDS, string]>) {
       expect({ id, ...controlOf(props, id).control }).toMatchObject({ id, min: RESERVE_POLICY_RANGES[k].min, max: RESERVE_POLICY_RANGES[k].max })
@@ -2925,7 +2926,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(zeroLabelOf('reserve.lead')).toBe('制限なし')
     // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
     expect(zeroLabelOf('reserve.gapfill')).toBe('販売なし')
-    expect(zeroLabelOf('reserve.free')).toBe('いつでも無料')
+    expect(zeroLabelOf('reserve.free')).toBe('来店時刻まで無料')
     // …and `labelOfValue` answers the zeroLabel exactly at 0, the real number
     // otherwise — the SAME function the preview sentence and this field's own
     // display both read through.
@@ -3056,7 +3057,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const dropped = previewTemplate(preview, { ...seed, 'reserve.gapfill': '0' })
     expect(dropped).not.toContain('引き')
     // …exactly the named sentence is gone, nothing else about the template moved.
-    expect(dropped + preview.dropWhen!.sentence).toBe(preview.template)
+    expect(dropped + (preview.dropWhen as PreviewDrop).sentence).toBe(preview.template)
     const kept = previewTemplate(preview, { ...seed, 'reserve.gapfill': '30' })
     expect(kept).toBe(preview.template)
     const noDropWhen: SettingsBlock['preview'] = { template: preview.template }
@@ -3066,12 +3067,12 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
   it('⚖ D-35 (2) pin (ii) — a guard leg: the Reserve window template really contains the sentence it can drop', async () => {
     const props = await room({ store: STORE_A })
     const preview = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.preview!
-    expect(preview.dropWhen?.controlId).toBe('reserve.gapfill')
-    expect(preview.dropWhen?.is).toBe('0')
-    expect(preview.dropWhen!.sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
+    expect((preview.dropWhen as PreviewDrop | undefined)?.controlId).toBe('reserve.gapfill')
+    expect((preview.dropWhen as PreviewDrop | undefined)?.is).toBe('0')
+    expect((preview.dropWhen as PreviewDrop).sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
     // …a silent no-op drop (a `sentence` the template never contained) is
     // exactly the failure this leg catches.
-    expect(preview.template.includes(preview.dropWhen!.sentence)).toBe(true)
+    expect(preview.template.includes((preview.dropWhen as PreviewDrop).sentence)).toBe(true)
   })
 
   it('⚖ D-35 (2) pin (iv) — the screen resolves the block preview through previewTemplate before fillTemplate, at the one call site', () => {

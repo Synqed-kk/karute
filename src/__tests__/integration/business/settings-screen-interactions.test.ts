@@ -829,7 +829,7 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
   it('on a desk the panel always shows something, never a blank', () => {
     // `picked ?? openingSectionId` — and `openingSectionId` is the first section
     // this READER may open, so nobody lands on an empty frame.
-    expect(SRC_CODE).toContain('const section = props.sections.find((s) => s.id === shownId) ?? null')
+    expect(SRC_CODE).toContain('const shownSection = props.sections.find((s) => s.id === shownId) ?? null')
     for (const role of ['オーナー', '店舗管理者', 'スタッフ', '不明', '']) {
       const opening = firstOpenSection(accessFor(role, rulebook))
       expect({ role, opens: opening?.id ?? null }).not.toEqual({ role, opens: null })

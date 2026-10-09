@@ -79,7 +79,8 @@ import {
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { RESERVE_GRID_CHOICES, RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES, pickReservePolicy, policyHash, lateFromBooking, type ReservePolicy, type ReserveGrid } from '@/business/lib/practice-door/reserve-policy'
+import { RESERVE_GRID_CHOICES, RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES, parseReservePolicy, pickReservePolicy, policyHash, type ReservePolicy, type ReserveGrid } from '@/business/lib/practice-door/reserve-policy'
+import { lateFromBooking, policyAuditLine } from '@/business/lib/reserve-policy-view'
 import { historyOperatorName, samplePart, sampleSelfId, sampleWhole, storeSample, type LabeledPlaneKey, type PlaneKey } from '@/business/lib/practice-door/sample-facade'
 import { weekFromPair, type StoreHours } from '@/business/lib/practice-door/store-hours'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
@@ -246,8 +247,12 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   const markStore = clamped ? storeId! : null
   // Reserve S66 §9 R1/R19 — the six rules come from readStoreDays' own policy read (no second GET), and only where
   // the plane table says this store's bookingPolicy is live: the mark follows the table, the data follows the read.
-  const policyRow = storeDaysRead?.ok === true && sampleWhole(doorOn, markStore, 'bookingPolicy') === undefined ? storeDaysRead.reservePolicy : null
-  const reservePolicy: LiveReservePolicy | null = policyRow === null ? null : { values: pickReservePolicy(policyRow), basedOn: policyHash(policyRow), updatedAt: policyRow.updated_at }
+  const policyAdmitted = doorOn && markStore !== null && sampleWhole(doorOn, markStore, 'bookingPolicy') === undefined
+  const policyRow = policyAdmitted && storeDaysRead?.ok === true ? storeDaysRead.reservePolicy : null
+  // S67 F10 — core's six are NOT NULL but the grid (null = Reserve's 30, 2026-07-31-store-booking-policies.sql:11-15):
+  // the read goes through the writer's own parse, and a row that fails it is a failed read (F9), never an empty dial.
+  const policySix = policyRow === null ? null : parseReservePolicy(pickReservePolicy(policyRow))
+  const reservePolicy: LiveReservePolicy | null = policyRow === null || policySix === null ? null : { values: policySix, basedOn: policyHash(policySix), updatedAt: policyRow.updated_at }
 
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,
@@ -283,6 +288,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     bookingColors,
     storeDaysRead,
     reservePolicy,
+    reservePolicyUnread: policyAdmitted && reservePolicy === null,
   }
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
@@ -415,7 +421,18 @@ interface Ctx {
   storeDaysRead: StoreDaysReadResult | null
   /** Reserve S66 — the lens store's live six booking rules (null = the sample plane). */
   reservePolicy: LiveReservePolicy | null
+  /** S67 F9 — the store's rules are live but could not be read now (or did not parse): nothing is shown as saved. */
+  reservePolicyUnread: boolean
 }
+
+// Reserve S66/S67 — 受付's own lines (native JP, listed for the blind pass).
+const RESERVE_LEAD_LOCK = '上の「直前締切」と同じ値です。変えるときは「直前締切」を変更してください'
+const RESERVE_UNREAD_LOCK = '受付ルールを読み込めなかったため、いまは変更できません'
+const RESERVE_UNREAD_LINE = 'この店舗の受付ルールを、いま読み込めませんでした。表示しているのは見本の値のため、変更や保存はできません。時間をおいて開き直してください。'
+const CANCEL_FREE_TO_START = 'ご来店の時刻までは、無料でキャンセルできます。'
+const CANCEL_FREE_BEFORE = 'ご来店の{reserve.free}前までは、無料でキャンセルできます。'
+const CANCEL_LATE = '期限を過ぎたキャンセルは、料金の{reserve.sameday}です。'
+const CANCEL_NOSHOW = 'ご連絡のないキャンセルは、料金の{reserve.noshow}です。'
 
 export type LiveReservePolicy = { values: ReservePolicy; basedOn: string; updatedAt: string | null }
 
@@ -2048,13 +2065,17 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
     booking_open_days: d.bookingOpenDays, cutoff_minutes: d.cutoffMinutes, reserve_start_grid_min: gridOf(opsConfig.reserveStartGridMin),
     cancel_free_until_hours: d.cancelFreeUntilHours, cancel_late_pct: d.cancelLatePct, no_show_pct: d.noShowPct,
   }
-  const gridStd = `お店の標準（${RESERVE_GRID_UNSET_STEP}分）`
+  const gridStd = `標準（${RESERVE_GRID_UNSET_STEP}分）`
+  // S67 F9 — an admitted store whose read failed: the six are locked and the block says why; no sample claim.
+  const unread = ctx.reservePolicyUnread
+  const unreadLock = unread ? { locked: RESERVE_UNREAD_LOCK } : {}
   const gridLabel = (g: ReserveGrid) => (g === null ? gridStd : `${g}分`)
   const cutoffLabel = (m: number) => (m === 0 ? '締め切らない' : `${m}分前`)
   // R11 — live: core's own updated_at, or no line at all; never the sample history.
-  const liveAudit = live?.updatedAt ? { audit: `最終変更: ${fmtDayWeek.format(new Date(live.updatedAt))}` } : {}
+  const auditLine = policyAuditLine(live?.updatedAt ?? null)
+  const liveAudit = auditLine ? { audit: auditLine } : {}
   // R1 — not live (a sample store, or a failed read): the whole block is the sample's, as before.
-  const notLive = live ? undefined : (ctx.sampleWhole('bookingPolicy') ?? ctx.sampleWhole('opsConfig'))
+  const notLive = live || unread ? undefined : (ctx.sampleWhole('bookingPolicy') ?? ctx.sampleWhole('opsConfig'))
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -2063,7 +2084,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
     blocks: [
       block('reserve.window', '受付ウィンドウ', 'お客様がオンラインで予約できる期間です。', [
         row('reserve.row-days', '何日先まで受け付けるか', 'この日数を超える先の予約は、オンラインでは受け付けません（店頭・電話は対象外です）。', [
-          num('reserve.days', '何日先まで受け付けるか', p.booking_open_days, R.booking_open_days.min, R.booking_open_days.max, 1, '日'),
+          num('reserve.days', '何日先まで受け付けるか', p.booking_open_days, R.booking_open_days.min, R.booking_open_days.max, 1, '日', unreadLock),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2078,7 +2099,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         // 「2時間前」 and the wire keeps 120; holding hours here and multiplying
         // at the seam is where a factor of 60 goes missing between two rounds.
         row('reserve.row-cutoff', '直前締切', '予約開始時刻の何分前に、オンラインの受付を締め切るかです。0にすると、締め切らずに直前まで受け付けます。', [
-          num('reserve.cutoff', '直前締切', p.cutoff_minutes, R.cutoff_minutes.min, R.cutoff_minutes.max, 1, '分', { zeroLabel: cutoffLabel(0) }),
+          num('reserve.cutoff', '直前締切', p.cutoff_minutes, R.cutoff_minutes.min, R.cutoff_minutes.max, 1, '分', { zeroLabel: cutoffLabel(0), ...unreadLock }),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2089,7 +2110,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
           // R12 — core takes 15 · 30 · 60 or unset (Reserve then steps by 30): the dial offers exactly those.
-          seg('reserve.grid', 'お客様が選べる開始時刻', opts([...RESERVE_GRID_CHOICES.map((g): [string, string] => [String(g), gridLabel(g)]), ['default', gridStd]]), p.reserve_start_grid_min === null ? 'default' : String(p.reserve_start_grid_min)),
+          seg('reserve.grid', 'お客様が選べる開始時刻', opts([...RESERVE_GRID_CHOICES.map((g): [string, string] => [String(g), gridLabel(g)]), ['default', gridStd]]), p.reserve_start_grid_min === null ? 'default' : String(p.reserve_start_grid_min), unread ? RESERVE_UNREAD_LOCK : undefined),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2136,7 +2157,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         row('reserve.row-lead', '直前の空きは売らない', '開始までこの時間を切った空きは、お客様に出しません。0にすると、直前の空きも制限なく出します。', [
           // §3.4 — live: the store's 直前締切 itself, linked and never written (core's lead_time_min stays unset).
           live
-            ? num('reserve.lead', '直前の空きは売らない', p.cutoff_minutes, R.cutoff_minutes.min, R.cutoff_minutes.max, 1, '分', { zeroLabel: '制限なし', locked: '直前締切と同じ' })
+            ? num('reserve.lead', '直前の空きは売らない', p.cutoff_minutes, R.cutoff_minutes.min, R.cutoff_minutes.max, 1, '分', { zeroLabel: '制限なし', locked: RESERVE_LEAD_LOCK })
             : num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分', { zeroLabel: '制限なし' }),
         ], {
           scopeLabel: live ? STORE_SCOPE : BUSINESS_SCOPE,
@@ -2240,17 +2261,18 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         ),
       ], {
-        sample: live ? ctx.samplePart('opsConfig') : notLive,
+        sample: live || unread ? ctx.samplePart('opsConfig') : notLive,
         preview: {
           template: RESERVE_PREVIEW_HEAD + RESERVE_PREVIEW_DISCOUNT,
           dropWhen: { controlId: 'reserve.gapfill', is: '0', sentence: RESERVE_PREVIEW_DISCOUNT },
         },
         facts: [
+          ...(unread ? [RESERVE_UNREAD_LINE] : []),
           `お客様が選べる開始時刻の${minutesLabel(p.reserve_start_grid_min ?? RESERVE_GRID_UNSET_STEP)}きざみは、今日の運営のお客様向け表示が読む値です。`,
           `受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`,
         ],
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
-        ...(live ? liveAudit : { audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -6))}（受付ウィンドウを変更）` }),
+        ...(live ? liveAudit : unread ? {} : { audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -6))}（受付ウィンドウを変更）` }),
       }),
       block('reserve.guard', 'スキマガードの見え方', 'ガードが有効なとき、お客様に出す開始時刻がどう変わるかです。オン・オフと厳しさは予約と確保で変更します。', [], {
         facts: [
@@ -2268,7 +2290,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。0にすると、開始直前までキャンセル料がかかりません。', [
-          num('reserve.free', '無料キャンセル期限', p.cancel_free_until_hours, R.cancel_free_until_hours.min, R.cancel_free_until_hours.max, 1, '時間', { zeroLabel: 'いつでも無料' }),
+          num('reserve.free', '無料キャンセル期限', p.cancel_free_until_hours, R.cancel_free_until_hours.min, R.cancel_free_until_hours.max, 1, '時間', { zeroLabel: '来店時刻まで無料', ...unreadLock }),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2278,7 +2300,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         }),
         row('reserve.row-sameday', '当日キャンセル料', '無料の期限を過ぎたキャンセルにかかる料金です（メニュー代に対する割合）。', [
           // R3 — any whole percent core accepts, never a fixed list.
-          num('reserve.sameday', '当日キャンセル料', p.cancel_late_pct, R.cancel_late_pct.min, R.cancel_late_pct.max, 1, '%'),
+          num('reserve.sameday', '当日キャンセル料', p.cancel_late_pct, R.cancel_late_pct.min, R.cancel_late_pct.max, 1, '%', unreadLock),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2287,7 +2309,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-noshow', '無断キャンセル料', 'ご連絡がなくご来店がなかった場合の料金です。', [
-          num('reserve.noshow', '無断キャンセル料', p.no_show_pct, R.no_show_pct.min, R.no_show_pct.max, 1, '%'),
+          num('reserve.noshow', '無断キャンセル料', p.no_show_pct, R.no_show_pct.min, R.no_show_pct.max, 1, '%', unreadLock),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -2298,9 +2320,19 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       ], {
         sample: notLive,
         // R5 — a note, never a refusal: the store's saved rules make some bookings late from the start.
-        ...(live && lateFromBooking(p) ? { facts: [LATE_FROM_BOOKING_NOTE] } : {}),
-        preview: { template: '{reserve.free}までは無料、それ以降のキャンセルは{reserve.sameday}、ご連絡のないキャンセルは{reserve.noshow}です。' },
-        ...(live ? liveAudit : { audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -9))}（当日キャンセル料を変更）` }),
+        ...(live && lateFromBooking(p) ? { facts: [LATE_FROM_BOOKING_NOTE] } : unread ? { facts: [RESERVE_UNREAD_LINE] } : {}),
+        // S67 F6 — one sentence per case, so every value reads naturally: a 0 free deadline is 「来店の時刻まで」, a 0 %
+        // fee has no fee sentence at all (never 「0%」).
+        preview: {
+          template: CANCEL_FREE_TO_START + CANCEL_FREE_BEFORE + CANCEL_LATE + CANCEL_NOSHOW,
+          dropWhen: [
+            { controlId: 'reserve.free', is: '0', sentence: CANCEL_FREE_TO_START, not: true },
+            { controlId: 'reserve.free', is: '0', sentence: CANCEL_FREE_BEFORE },
+            { controlId: 'reserve.sameday', is: '0', sentence: CANCEL_LATE },
+            { controlId: 'reserve.noshow', is: '0', sentence: CANCEL_NOSHOW },
+          ],
+        },
+        ...(live ? liveAudit : unread ? {} : { audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -9))}（当日キャンセル料を変更）` }),
       }),
       block('reserve.lock', '価格の見え方', '毎晩の再計算のあいだ、確定するまで新規予約の価格表示を一時的に隠せます。', [
         row('reserve.row-lock', '再計算中は価格を隠す', '空き状況（◯／△／×）の表示は、価格を隠しているあいだも止まりません。', [

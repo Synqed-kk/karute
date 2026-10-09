@@ -32,7 +32,7 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
+import { LATE_FROM_BOOKING_NOTE, practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
 import { storeDaysLockedNote } from './settings-props'
@@ -83,7 +83,7 @@ export default async function SettingsPage({
   // Reserve S66 §9 R10 — 受付's six rules save for the lens store while they read live; may-save is store days'
   // own answer (the same three checks the writer asks), so no second sheet read.
   const saveReservePolicy = saveStoreDays && reservePolicy
-    ? { businessId: admitted.businessId, storeId: storeKey, canSave: saveStoreDays.lockedNote === null, basedOn: reservePolicy.basedOn }
+    ? { businessId: admitted.businessId, storeId: storeKey, canSave: saveStoreDays.lockedNote === null, basedOn: reservePolicy.basedOn, updatedAt: reservePolicy.updatedAt, lateNote: LATE_FROM_BOOKING_NOTE }
     : undefined
   return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} saveReservePolicy={saveReservePolicy} />
 }

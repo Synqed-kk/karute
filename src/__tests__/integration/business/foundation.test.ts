@@ -943,6 +943,7 @@ describe('the fixture data door', () => {
         '@/business/lib/practice-door/store-hours',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
+        '@/business/lib/reserve-policy-view',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',

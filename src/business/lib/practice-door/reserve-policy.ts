@@ -95,12 +95,6 @@ export function reservePolicyProblem(p: ReservePolicy): ReservePolicyProblem | n
   return null
 }
 
-/** §9 R5 + R5b — a NOTE, never a refusal: a booking taken after the free deadline is late from the start.
- *  Only when that costs something (R5b): with no late-cancel fee nothing is late in a way that matters, so
- *  core's defaults (cutoff 0, free 24 h, fee 0 %) show no note. */
-export function lateFromBooking(p: ReservePolicy): boolean {
-  return p.cancel_late_pct > 0 && p.cutoff_minutes < p.cancel_free_until_hours * MIN_PER_H
-}
 
 /** §9 R9 — the fingerprint a save is based on: the six values as read, in a fixed order. Six small
  *  integers are already short and exact, so the canonical tuple itself is the fingerprint. */

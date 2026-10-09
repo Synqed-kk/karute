@@ -608,7 +608,7 @@ export interface SettingsBlock {
    *  next breath): a sentence that contradicts a zero state is dropped, not
    *  reworded — the gap-fill row's `zeroLabel` does the same at D-33 R2. See
    *  `previewTemplate` below, the one place this is resolved. */
-  preview: { template: string; attrs?: Record<string, string>; dropWhen?: { controlId: string; is: string; sentence: string } } | null
+  preview: { template: string; attrs?: Record<string, string>; dropWhen?: PreviewDrop | readonly PreviewDrop[] } | null
   /** A block-level action button — canon's エクスポートする, 需要履歴をリセット,
    *  招待を送信する, 接続をリクエストする. Pressing it resolves `template` into
    *  the block's result line. `requires` names a chips control that must not be
@@ -893,11 +893,11 @@ export function fillTemplate(template: string, label: (id: string) => string | n
  *  string); otherwise the template is returned unchanged. The template
  *  still CONTAINS the sentence either way — dropping it is a fact about the
  *  live values, never about the template's own text. */
+/** One sentence a preview drops: when the control's live value is `is` — or, with `not`, when it is anything else. */
+export type PreviewDrop = { controlId: string; is: string; sentence: string; not?: true }
 export function previewTemplate(preview: NonNullable<SettingsBlock['preview']>, values: Record<string, RowValue>): string {
-  if (preview.dropWhen && String(values[preview.dropWhen.controlId]) === preview.dropWhen.is) {
-    return preview.template.replace(preview.dropWhen.sentence, '')
-  }
-  return preview.template
+  const drops: readonly PreviewDrop[] = preview.dropWhen === undefined ? [] : 'sentence' in preview.dropWhen ? [preview.dropWhen] : preview.dropWhen
+  return drops.reduce((t, d) => ((String(values[d.controlId]) === d.is) !== (d.not === true) ? t.replace(d.sentence, '') : t), preview.template)
 }
 
 /** ⚠ ARRAY VALUES COMPARE BY CONTENT, NOT BY REFERENCE. A chips control whose
