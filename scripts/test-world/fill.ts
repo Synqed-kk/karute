@@ -233,14 +233,20 @@ function throttled<C extends object>(core: C, lim: Limiter): C {
   return wrap(core, 1)
 }
 
-export async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
-  let i = 0
-  // every worker settles first (no late write after apply returns), then the first failure is thrown — a full database first
-  const settled = await Promise.allSettled(Array.from({ length: Math.min(size, items.length) }, async () => {
-    while (i < items.length) await fn(items[i++])
-  }))
+/** Promise.all that settles every request first (none outlives its caller), then throws a full database first, else the first failure. */
+export async function settleAll<P extends readonly Promise<unknown>[]>(ps: [...P]): Promise<{ [K in keyof P]: Awaited<P[K]> }> {
+  const settled = await Promise.allSettled(ps)
   const failed = settled.flatMap((r) => (r.status === 'rejected' ? [r.reason as unknown] : []))
   if (failed.length) throw failed.find((e) => e instanceof Saturated) ?? failed[0]
+  return settled.map((r) => (r as PromiseFulfilledResult<unknown>).value) as { [K in keyof P]: Awaited<P[K]> }
+}
+
+export async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
+  let i = 0
+  // every worker settles first (no late write after apply returns)
+  await settleAll(Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++])
+  }))
 }
 
 export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown>; readBack?: boolean
@@ -497,7 +503,8 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
     return out.flat()
   }
   const members = new Set(p.customers.map((c) => c.member))
-  const [policy, links, res, { menus }, customers, appts, karutes] = await Promise.all([
+  // settled together: a late full database is this store's, and a whole-read-back retry never overlaps this attempt
+  const [policy, links, res, { menus }, customers, appts, karutes] = await settleAll([
     core.storePolicies.get(storeId), core.staffStores.counts(), core.resources.list({ store_id: storeId }), core.menus.list(),
     pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 })),
     pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, page, page_size: 500 })),

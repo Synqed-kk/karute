@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -652,7 +652,7 @@ async function main() {
   {
   const full = Object.assign(new Error('connect EMAXCONN: max client connections reached'), { status: 500 })
   // Every method of a fake core, watched: requests in flight, start times on a fake clock, an optional failure.
-  const watched = (fail?: (call: string) => boolean, err: Error = full, fo: Parameters<typeof fakeCore>[0] = {}) => {
+  const watched = (fail?: (call: string) => boolean, err: Error = full, fo: Parameters<typeof fakeCore>[0] = {}, early?: (call: string) => Error | undefined) => {
     const f = fakeCore(fo)
     Object.assign(f.core.staffStores, { counts: async () => ({ counts: { [STORE]: f.t.links.size } }) })
     const s = { calls: 0, inFlight: 0, max: 0, starts: [] as number[], clock: 0, failedAt: 0, after: 0, names: [] as string[] }
@@ -661,6 +661,8 @@ async function main() {
         s.calls++, s.inFlight++, s.starts.push(s.clock), s.names.push(`${ns}.${k}`), (s.after += +!!s.failedAt)
         s.max = Math.max(s.max, s.inFlight)
         try {
+          const now = early?.(`${ns}.${k}`) // fails at once, before a sibling in flight answers
+          if (now) throw now
           await new Promise((r) => setImmediate(r)) // a request takes time: overlap shows
           if (!s.failedAt && fail?.(`${ns}.${k}`)) throw ((s.failedAt = s.calls), err)
           return await fn(...args)
@@ -791,6 +793,21 @@ async function main() {
   assert.deepEqual([started, atReject], [6, 6], `${started - atReject} requests started after the pool rejected`)
   await assert.rejects(poolOf([1, 2, 3], async (x: number) => { await tick(); if (x === 1) throw new Error('first'); await tick(); if (x === 2) throw new Saturated('full') }, 3), Saturated)
   console.log(`✓ S90 pool: ${started} of 6 started before the rejection, ${started - atReject} after; a full database is the error thrown; pre-run stop after 409s exit ${r6.code}`)
+  // Greptile G1: the read-back's first batch settles together — a 4xx at once, a sibling's EMAXCONN later: this store's stop
+  const bad = Object.assign(new Error('bad request'), { status: 400 })
+  let pol = 0
+  const g1 = watched((call) => call === 'storePolicies.get' && ++pol === 2, full, { stores: allStores }, (call) => (call === 'staffStores.counts' ? bad : undefined))
+  const rg1 = await cli(['--store', 'all', '--concurrency', '2'], g1)
+  assert.deepEqual([rg1.code, rg1.stores, rg1.stops, rg1.notStarted], [0, 1, 1, `not started (core's database is full): ${allStores.slice(1).join(', ')}`], rg1.out.filter((l) => !l.includes('|')).join('\n'))
+  // …and at 1 in flight, a first-batch failure leaves nothing queued: no request starts after apply returned
+  const g1b = watched(undefined, full, {}, (call) => (call === 'staffStores.counts' ? bad : undefined))
+  const g1Log: string[] = []
+  assert.equal(await apply(g1b.core, { ...opts(empty()), readBack: true, log: (l: string) => void g1Log.push(l), limiter: g1b.lim(DEFAULT_THROTTLE) }), 0)
+  const atReturn = g1b.s.calls
+  for (let i = 0; i < 20; i++) await tick()
+  assert.ok(g1Log.includes('read-back failed (writes unaffected): bad request') && g1b.s.calls === atReturn, `${g1b.s.calls - atReturn} requests started after apply returned`)
+  assert.deepEqual(await settleAll([Promise.resolve(1), Promise.resolve('a')]), [1, 'a'])
+  console.log(`✓ S90 read-back first batch: a 4xx then a late EMAXCONN → this store's stop (exit ${rg1.code}, ${allStores.length - 1} not started); ${g1b.s.calls - atReturn} requests after apply returned`)
   console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
   }
 
