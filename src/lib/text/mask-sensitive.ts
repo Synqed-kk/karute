@@ -299,39 +299,51 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
 /** THE labelled-credential rule (Greptile #1159 G1) — the one definition,
  *  used by maskSensitive (text: masks) AND guardOne (every shape position:
  *  token · path and frame file per segment · spaced · transaction name · iso ·
- *  content-type — a hit drops the field). A label word (no leading `\b`, so
- *  access_token / clientSecret / dbPass / userPin match too), an optional
- *  closing quote (the JSON key `"password":`) or escaped quote (a JSON body
- *  inside a string, `{\"password\":\"x\"}`, R-S115-10 SF2), then `:` or `=`
- *  then a value; a quoted value is consumed to its closing quote
- *  (`password="a b"`), an escaped quote inside it read as part of it
- *  (`"a\"b"`), and an escaped-quoted value (`\"x\"`) to its closing escaped
- *  quote, an escaped escaped quote inside it (`\"a\\\"b\"`) read as part of it.
- *  Each quoted form is a run of disjoint tokens (no nested ambiguity).
- *  R-S115-10 SF4: a label may carry ONE suffix from a closed list, with an
- *  optional `_` or `-` (hash · code · digest · id · value · confirm,
- *  confirmation · plain · raw · old · new · current: `token_hash=`,
- *  `pinCode=`, `passwordHash=`, `session_id=`), and may sit in brackets or
- *  carry an index (`user[password]=`, `user[password_confirm]=`,
- *  `password[]=`, `token[0]=`). Never an open identifier tail, so
- *  `keyboard=`, `authenticated=true`, `tokenizer:`, `sessionStorage:` are
- *  kept. What the suffixes also eat: `keyCode:`, `keyId=`, `key_id=`,
- *  `tokenId=`, `authCode=`, `keyValue:`, `keyHash=`, `pin_new=`, and an
- *  index or bracket before `=` (`map[key]=`, `key[0]=`). Still leaves: any
- *  other suffix (`password1=`, `passwordStr=`, `pinNumber=`, `token_b64=`,
- *  `tokenString=`, `secretData=`), a dotted one (`key.value=`), a nested
- *  bracket (`user[password][0]=`).
- *  Vocabulary (R-S115-1 S1): token · api key · key · secret · pass, password,
- *  passwd, passcode, passphrase · pwd · pw · psw · auth, authorization ·
- *  session, session id · credential(s) · pin. What it also eats (masked in
- *  text, the field dropped at shape positions), because a word merely ENDS in
- *  a label: `bypass=`, `compass:`, `oauth=`, `OAuth: …`, `spin=`, `chopin:`,
- *  `monkey:banana`; and real sentences with a label then `:`/`=`:
- *  `session: expired`, `invalid token: expired`, `missing env key: X`. A
- *  label with no `:`/`=` after it is kept (`Auth session missing!`,
+ *  content-type — a hit drops the field). The shape, in order:
+ *  (1) a label word, no leading `\b` (access_token / clientSecret / dbPass /
+ *  userPin / code_verifier match too). Vocabulary (R-S115-1 S1, R-S115-15):
+ *  token · api key · key · secret · pass, password, passwd, passcode,
+ *  passphrase · pwd · pw · psw · auth, authorization · session ·
+ *  credential(s) · pin · verifier (PKCE `code_verifier`) · otp · one-time code
+ *  (`one_time_code`, `one-time-code`, `oneTimeCode`).
+ *  (2) at most ONE suffix from a closed list, with an optional `_` or `-`
+ *  (R-S115-10 SF4): hash · code · digest · id · value · confirm, confirmation
+ *  · plain · raw · old · new · current (`token_hash=`, `pinCode=`,
+ *  `session_id=`). Never an open identifier tail, so `keyboard=`,
+ *  `authenticated=true`, `tokenizer:`, `sessionStorage:` are kept.
+ *  (3) optionally an index `[0]`, `[]` or a closing bracket, quoted or not
+ *  (`user[password]=`, `user['password']=`, `user["password"]=`).
+ *  (4) optionally any number of backslashes, then optionally a closing quote
+ *  `"` `'` or `&quot;` (a JSON key `"password":`, a JSON body inside a string
+ *  at any nesting depth `\"password\":`, `\\\"password\\\":`, an
+ *  HTML-escaped one `&quot;password&quot;:`).
+ *  (5) `:` or `=`, spaces around it allowed, then the value, the first form
+ *  that matches: an escaped-quoted value — k backslashes and a quote, read to
+ *  the next quote with exactly k backslashes before it (a back-reference; a
+ *  backslash run before a quote with MORE backslashes, or before any other
+ *  character, is part of the value: `\"hunt er \n x\"`, any nesting depth);
+ *  an `&quot;`-quoted value to the next `&quot;`; a `"`-quoted value to its
+ *  closing quote, `\x` inside it part of it; a `'`-quoted value; else a bare
+ *  value up to a space, `&` or a quote. Each quoted form is a run of disjoint
+ *  tokens (no backtracking ambiguity); an unclosed quoted form falls back to
+ *  the bare value.
+ *  What it also eats (masked in text, the field dropped at shape positions):
+ *  a word that merely ENDS in a label before `:`/`=` (`bypass=`, `compass:`,
+ *  `oauth=`, `OAuth: …`, `spin=`, `chopin:`, `monkey:banana`, `monkey_id=42`,
+ *  `spinCode=3`, `PIN_CODE: invalid length`, `totp=`); real sentences with a
+ *  label then `:`/`=` (`session: expired`, `invalid token: expired`,
+ *  `missing env key: X`); the suffixes also eat `keyCode:`, `keyId=`,
+ *  `key_id=`, `tokenId=`, `authCode=`, `keyValue:`, `keyHash=`, `pin_new=`,
+ *  and a bracket before `=` (`map[key]=`, `key[0]=`, `filter[key]=name`,
+ *  `filter["key"]=name`); `authId=undefined` and `secret_value: null` lose
+ *  their value. Still leaves: any other suffix (`password1=`, `passwordStr=`,
+ *  `pinNumber=`, `token_b64=`, `tokenString=`, `secretData=`), a dotted one
+ *  (`key.value=`), a nested bracket (`user[password][0]=`), a quote written
+ *  as `\u0022` or `&#34;`, and the rest named in the sentry-exit.ts header.
+ *  A label with no `:`/`=` after it is kept (`Auth session missing!`,
  *  `/api/auth/session`, `pinned`, `passthrough`). */
 export const LABELLED_CRED_RE =
-  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session|credentials?|pin)(?:[-_]?(?:hash|code|digest|id|value|confirm(?:ation)?|plain|raw|old|new|current))?(?:\[\d{0,3}\]|\])?\\?["']?\s*[:=]\s*(?:\\"(?:[^"\\]|\\\\(?:\\\\|\\"|[^"\\]))*\\"|"(?:[^"\\]|\\[\s\S])*"|'[^']*'|\\?['"]?[^\s&'"]+)/gi
+  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session|credentials?|pin|verifier|otp|one[-_]?time[-_]?code)(?:[-_]?(?:hash|code|digest|id|value|confirm(?:ation)?|plain|raw|old|new|current))?(?:\[\d{0,3}\]|["']?\])?\\*(?:["']|&quot;)?\s*[:=]\s*(?:(\\+)"(?:[^"\\]|\\+(?=[^"\\])|\1\\+")*\1"|&quot;(?:[^&]|&(?!quot;))*&quot;|"(?:[^"\\]|\\[\s\S])*"|'[^']*'|\\?['"]?[^\s&'"]+)/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
 /** THE JWT rule (R-S115-1 N4) — one definition, used by maskSensitive and
