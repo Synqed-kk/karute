@@ -134,15 +134,16 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
     // just `\n`: a bare `\r` used to survive into "the first line" and then
     // get flattened to a space by the whitespace-collapse below, leaking
     // whatever followed it (fix round 2 SHOULD).
-    const lineEnd = message.search(LINE_TERMINATOR_RE)
-    const firstLine = lineEnd === -1 ? message : message.slice(0, lineEnd)
     // Bound BEFORE masking (fix round 2, MUST-2): keeps every regex below
     // operating on at most 2000 chars regardless of the original message
-    // size. `preBound` trims back to the last whitespace so a secret split
-    // by THIS bound is discarded rather than left half-exposed.
-    const bounded = preBound(firstLine).replace(/\s+/g, ' ').trim()
-    const masked = maskSensitive(bounded)
-    const errMessage = capWithEllipsis(masked, 200)
+    // size; `preBound` drops the word (and any phone stub) its cut lands in.
+    // Mask BEFORE the first-line cut (R-S114-12, the G2 class): a newline is
+    // a phone separator, so cutting first logged 「090 1234」 of
+    // 「090 1234\n5678」. The cut below is of already-masked text.
+    const masked = maskSensitive(preBound(message))
+    const lineEnd = masked.search(LINE_TERMINATOR_RE)
+    const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).replace(/\s+/g, ' ').trim()
+    const errMessage = capWithEllipsis(firstLine, 200)
 
     const rawStatus = (err as { status?: unknown } | null)?.status
     const errStatus = typeof rawStatus === 'number' && Number.isFinite(rawStatus) ? rawStatus : undefined

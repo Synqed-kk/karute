@@ -6,6 +6,7 @@ import {
   frameFile, masked, path, rebuildEnvelope, spaced, token, transactionName,
 } from '@/lib/observability/sentry-exit'
 import { scrubEvent } from '@/lib/observability/sentry-scrub'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { guardContent, preBound } from '@/lib/text/mask-sensitive'
 
 const EID = 'a'.repeat(32)
@@ -83,5 +84,22 @@ describe('G3 — the length bound runs before any decode', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+describe('R-S114-12 — the server log line is masked before its newline cut', () => {
+  // errors.ts is a log exit: the first-line cut must not leave a phone stub
+  it('a phone split by a newline does not log its first groups', () => {
+    const phone = ['090', '1234'].join(' ') + '\n' + '5678'
+    const { errMessage } = describeUnknownThrow(new Error(`call ${phone} failed`))
+    expect(errMessage).not.toContain('1234')
+    expect(errMessage).not.toContain('090')
+  })
+
+  it('a labelled secret on the next line does not leave, and the first line is kept', () => {
+    const { errMessage } = describeUnknownThrow(new Error(`login failed password:\n${PW}`))
+    expect(errMessage).not.toContain(PW)
+    expect(errMessage.startsWith('login failed')).toBe(true)
+    expect(describeUnknownThrow(new Error('first   line\nsecond')).errMessage).toBe('first line')
   })
 })

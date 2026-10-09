@@ -37,9 +37,12 @@
 //   (「/api/2026/10/08/12345」) becomes `<phone>`, and the label rule turns
 //   「Invalid Refresh Token: Refresh Token Not Found」 into 「Invalid Refresh
 //   <label>=<redacted> Token Not Found」 (kept on purpose: a label followed
-//   by `:` or `=` is masked; at a user-agent, accept, function-name or other
-//   spaced or code field the same text now drops the field, as does any
-//   path or code value holding `key=…` / `token:…`, e.g. 「monkey:banana」).
+//   by `:` or `=` is masked). The same Supabase line, when it sits in a
+//   user-agent, accept text, function name or any other spaced or code
+//   field, is DROPPED there: the whole field is lost (one labelled-credential
+//   rule at every position, R-S114-12). Any web address, file path or code
+//   value holding a label and `:` or `=` (`key=…`, `token:…`, even
+//   「monkey:banana」) is dropped the same way.
 // - Wherever digits are judged: ten single digits spaced (「0 9 0 1 2 3 4 5 6
 //   7」), letters for digits (「O9O-1234-5678」), JSON `\u002d` escapes for
 //   the dashes, a number with a colon anywhere in it (「090:1234:5678」,
