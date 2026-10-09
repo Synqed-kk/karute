@@ -134,3 +134,65 @@ describe('(b) G5 a present but unusable lease is taken over through the claim', 
     process.stderr.write(rows.join('\n') + '\n')
   }, 600_000)
 })
+
+// ⚖ S120 (G3, thread 4131459852; Greptile follow-up 4232357307): the takeover's lease write is
+// an unconditional upsert; a write delayed past a later takeover is fenced by the next link's claim.
+import { releaseTranscriptLease } from '@/lib/recording/transcript-memo'
+
+describe('(c) G3 the generation fence on the takeover write', () => {
+  it('delayed-write test: A wins the claim, its takeover upsert is held open, B chains at +330 s and holds, then A\'s write lands → exactly 1 held', async () => {
+    await take(T0 - 400 * S) // a dead holder, expired by T0
+    const g = gateOn('upsert', LEASE, 1)
+    const A = take(T0)
+    await g.reached
+    const early = []
+    for (const d of [5, 300, 329]) early.push((await take(T0 + d * S)).state)
+    expect(early).toEqual(['busy', 'busy', 'busy'])
+    const B = await take(T0 + 330 * S)
+    expect(B.state).toBe('held')
+    g.open()
+    const a = await A
+    expect(a.state).toBe('busy')
+    expect([a, B].filter((t) => t.state === 'held')).toHaveLength(1)
+    // A's stray lease never strands the audio: newcomers wait until B's claim is one TTL old
+    // (+660 s = B's own expiry, as in R3's run), then the next link holds.
+    const later: string[] = []
+    for (const c of [335, 400, 600, 659, 660]) later.push((await take(T0 + c * S)).state)
+    expect(later).toEqual(['busy', 'busy', 'busy', 'busy', 'held'])
+  })
+
+  it('R3 burst: 200 seeds x bursts of 2/3/10 on one expired lease, random interleavings: at most 1 payer, never 0', async () => {
+    const seeds = Number(process.env.U1_SEEDS ?? 200)
+    const rows: string[] = []
+    for (const n of [2, 3, 10]) {
+      let worst = 0
+      let none = 0
+      for (let seed = 1; seed <= seeds; seed++) {
+        resetBucket()
+        await take(T0)
+        jitter(seed * 7919 + n)
+        const p = (await Promise.all(Array.from({ length: n }, (_, i) => take(T0 + 331 * S + i)))).filter(pays).length
+        worst = Math.max(worst, p)
+        if (p === 0) none++
+      }
+      rows.push(`G3 expired burst n=${n} seeds=${seeds}: worst payers=${worst} trials with 0 payers=${none}`)
+      expect(worst).toBe(1)
+      expect(none).toBe(0)
+    }
+    process.stderr.write(rows.join('\n') + '\n')
+  }, 600_000)
+
+  it.each([['straddle', true], ['no-straddle baseline', false]] as const)('R3 G4 %s: A holds, B takes over at +331 s, no third payer inside B\'s TTL, held at +661 s', async (_label, straddle) => {
+    const A = await take(T0)
+    if (A.state !== 'held') throw new Error('A not held')
+    let rel: Promise<void> | null = null
+    let g: ReturnType<typeof gateOn> | null = null
+    if (straddle) { g = gateOn('upsert', LEASE, 1); rel = releaseTranscriptLease(A.lease, T0 + 299 * S); await g.reached }
+    const B = await take(T0 + 331 * S)
+    expect(B.state).toBe('held')
+    if (g) { g.open(); await rel }
+    const later: string[] = []
+    for (const c of [335, 400, 600, 660, 661]) later.push((await take(T0 + c * S)).state)
+    expect(later).toEqual(['busy', 'busy', 'busy', 'busy', 'held'])
+  })
+})

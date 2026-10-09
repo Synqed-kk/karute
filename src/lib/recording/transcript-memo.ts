@@ -388,6 +388,14 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     const after = await readLease(key, now)
     if (after === null) return held()
     if (after.nonce !== nonce) return { state: 'busy', until: after.until > now ? after.until : now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+    // ⚖ S120 (G3) — THE GENERATION FENCE. The upsert above is unconditional (storage-js
+    // offers only x-upsert, no If-Match), so a write delayed past a later takeover could
+    // land and read back as ours. Whoever takes over OUR generation claims the key named
+    // by our nonce first: if that claim exists, a newer link holds the audio → busy, our
+    // stray lease only makes the next caller wait for that link's claim. Unsure = held (B1).
+    if ((await claimExists(transcriptLeaseClaimKey(memoKey, { until: 0, nonce }))) === true) {
+      return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+    }
     return held()
   } catch (err) {
     warnStorageUnknown('transcript-lease.take', err)
@@ -443,6 +451,21 @@ async function readClaim(key: string, now: number): Promise<ClaimRead> {
     return { kind: 'ok', at: claim.at, nonce: claim.nonce }
   }
   return { kind: 'unreadable' }
+}
+
+/** ⚖ S120 (G3) — is there a claim object at `key`? true / false (a 404) / null when
+ *  storage will not say. Existence alone: any claim on our generation supersedes us. */
+async function claimExists(key: string): Promise<boolean | null> {
+  try {
+    const { data, error } = await createServiceClient().storage.from('recordings').download(key)
+    if (!error && data) return true
+    if (error && isStorageNotFound(error)) return false
+    warnStorageUnknown('transcript-lease.fence', error)
+    return null
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.fence', err)
+    return null
+  }
 }
 
 /** The claim's `{ at, nonce }` when it reads `ok`, else null. */
