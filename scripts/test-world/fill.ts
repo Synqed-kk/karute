@@ -283,6 +283,11 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
+  const summary = () => {
+    log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
+    run.skipped.forEach((l) => log(`skipped: ${l}`))
+    ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
+  }
 
   // The only door to a write. Dry-run counts and returns a stand-in; a 409 is recorded, never retried.
   async function write<T>(section: Section, key: string, fn: () => Promise<T>): Promise<(T & { id?: string }) | null> {
@@ -459,9 +464,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       }
     })
 
-    log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
-    run.skipped.forEach((l) => log(`skipped: ${l}`))
-    ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
+    summary()
     // The read-back is a diagnostic: its failure never changes the exit code.
     if (o.readBack) {
       try {
@@ -477,6 +480,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     if (!prior && sent === 0) delete m.stores[storeId]
     if (!(e instanceof Saturated)) throw e
     run.errors.push(`stopped: ${message(e)}`) // S90: core's database is full — the rest of this run is skipped
+    summary() // what was written before the stop: the resume needs these counts
     log(SATURATED_LINE)
     return 1
   }

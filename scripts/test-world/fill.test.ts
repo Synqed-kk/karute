@@ -715,6 +715,8 @@ async function main() {
   assert.equal(await apply(sw.core, { ...opts(empty()), readBack: true, log: (l: string) => void swLog.push(l), limiter: sw.lim(DEFAULT_THROTTLE) }), 1)
   assert.ok(sw.s.failedAt > 0 && sw.s.calls === sw.s.failedAt, `writes: failed at request ${sw.s.failedAt}, ${sw.s.calls} started`)
   assert.equal(swLog.filter((l) => l === SATURATED_LINE).length, 1, swLog.join('\n'))
+  const [created, stopLine] = [swLog.findIndex((l) => /^created: \{.*"customers":\d+.*· writes sent: \d+$/.test(l)), swLog.indexOf(SATURATED_LINE)]
+  assert.ok(created >= 0 && created < stopLine && swLog.some((l) => l.startsWith('FAILED: stopped: ')), swLog.join('\n'))
   console.log(`✓ S90 EMAXCONN in writes: stopped at request ${sw.s.failedAt}, ${sw.s.calls - sw.s.failedAt} started after, exit 1`)
   // EMAXCONN in the read-back (counts() is read by the read-back only): the read-back stops, the exit code stays
   const sr = watched((call) => call === 'staffStores.counts')
