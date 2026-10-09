@@ -38,10 +38,14 @@ const EMAIL_RE =
  *  U+2501 (typed as a dash), the ideographic comma U+3001 and its half-width
  *  form U+FF64, the half-width prolonged mark U+FF70 (NFKC folds these two
  *  into U+3001 / U+30FC; listed for the guard's first pass, which can see
- *  them raw). NOT の (a word: 「090の1234の5678」 still leaves its digits).
+ *  them raw). NOT の (a word: 「090の1234の5678」 still leaves its digits),
+ *  nor 。 ｡ · ‧ ∙ • ★ │ ┃ ═ (R-S115-15: not how a Japanese phone is typed;
+ *  named in the sentry-exit.ts header).
  *  What 、 newly eats: a 、-list holding 10-16 digits in all
  *  (「100、200、300、400」 → `<phone>`), as `,` already did; a date or a
- *  short list (「2026ー10ー09」, 「1、2、3」) is unchanged.
+ *  short list (「2026ー10ー09」, 「1、2、3」) is unchanged; an ID list of 10-16
+ *  digits is not (「ID: 12345、67890」 → `ID: <phone>`), nor a ー date with a
+ *  time (「2026ー10ー09 09:00」 → `<phone>:00`).
  *  A gap between digit groups is 1–3 of these.
  *  NOT a colon (R-S113-10): `127.0.0.1:3100` is an address and port. */
 const PHONE_SEP = ' \\t\\n\\r+_,/~.\\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D\u30FC()\u30FB\u301C\uFF5E\u2043\u2796\u30A0\u2500\u2501\u3001\uFF64\uFF70'
@@ -315,13 +319,15 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  (`user[password]=`, `user['password']=`, `user["password"]=`).
  *  (4) optionally any number of backslashes, then optionally a closing quote
  *  `"` `'` or `&quot;` (a JSON key `"password":`, a JSON body inside a string
- *  at any nesting depth `\"password\":`, `\\\"password\\\":`, an
+ *  nested in strings `\"password\":`, `\\\"password\\\":` (tested with
+ *  1, 2, 3 and 7 backslashes), an
  *  HTML-escaped one `&quot;password&quot;:`).
  *  (5) `:` or `=`, spaces around it allowed, then the value, the first form
  *  that matches: an escaped-quoted value — k backslashes and a quote, read to
  *  the next quote with exactly k backslashes before it (a back-reference; a
  *  backslash run before a quote with MORE backslashes, or before any other
- *  character, is part of the value: `\"hunt er \n x\"`, any nesting depth);
+ *  character, is part of the value: `\"hunt er \n x\"`; no depth limit, tested with 1,
+ *  2, 3 and 7 backslashes);
  *  an `&quot;`-quoted value to the next `&quot;`; a `"`-quoted value to its
  *  closing quote, `\x` inside it part of it; a `'`-quoted value; else a bare
  *  value up to a space, `&` or a quote. Each quoted form is a run of disjoint
@@ -336,7 +342,7 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  `key_id=`, `tokenId=`, `authCode=`, `keyValue:`, `keyHash=`, `pin_new=`,
  *  and a bracket before `=` (`map[key]=`, `key[0]=`, `filter[key]=name`,
  *  `filter["key"]=name`); `authId=undefined` and `secret_value: null` lose
- *  their value. Still leaves: any other suffix (`password1=`, `passwordStr=`,
+ *  their value. Still leaves: another suffix (`password1=`, `passwordStr=`,
  *  `pinNumber=`, `token_b64=`, `tokenString=`, `secretData=`), a dotted one
  *  (`key.value=`), a nested bracket (`user[password][0]=`), a quote written
  *  as `\u0022` or `&#34;`, and the rest named in the sentry-exit.ts header.
