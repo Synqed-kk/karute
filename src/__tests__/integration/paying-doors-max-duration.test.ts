@@ -7,7 +7,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
+import { TRANSCRIPT_LEASE_TTL_MS, TRANSCRIPT_PAYING_DOOR_MAX_DURATION_MS } from '@/lib/recording/transcript-lease-ttl'
 
 const DOORS: Array<[string, string]> = [
   ['web /api/ai/transcribe', 'src/app/api/ai/transcribe/route.ts'],
@@ -22,6 +22,7 @@ describe('every paying door pins maxDuration below the lease TTL', () => {
     const src = readFileSync(join(process.cwd(), file), 'utf8')
     const m = src.match(/^export const maxDuration = (\d+)\s*$/m)
     expect(m?.[1]).toBe('300')
+    expect(Number(m![1]) * 1000).toBe(TRANSCRIPT_PAYING_DOOR_MAX_DURATION_MS)
     expect(Number(m![1]) * 1000).toBeLessThan(TRANSCRIPT_LEASE_TTL_MS)
   })
 

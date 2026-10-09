@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isDuplicateRefusal } from '@/lib/recording/storage-duplicate'
 import { isStorageNotFound, warnStorageUnknown } from '@/lib/recording/take-binding'
-import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
+import { TRANSCRIPT_LEASE_CLOCK_SKEW_MS, TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 
 // ⚖ CHARGE ONCE (PR-5). The provider's answer for one audio object in one
 // language, kept BESIDE that audio in the same bucket, under the key
@@ -446,8 +446,9 @@ export async function releaseTranscriptLease(held: HeldTranscriptLease, now = Da
 
 /** ⚖ S58 — the clock-skew tolerance on a lease's expiry: how far past this
  *  server's own `now + TRANSCRIPT_LEASE_TTL_MS` another server's clock may
- *  have written it. A tolerance between clocks, not a business duration. */
-const LEASE_CLOCK_SKEW_MS = 60_000
+ *  have written it. A tolerance between clocks, not a business duration.
+ *  ⚖ S115 round 3 (S3): derived beside the TTL, under its margin (was 60 s). */
+const LEASE_CLOCK_SKEW_MS = TRANSCRIPT_LEASE_CLOCK_SKEW_MS
 
 /** The lease's expiry, or null when it cannot be read (missing, garbage, error).
  *  ⚖ S58 — an expiry no call could have written (not a finite number, or past
