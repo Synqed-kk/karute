@@ -470,20 +470,33 @@ async function readClaim(key: string, now: number): Promise<ClaimRead> {
       warnStorageUnknown('transcript-lease.claim-read', err)
       continue
     }
-    if (claim?.v !== 1 || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return { kind: 'invalid' }
-    if (claim.at > now + LEASE_CLOCK_SKEW_MS) return { kind: 'invalid' }
-    if (typeof claim.nonce !== 'string' || !CLAIM_GENERATION_RE.test(claim.nonce)) return { kind: 'invalid' }
-    return { kind: 'ok', at: claim.at, nonce: claim.nonce }
+    const parsed = parseClaimBody(claim)
+    if (!parsed || parsed.at > now + LEASE_CLOCK_SKEW_MS) return { kind: 'invalid' }
+    return { kind: 'ok', at: parsed.at, nonce: parsed.nonce }
   }
   return { kind: 'unreadable' }
 }
 
+/** A claim body this code could have written — v 1, a finite `at`, a nonce in the
+ *  generation grammar — else null. The one parser for readClaim and the fence. */
+function parseClaimBody(claim: { v?: unknown; at?: unknown; nonce?: unknown } | null): { at: number; nonce: string } | null {
+  if (claim?.v !== 1 || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return null
+  if (typeof claim.nonce !== 'string' || !CLAIM_GENERATION_RE.test(claim.nonce)) return null
+  return { at: claim.at, nonce: claim.nonce }
+}
+
 /** ⚖ S120 (G3) — is there a claim object at `key`? true / false (a 404) / null when
- *  storage will not say. Existence alone: any claim on our generation supersedes us. */
+ *  storage will not say. Existence alone: any claim on our generation supersedes us.
+ *  S120 (attack A4): it counts only if its body parses as a claim (parseClaimBody, no
+ *  `at` bound: a later link's claim is newer than our `now`); anything else → null. */
 async function claimExists(key: string): Promise<boolean | null> {
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').download(key)
-    if (!error && data) return true
+    if (!error && data) {
+      if (parseClaimBody(JSON.parse(await data.text()))) return true
+      warnStorageUnknown('transcript-lease.fence', 'not a claim body')
+      return null
+    }
     if (error && isStorageNotFound(error)) return false
     warnStorageUnknown('transcript-lease.fence', error)
     return null
