@@ -686,16 +686,16 @@ async function main() {
   assert.equal(await apply(c2.core, { ...opts(empty()), limiter: c2.lim(parseThrottle(['--concurrency', '2']) as Throttle) }), 0)
   assert.equal(c2.s.max, 2, `--concurrency 2: max in flight ${c2.s.max}`)
   for (const bad of ['5', '0', '-1', '1.5', 'x']) assert.equal(typeof parseThrottle(['--concurrency', bad]), 'string', `--concurrency ${bad} refused`)
-  for (const t of [{ concurrency: 5, pauseMs: 150 }, { concurrency: 0, pauseMs: 150 }, { concurrency: 1, pauseMs: -1 }]) {
+  for (const t of [{ concurrency: 5, pauseMs: 150 }, { concurrency: 0, pauseMs: 150 }, { concurrency: 1, pauseMs: -1 }, { concurrency: 1, pauseMs: 60_001 }]) {
     const r = watched()
     assert.equal(await apply(r.core, { ...opts(empty()), limiter: r.lim(t) }), 2, JSON.stringify(t))
     assert.equal(r.s.calls, 0, `${JSON.stringify(t)}: zero core calls`)
   }
   // --pause-ms 0 needs --no-pause; --no-pause alone means 0
   assert.equal(typeof parseThrottle(['--pause-ms', '0']), 'string', '--pause-ms 0 alone refused')
-  for (const bad of ['-5', '2.5', '']) assert.equal(typeof parseThrottle(['--pause-ms', bad]), 'string', `--pause-ms ${bad} refused`)
-  assert.deepEqual([parseThrottle(['--pause-ms', '0', '--no-pause']), parseThrottle(['--no-pause']), parseThrottle(['--pause-ms', '400', '--concurrency', '4'])],
-    [{ concurrency: 1, pauseMs: 0 }, { concurrency: 1, pauseMs: 0 }, { concurrency: 4, pauseMs: 400 }])
+  for (const bad of ['-5', '2.5', '', '60001', '3000000000']) assert.equal(typeof parseThrottle(['--pause-ms', bad]), 'string', `--pause-ms ${bad} refused`)
+  assert.deepEqual([parseThrottle(['--pause-ms', '0', '--no-pause']), parseThrottle(['--no-pause']), parseThrottle(['--pause-ms', '400', '--concurrency', '4']), parseThrottle(['--pause-ms', '60000'])],
+    [{ concurrency: 1, pauseMs: 0 }, { concurrency: 1, pauseMs: 0 }, { concurrency: 4, pauseMs: 400 }, { concurrency: 1, pauseMs: 60000 }])
   console.log(`✓ S90 flags: --concurrency 2 max ${c2.s.max}; 5 / 0 / --pause-ms 0 refused with 0 core calls`)
   // the read-back's per-customer reads: bounded by the setting, same table as the old Promise.all fan-out
   const rb = watched()

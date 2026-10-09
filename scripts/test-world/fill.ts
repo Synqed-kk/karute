@@ -175,6 +175,7 @@ export function parseThrottle(argv: string[]): Throttle | string {
   const t = { concurrency: int(val('--concurrency'), DEFAULT_THROTTLE.concurrency), pauseMs: int(val('--pause-ms'), noPause ? 0 : DEFAULT_THROTTLE.pauseMs) }
   if (!(t.concurrency >= 1 && t.concurrency <= 4)) return `--concurrency must be a whole number from 1 to 4 (got ${val('--concurrency')})`
   if (!Number.isInteger(t.pauseMs)) return `--pause-ms must be a whole number of milliseconds (got ${val('--pause-ms')})`
+  if (t.pauseMs > 60_000) return `--pause-ms above 60000 is refused (got ${t.pauseMs}; Node's timer overflows near 2^31 ms)`
   if (noPause && t.pauseMs !== 0) return '--no-pause and a non-zero --pause-ms contradict each other'
   if (t.pauseMs === 0 && !noPause) return '--pause-ms 0 needs --no-pause as well'
   return t
@@ -245,8 +246,8 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   const { recipe, storeId, today, dry, log } = o
   if (o.manifest.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
   const lim = o.limiter ?? limiter(DEFAULT_THROTTLE, o.wait)
-  if (!Number.isInteger(lim.concurrency) || lim.concurrency < 1 || lim.concurrency > 4 || !Number.isInteger(lim.pauseMs) || lim.pauseMs < 0) {
-    log(`REFUSED: throttle ${lim.concurrency} in flight / ${lim.pauseMs} ms is outside 1–4 in flight, ≥ 0 ms`)
+  if (!Number.isInteger(lim.concurrency) || lim.concurrency < 1 || lim.concurrency > 4 || !Number.isInteger(lim.pauseMs) || lim.pauseMs < 0 || lim.pauseMs > 60_000) {
+    log(`REFUSED: throttle ${lim.concurrency} in flight / ${lim.pauseMs} ms is outside 1–4 in flight, 0–60000 ms`)
     return 2
   }
   const core = throttled(raw, lim)
