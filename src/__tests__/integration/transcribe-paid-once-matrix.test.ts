@@ -523,11 +523,17 @@ const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   const locks = installLocks(lock === 'held' ? lockManager : undefined)
   try {
     expect(typeof navigator.locks?.request).toBe(lock === 'held' ? 'function' : 'undefined')
+    // S120 r1b: the field shape — attempt 1's connection drops on both POSTs (fetchWithRetry's
+    // two), so the client run fails to 'error' while the server attempt is still in the provider.
+    // (r1b used to call retry() in 'processing', a test shortcut no production caller can make:
+    // the 再試行 card renders only in 'error', and retry() now returns outside it.)
+    if (lock === 'absent') net.push('drop', 'drop')
     globalPipeline.start(memory, ctx)
     for (let i = 0; i < 200 && transcribeUrlWithDeepgram.mock.calls.length === 0; i++) await tick()
     // Attempt 1 is inside the provider: its POST holds the lease (and, in r1a, the tab lock).
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
-    expect(globalPipeline.state).toBe('processing')
+    if (lock === 'absent') for (let i = 0; i < 200 && globalPipeline.state === 'processing'; i++) await tick()
+    expect(globalPipeline.state).toBe(lock === 'absent' ? 'error' : 'processing')
     globalPipeline.retry() // the manual 再試行 while attempt 1 is still live
     for (let i = 0; i < 40; i++) await tick()
     if (lock === 'held') finish()

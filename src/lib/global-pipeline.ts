@@ -751,6 +751,10 @@ class GlobalPipeline {
    *  object is orphaned to the daily sweep). A retry can therefore never
    *  start a second pipeline for a session that a live job already owns. */
   retry() {
+    // S120 (READ-A A1): only from the error card's state. The line below
+    // moves the state out of 'error' before any await, so a second tap in the
+    // same tick returns here — one run, one payer, nothing shown.
+    if (this.state !== 'error') return
     if (!this.blob || !this.context) return
     this.state = 'processing'
     this.step = 'transcribing'
