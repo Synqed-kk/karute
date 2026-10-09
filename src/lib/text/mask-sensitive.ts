@@ -34,9 +34,17 @@ const EMAIL_RE =
  *  katakana prolonged mark U+30FC as an IME types it, hyphen bullet U+2043,
  *  heavy minus U+2796, katakana double hyphen U+30A0) · parentheses · the
  *  middle dot U+30FB and the wave dashes U+301C / U+FF5E (and `~`, the form
- *  U+FF5E takes after NFKC). A gap between digit groups is 1–3 of these.
+ *  U+FF5E takes after NFKC) · R-S115-10 N2: the box-drawing lines U+2500 /
+ *  U+2501 (typed as a dash), the ideographic comma U+3001 and its half-width
+ *  form U+FF64, the half-width prolonged mark U+FF70 (NFKC folds these two
+ *  into U+3001 / U+30FC; listed for the guard's first pass, which can see
+ *  them raw). NOT の (a word: 「090の1234の5678」 still leaves its digits).
+ *  What 、 newly eats: a 、-list holding 10-16 digits in all
+ *  (「100、200、300、400」 → `<phone>`), as `,` already did; a date or a
+ *  short list (「2026ー10ー09」, 「1、2、3」) is unchanged.
+ *  A gap between digit groups is 1–3 of these.
  *  NOT a colon (R-S113-10): `127.0.0.1:3100` is an address and port. */
-const PHONE_SEP = ' \\t\\n\\r+_,/~.\\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D\u30FC()\u30FB\u301C\uFF5E\u2043\u2796\u30A0'
+const PHONE_SEP = ' \\t\\n\\r+_,/~.\\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D\u30FC()\u30FB\u301C\uFF5E\u2043\u2796\u30A0\u2500\u2501\u3001\uFF64\uFF70'
 /** THE version string (R-S112-8 (a), R-S113-4 (b), R-S113-5 D3) — the one
  *  definition, used wherever digits are judged: digit groups of at most 5
  *  digits joined by single dots, 2+ groups, the WHOLE separated run

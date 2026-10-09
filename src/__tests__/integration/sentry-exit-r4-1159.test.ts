@@ -87,3 +87,18 @@ describe('R4 F2 — the second bound after NFKC', () => {
     expect(preBound('ﷺ'.repeat(2100)).length).toBeLessThanOrEqual(2000)
   })
 })
+
+describe('R4 N2 — the Japanese dash and comma family are phone separators', () => {
+  const SEPS = ['─', '━', '、', '､', 'ー', 'ｰ', '‐', '‑', '‒', '–', '—', '―', '−']
+  it.each(SEPS)('%s as a separator: 090-1234-5678 is masked whole at the exit and on the log line', (sep) => {
+    const v = `TEL ${['090', '1234', '5678'].join(sep)}`
+    expect(leaks(masked(v, 300), '1234', '5678')).toEqual([])
+    expect(leaks(log(v), '1234', '5678')).toEqual([])
+    expect(leaks(exitOut(v), '1234', '5678')).toEqual([])
+  })
+  it('common text: a date and a short list are unchanged; a list of 10-16 digits is now a phone', () => {
+    expect(maskSensitive('2026ー10ー09')).toBe('2026<text>10<text>09')
+    expect(maskSensitive('1、2、3')).toBe('1<text>2<text>3')
+    expect(maskSensitive('100、200、300、400')).toBe('<phone>')
+  })
+})
