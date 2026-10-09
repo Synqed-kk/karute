@@ -22,7 +22,7 @@
 //
 // Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed). The manifest holds ids only.
 // Exit: 0 ok · 1 error (or core's database full) · 2 REFUSED (pin, or a bad throttle flag) · 4 unexpected 409s > 0.
-// Throttle (⚖ S90): every core request passes ONE limiter — `--concurrency <1–4>` in flight (default 1), `--pause-ms <n>`
+// Throttle (S90): every core request passes ONE limiter — `--concurrency <1–4>` in flight (default 1), `--pause-ms <n>`
 // between request starts (default 150; 0 only with `--no-pause`). The first EMAXCONN error stops all requests.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -471,7 +471,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     // once a write was sent, the epoch stays — rows may exist on those dates.
     if (!prior && sent === 0) delete m.stores[storeId]
     if (!(e instanceof Saturated)) throw e
-    run.errors.push(`stopped: ${message(e)}`) // ⚖ S90: core's database is full — the rest of this run is skipped
+    run.errors.push(`stopped: ${message(e)}`) // S90: core's database is full — the rest of this run is skipped
     log(SATURATED_LINE)
     return 1
   }

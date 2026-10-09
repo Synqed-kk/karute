@@ -647,7 +647,7 @@ async function main() {
   await assert.rejects(apply(twice.core, opts({ ...empty(), businessId: 'foreign' })), /not a Dev Salon manifest/)
   assert.equal(twice.stats.writes, 0, 'dry-run and rejected targets never write')
 
-  // (e) ⚖ S90 throttle: every core request passes ONE limiter; the first EMAXCONN stops every later request.
+  // (e) S90 throttle: every core request passes ONE limiter; the first EMAXCONN stops every later request.
   {
   const full = Object.assign(new Error('connect EMAXCONN: max client connections reached'), { status: 500 })
   // Every method of a fake core, watched: requests in flight, start times on a fake clock, an optional failure.
