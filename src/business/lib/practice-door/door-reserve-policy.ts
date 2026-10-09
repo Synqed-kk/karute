@@ -12,6 +12,7 @@ import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { renderNow } from '../clock'
+import { planesOf } from './sample-facade'
 import { READ_ONLY_NOTE } from '../store-days-state'
 import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem, type ReservePolicy } from './reserve-policy'
 
@@ -57,7 +58,7 @@ async function hasHqGrant(actor: PracticeActor): Promise<boolean> {
 }
 
 /** The six booking rules of one store, written to core's per-store row. Order: OFF → shape, core's ranges and the
- *  §4 checks (all pure, before any call) → lazy core-reach → actor → store isolation → settings.manage → HQ grant →
+ *  §4 checks → the store's 受付 plane is live (all pure, before any call) → lazy core-reach → actor → store isolation → settings.manage → HQ grant →
  *  ONE fresh `get` → `policyHash(current) !== basedOn` → 'stale' → the same six as stored → ok with no `set` (core
  *  would file no audit row for it anyway; this keeps updated_at still) → ONE `set` carrying ONLY the six fields. The window
  *  between that `get` and the `set` is unguarded: core's PUT takes no precondition yet (CORE-44 is ordered, not on
@@ -68,6 +69,9 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
   if (next === null || typeof storeId !== 'string' || storeId === '' || typeof basedOn !== 'string') return refuse('invalid', MSG.range)
   const problem = reservePolicyProblem(next)
   if (problem) return refuse('invalid', MSG[problem])
+  // S67 W2 — the one choke point: a store whose 受付 plane is not live (the screen shows it as sample, from the same
+  // table, sample-facade's planesOf) is refused before any core call, so a hand-made PUT cannot write it either.
+  if (planesOf(storeId).bookingPolicy !== 'live') return refuse('tenant', MSG.fail)
   const reach = await import('./core-reach') // lazy, like door.ts: the OFF path never loads the SDK
   let actor: PracticeActor
   try {
