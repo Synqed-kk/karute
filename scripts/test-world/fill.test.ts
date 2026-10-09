@@ -808,6 +808,14 @@ async function main() {
   assert.ok(g1Log.includes('read-back failed (writes unaffected): bad request') && g1b.s.calls === atReturn, `${g1b.s.calls - atReturn} requests started after apply returned`)
   assert.deepEqual(await settleAll([Promise.resolve(1), Promise.resolve('a')]), [1, 'a'])
   console.log(`✓ S90 read-back first batch: a 4xx then a late EMAXCONN → this store's stop (exit ${rg1.code}, ${allStores.length - 1} not started); ${g1b.s.calls - atReturn} requests after apply returned`)
+  // Greptile G2: at 3 in flight, "writes sent" in the stop summary = the write requests that really started
+  const g2 = watched((call) => call === 'appointments.create')
+  const g2Log: string[] = []
+  assert.equal(await apply(g2.core, { ...opts(empty()), log: (l: string) => void g2Log.push(l), limiter: g2.lim({ concurrency: 3, pauseMs: 150 }) }), 1)
+  const reported = Number(/writes sent: (\d+)$/.exec(g2Log.find((l) => l.startsWith('created: '))!)![1])
+  const startedWrites = g2.s.names.filter((n) => /\.(create|set|createPack|addRedemption|update)$/.test(n)).length
+  assert.equal(reported, startedWrites, `writes sent ${reported}, write requests started ${startedWrites}`)
+  console.log(`✓ S90 writes sent after a stop at 3 in flight: ${reported} reported = ${startedWrites} started`)
   console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
   }
 

@@ -164,7 +164,9 @@ export interface Throttle { concurrency: number; pauseMs: number }
 export const DEFAULT_THROTTLE: Throttle = { concurrency: 1, pauseMs: 150 }
 export const SATURATED_LINE = "core's database is at its connection limit — stopped. Check core answers before resuming."
 /** Thrown by the limiter once core's database reported it is full; no request starts after it. */
-export class Saturated extends Error {}
+export class Saturated extends Error {
+  constructor(msg: string, readonly started = true) { super(msg) } // started: false = refused before it reached core
+}
 // the text may sit in the message, the error code or the JSON body (SynqedError keeps code and body apart)
 const isSaturated = (e: unknown) => ((x) => /EMAXCONN|max client connections|max clients reached|too many clients/i.test(`${message(e)} ${x?.code ?? ''} ${JSON.stringify(x?.body ?? '')}`))(e as { code?: unknown; body?: unknown } | null)
 
@@ -204,7 +206,7 @@ export function limiter(t: Throttle, sleep: (ms: number) => Promise<unknown> = (
         })
         gate = turn
         await turn
-        if (lim.stopped) throw new Saturated('stopped: core\'s database is at its connection limit')
+        if (lim.stopped) throw new Saturated('stopped: core\'s database is at its connection limit', false)
         try {
           return await fn()
         } catch (e) {
@@ -296,15 +298,25 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
   }
 
+  // A write counts as sent unless the stopped limiter refused its only attempt before it reached core.
+  const send = async <T,>(fn: () => Promise<T>, mode: 'keyed' | 'unkeyed') => {
+    let tries = 0
+    sent++
+    try {
+      return await withRetry(() => (tries++, fn()), mode, o.wait)
+    } catch (e) {
+      if (e instanceof Saturated && !e.started && tries === 1) sent--
+      throw e
+    }
+  }
   // The only door to a write. Dry-run counts and returns a stand-in; a 409 is recorded, never retried.
   async function write<T>(section: Section, key: string, fn: () => Promise<T>): Promise<(T & { id?: string }) | null> {
     run.created[section] = (run.created[section] ?? 0) + 1
     if (dry) return { id: `dry:${key}` } as T & { id?: string }
     try {
-      sent++
       // appointments.create and packs.addRedemption are the only creates the SDK takes an idempotencyKey on.
       const keyed = section === 'appointments' || section === 'redemptions'
-      const row = (await withRetry(fn, keyed ? 'keyed' : 'unkeyed', o.wait)) as T & { id?: string }
+      const row = (await send(fn, keyed ? 'keyed' : 'unkeyed')) as T & { id?: string }
       if (row?.id) ((st.created[section] ??= {})[key] = row.id)
       return row
     } catch (e) {
@@ -430,8 +442,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       run.created.todayStatus = (run.created.todayStatus ?? 0) + 1
       if (dry) continue
       try {
-        sent++
-        await withRetry(() => setPlannedStatus(core, row, planned.status), 'keyed', o.wait) // an update restated is the same update
+        await send(() => setPlannedStatus(core, row, planned.status), 'keyed') // an update restated is the same update
         apptRow.set(planned.key, { id: row.id, status: planned.status })
       } catch (e) {
         run.created.todayStatus!--
