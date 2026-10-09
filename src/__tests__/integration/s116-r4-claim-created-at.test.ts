@@ -100,8 +100,6 @@ const takeAt = (own: number, store = own) => {
 }
 const plant = (key: string, body: unknown, createdAt: number) => mockObjects.set(key, { body: typeof body === 'string' ? body : JSON.stringify(body), createdAt })
 const lease = (exp: number, nonce: string) => plant(LEASE, { v: 1, expires_at: exp, nonce }, T0)
-/** A call that answers anything but busy pays (held under the lease, unknown unleased). */
-const payers = (xs: Array<{ state: string }>) => xs.filter((x) => x.state !== 'busy').length
 let warns: string[] = []
 beforeEach(() => {
   mockObjects.clear()
@@ -174,6 +172,37 @@ describe('N1 — a created_at with no offset is UTC under a non-UTC server zone'
     mockInfo.fn = (had) => ({ data: { createdAt: new Date(had.createdAt + 9 * 3_600 * S).toISOString().replace('Z', '+09:00') }, error: null })
     unreadableClaim(P - 10 * S)
     expect((await takeAt(P)).state).toBe('busy')
+  })
+})
+
+describe('S117 (N-4) — a lowercase `t` / `z` and a short offset are read, under TZ=Asia/Tokyo', () => {
+  it('`t` with no offset is UTC (bare Date.parse: local); -07, -0700 and `z` read the same instant', () => {
+    const UTC_MS = Date.UTC(2027, 0, 15, 8, 0, 0)
+    const [offset, lowT, lowTZ, short, compact, pgShort] = inZone('Asia/Tokyo', [
+      '2027-01-15t08:00:00.000',
+      '2027-01-15t08:00:00.000z',
+      '2027-01-15T01:00:00.000-07',
+      '2027-01-15T01:00:00.000-0700',
+      '2027-01-15 17:00:00.5+09',
+    ])
+    expect(offset).toBe(-540)
+    expect(lowT[1]).toBe(UTC_MS)
+    expect(lowTZ[1]).toBe(UTC_MS)
+    expect(short[1]).toBe(UTC_MS)
+    expect(compact[1]).toBe(UTC_MS)
+    expect(pgShort[1]).toBe(UTC_MS + 500)
+  })
+})
+
+describe('S117 (NIT) — info() that answers no usable createdAt is warned', () => {
+  it.each([
+    ['no createdAt', () => ({ data: { name: 'x' }, error: null })],
+    ['an unparseable createdAt', () => ({ data: { createdAt: 'yesterday' }, error: null })],
+  ])('%s → busy, warned transcript-lease.claim-info', async (_n, fn) => {
+    mockInfo.fn = fn
+    unreadableClaim(P - 10 * S)
+    expect((await takeAt(P)).state).toBe('busy')
+    expect(warns).toContain('transcript-lease.claim-info')
   })
 })
 

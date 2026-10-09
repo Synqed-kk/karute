@@ -100,8 +100,6 @@ const takeAt = (own: number, store = own) => {
 }
 const plant = (key: string, body: unknown, createdAt: number) => mockObjects.set(key, { body: typeof body === 'string' ? body : JSON.stringify(body), createdAt })
 const lease = (exp: number, nonce: string) => plant(LEASE, { v: 1, expires_at: exp, nonce }, T0)
-/** A call that answers anything but busy pays (held under the lease, unknown unleased). */
-const payers = (xs: Array<{ state: string }>) => xs.filter((x) => x.state !== 'busy').length
 let warns: string[] = []
 beforeEach(() => {
   mockObjects.clear()

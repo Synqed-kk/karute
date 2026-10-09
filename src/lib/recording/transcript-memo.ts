@@ -455,7 +455,9 @@ async function claimCreatedAt(key: string): Promise<number | null> {
       if (error) warnStorageUnknown('transcript-lease.claim-info', error)
       return null
     }
-    return parseStorageTime(data.createdAt)
+    const at = parseStorageTime(data.createdAt)
+    if (at === null) warnStorageUnknown('transcript-lease.claim-info', null) // ⚖ S117 (NIT): no usable createdAt
+    return at
   } catch (err) {
     warnStorageUnknown('transcript-lease.claim-info', err)
     return null
