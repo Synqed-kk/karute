@@ -137,10 +137,14 @@ describe('M4 text positions mask the decoded copy (R-S113-6 F-S113-2)', () => {
     expect(masked('bad a@b%2Ejp x', 200)).toBe('bad <email> x')
     expect(masked(`name ${enc(TA, 3)} x`, 200)).toBe('name <text> x')
   })
-  it('decoding fails: every %XX run becomes [enc], the text otherwise intact', () => {
-    expect(masked(`name ${enc(TA, 5)} x`, 200)).toBe('name [enc] x')
+  // R-S115-10 SF3: each %XX run decodes on its own at any %25 depth, so a
+  // stray `%` or a 5-deep run no longer turns decoding off; only a run that
+  // is not valid UTF-8 becomes [enc], the text otherwise intact.
+  it('decoding: each run on its own at any depth; a run that is not UTF-8 becomes [enc]', () => {
+    expect(masked(`name ${enc(TA, 5)} x`, 200)).toBe('name <text> x')
     expect(masked('upload 100% done', 200)).toBe('upload 100% done')
-    expect(masked(`bad 100% ${enc(TA, 1)} x`, 200)).toBe('bad 100% [enc] x')
+    expect(masked(`bad 100% ${enc(TA, 1)} x`, 200)).toBe('bad 100% <text> x')
+    expect(masked('name %E3%81 x', 200)).toBe('name [enc] x')
     expect(masked(enc(TA, 5), 200)).toBeUndefined()
   })
 })
