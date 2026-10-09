@@ -188,6 +188,9 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // so the fence and this allowlist can never disagree; judged on the RESOLVED
     // target like the row above (a barrel such as `@/lib/appointments` stays out).
     [SHARED_CORES.doorFile]: SHARED_CORES.modules,
+    // ⚖ S81 — the ONE hours resolver, a pure function: imports only @/lib/date/jst, @/lib/date/calendar-range and a
+    // type-only capacity import; no core, no prisma, no next. Named imports from this one file (never a barrel).
+    'src/business/lib/practice-door/store-hours.ts': ['src/lib/operating-hours'],
   }
   // Bare packages: the render runtime only. `node:` builtins ride along because
   // the territory's own test file reads fixtures off disk — stdlib reaches no
@@ -205,6 +208,15 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // §9's sibling.
   const RENDER_TEST_FILE = /^src\/__tests__\/integration\/business\/[^/]+\.test\.tsx$/
   const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
+  // R123 (S51): react-dom for the shared Dialog's createPortal only — React's own renderer, no data access
+  // Single consumer: settings/Dialog.tsx — not on main yet; it lands with the Dialog PR (P5c).
+  // R172 (S56, declared in package.json per R179/R180): postcss, the CSS parser, for two TEST files that parse the
+  // Business sheets — business-css-parses.test.ts + settings-primitives.test.tsx (land with P5c). Exact specifier only.
+  const FILE_ALLOWED_BARE: Record<string, string[]> = {
+    'src/app/[locale]/(business)/business/settings/Dialog.tsx': ['react-dom'],
+    'src/__tests__/integration/business/business-css-parses.test.ts': ['postcss'],
+    'src/__tests__/integration/business/settings-primitives.test.tsx': ['postcss'],
+  }
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
   function resolveSpecifier(spec: string, fromFile: string): string | null {
@@ -223,6 +235,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       if (/^next\/dist(?:\/|$)/.test(spec)) return 'next/dist internals are not a public entry'
       if (ALLOWED_BARE.test(spec)) return null
       if (RENDER_TEST_FILE.test(fromFile) && RENDER_TEST_BARE.has(spec)) return null
+      if (FILE_ALLOWED_BARE[fromFile]?.includes(spec)) return null
       return 'bare package off the allowlist'
     }
     // Tests may import tests; runtime + e2e never import the test folder (a *.test.tsx may re-export the door).
@@ -318,6 +331,23 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('@/lib/synqed/client', door)).not.toBeNull()
   })
 
+  // ⚖ S81 — the store-hours door: store-hours.ts alone may import the hours resolver, never through a barrel.
+  it('the store-hours door: store-hours.ts may import src/lib/operating-hours in either spelling, nothing else may', () => {
+    const hours = 'src/business/lib/practice-door/store-hours.ts'
+    expect(FILE_ALLOWED_TARGETS[hours]).toEqual(['src/lib/operating-hours'])
+    // Both spellings resolve to the one allowed target.
+    expect(outwardOffense('@/lib/operating-hours', hours)).toBeNull()
+    expect(outwardOffense('../../../lib/operating-hours', hours)).toBeNull()
+    // Another territory file importing the same module is an offender.
+    expect(outwardOffense('@/lib/operating-hours', 'src/business/lib/practice-door/door.ts')).not.toBeNull()
+    expect(outwardOffense('../../../lib/operating-hours', 'src/business/lib/practice-door/sample-day.ts')).not.toBeNull()
+    expect(outwardOffense('@/lib/operating-hours', 'src/business/lib/data.ts')).not.toBeNull()
+    // A barrel from store-hours.ts stays out, in either spelling, as does a neighbour of the module.
+    expect(outwardOffense('@/lib', hours)).not.toBeNull()
+    expect(outwardOffense('../../../lib/index', hours)).not.toBeNull()
+    expect(outwardOffense('@/lib/operating-hours-extra', hours)).not.toBeNull()
+  })
+
   /** Every scanned file (both walks) whose import resolves to the door file. */
   function importersOfDoor(scanned: Array<{ rel: string; src: string }>): string[] {
     const doorModule = SHARED_CORES.doorFile.replace(/\.[cm]?[jt]sx?$/, '')
@@ -405,6 +435,61 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('next/navigation', data)).toBeNull()
     expect(outwardOffense('next/link', data)).toBeNull()
     expect(outwardOffense('next/headers', data)).toBeNull()
+  })
+
+  it('the Dialog react-dom door (R123): one file, the bare package only, every subpath and every other file refused', () => {
+    const BARE_OFF = 'bare package off the allowlist'
+    const dialog = 'src/app/[locale]/(business)/business/settings/Dialog.tsx'
+    // The one admitted import: bare react-dom from the shared Dialog (createPortal).
+    expect(outwardOffense('react-dom', dialog)).toBeNull()
+    // Exact specifier, never a prefix: the renderer's other entries stay shut even from Dialog.tsx.
+    expect(outwardOffense('react-dom/client', dialog)).toBe(BARE_OFF)
+    expect(outwardOffense('react-dom/server', dialog)).toBe(BARE_OFF)
+    expect(outwardOffense('react-dom/test-utils', dialog)).toBe(BARE_OFF)
+    // Every OTHER Business file — siblings, look-alike names, other folders — stays shut to bare react-dom.
+    const others = [
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx',
+      'src/app/[locale]/(business)/business/settings/Dialog.test.tsx',
+      'src/app/[locale]/(business)/business/settings/sub/Dialog.tsx',
+      'src/app/[locale]/(business)/business/today/Dialog.tsx',
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+      'src/business/components/Dialog.tsx',
+      'src/business/lib/data.ts',
+    ]
+    const verdicts = Object.fromEntries(others.map((f) => [f, outwardOffense('react-dom', f)]))
+    expect(verdicts).toEqual(Object.fromEntries(others.map((f) => [f, BARE_OFF])))
+  })
+
+  it('the postcss test door (R172): two test files, the bare package only, every subpath, other package and other file refused', () => {
+    const BARE_OFF = 'bare package off the allowlist'
+    const consumers = [
+      'src/__tests__/integration/business/business-css-parses.test.ts',
+      'src/__tests__/integration/business/settings-primitives.test.tsx',
+    ]
+    for (const f of consumers) {
+      // The one admitted import per file: bare postcss.
+      expect(outwardOffense('postcss', f)).toBeNull()
+      // Exact specifier, never a prefix: subpaths and look-alikes stay shut even here.
+      expect(outwardOffense('postcss/lib/parse', f)).toBe(BARE_OFF)
+      expect(outwardOffense('postcss/lib/postcss', f)).toBe(BARE_OFF)
+      expect(outwardOffense('postcss-selector-parser', f)).toBe(BARE_OFF)
+      // Another bare package is not admitted by this entry.
+      expect(outwardOffense('sass', f)).toBe(BARE_OFF)
+      expect(outwardOffense('@tailwindcss/postcss', f)).toBe(BARE_OFF)
+      expect(outwardOffense('lodash', f)).toBe(BARE_OFF)
+    }
+    // Every OTHER Business file — sibling tests, look-alike names, runtime code, the Dialog — stays shut to postcss.
+    const others = [
+      'src/__tests__/integration/business/other.test.ts',
+      'src/__tests__/integration/business/business-css-parses.test.tsx',
+      'src/__tests__/integration/business/sub/business-css-parses.test.ts',
+      'src/__tests__/integration/business/settings-primitives.test.ts',
+      'src/app/[locale]/(business)/business/settings/Dialog.tsx',
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx',
+      'src/business/lib/data.ts',
+    ]
+    const verdicts = Object.fromEntries(others.map((f) => [f, outwardOffense('postcss', f)]))
+    expect(verdicts).toEqual(Object.fromEntries(others.map((f) => [f, BARE_OFF])))
   })
 
   it('the door is one hop: runtime and e2e never import the test folder', () => {

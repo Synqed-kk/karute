@@ -38,7 +38,7 @@ import { join } from 'node:path'
 import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
-import { business, menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
+import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
@@ -52,7 +52,7 @@ import {
   addToCollection,
   blockDirty,
   CARD_COLOR_ID,
-  CARD_LOOK_ID,
+  STORE_PAGE_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -93,8 +93,9 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
+import { addSpecialDraft, applyClosureAdded, applySpecialOpenDays } from '@/business/lib/store-days-state'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
-import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+import { CARD_LOOK_HEADINGS, cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
@@ -341,7 +342,7 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
       'salesTargets',
       // Practice door PR-2: the dials are read through the facade's `storeSample`
       // (OFF = `storeDials[id] ?? null` exactly — practice-door-on.test.ts (9)).
-      'storeSample(storeId!).dials',
+      'storeSample(doorOn, storeId!).dials',
     ]) {
       expect({ source, read: PROPS_CODE.includes(source) }).toEqual({ source, read: true })
     }
@@ -604,9 +605,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // is the third: canon has no page for it because it is #812's room, which
     // arrived as ONE section of this rail rather than as a second 設定 route at
     // the same path. It sits SECOND, right after 店舗情報・営業時間.
-    // ⚖ A1b — カードの見た目 is the fourth: canon has no page for the Reserve card's
+    // ⚖ A1b — お店ページ (was カードの見た目) is the fourth: canon has no page for the Reserve card's
     // colour; it sits between Reserve 受付 and 通知, one value for the business.
-    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'カードの見た目', '自分の表示設定'])
+    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'お店ページ', '自分の表示設定'])
     expect(labels[1]).toBe('予約と確保')
     expect(RAIL).toHaveLength(23)
   })
@@ -623,9 +624,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         // directly below, against that payload, rather than against blocks it
         // deliberately does not have.
         if (s.id === 'booking-guard') continue
-        // ⚖ A1b — カードの見た目 renders itself too (the picker + the ported card);
+        // ⚖ A1b — お店ページ renders itself too (the picker + the ported card);
         // its substance is its payload, asserted in the A1b block at the end.
-        if (s.id === 'reserve-card-look') continue
+        if (s.id === 'reserve-store-page') continue
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
@@ -1055,7 +1056,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // `aria-expanded`, and a press.
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
     const head = phone.slice(phone.indexOf('.st-jump-head'))
-    expect(head).toContain('min-height: 44px')
+    // ⚖ R70 — its 44 is a finger's hit area, so it is stated in the coarse band.
+    expect(CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)')))
+      .toContain('.biz .pg-settings .st-jump-head { min-height: 44px; }')
     expect(head).toContain('cursor: pointer')
     expect(head).toContain('.st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }')
     expect(head).toContain('.st-jump-head:active { transform: scale(.97); }')
@@ -1579,7 +1582,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(blockingError(hours, seed)).toBeNull()
     expect(blockingError(hours, { ...seed, 'store-hours.name': '   ' })).toBe('店舗名が空欄です — 保存できません。')
     // …and the save button is really disabled by it.
-    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}')
+    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}') // S61 P7B-2 (R219): `savable` removed — every section, お店ページ too, reads dirty
   })
 
   it('a readout is a FIGURE or a PHRASE, and the sheet sizes them differently', async () => {
@@ -1928,6 +1931,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `emptyDateError`, and every item's `title`/`note` — are NOT skipped, and
     // the sample below proves the walk still reaches them.
     'dateControlId', 'reasonControlId',
+    // ⚖ PKT-S29-B1 — 特別営業日's own two control ids (`SettingsSpecialDays.openControlId` /
+    // `closeControlId`), same shape as the closure collection's pair above: an id the
+    // SCREEN uses, never a string a reader meets. Its visible words — `addLabel`,
+    // `removeLabel`, `emptyLine`, and every item's `title`/`open`/`close` — are NOT skipped.
+    'openControlId', 'closeControlId',
   ])
   /** ⚠ THE SKIP IS BY PATH, AND THE BATTERY PROVED WHY once already: the trace
    *  card's lines are `{ label, value }` and that `value` is a SENTENCE the
@@ -2052,7 +2060,8 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
     // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
-    // 「未設定」 option, which is a state shown, never a choice offered.
+    // 「未設定」 option, which is a state shown, never a choice offered. (S60 P7A-R3, R216 — お店ページ's
+    // 元に戻す is aria-disabled, so it stays focusable: three again.)
     expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
@@ -2144,7 +2153,8 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
       // …and the section really carries its blocks, rather than the designed
       // no-store panel a null lens would render.
       const hours = props.sections.find((s) => s.id === 'store-hours')!
-      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 4 })
+      // ⚖ PKT-S29-B1 — 5, not 4: 特別営業日 joined 臨時休業 as its own block.
+      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 5 })
       expect({ store, kicker: hours.kicker }).not.toEqual({ store, kicker: '店舗を選んでください' })
     }
   })
@@ -2283,7 +2293,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and the SCREEN really hands them over — to the filter AND to the chip.
     // Without this the list above is a fact about a function nobody calls with
     // it, which is exactly how the battery caught the first cut of this pin.
-    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? STORE_PAGE_TERMS : undefined)')
     expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
     expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.
@@ -2478,6 +2488,69 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(commit).toContain('for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)')
   })
 
+  it('⚖ PKT-S30 F10 (R-A) — an OFF-world 特別営業日 row added or removed IS an unsaved change, like the 臨時休業 one', async () => {
+    // The mirror of the S17 B2 pin above: in the OFF world 特別営業日 gets EXACTLY 臨時休業's OFF
+    // behaviour — a page-local draft in the same rows map, counted, committed by 保存. Never a refusal.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    expect(sp.specialDays).not.toBeNull()
+    const base = rowsOfBlock(sp, {})
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+
+    const added = addSpecialDraft(base, '2026-12-24', '10:00', '18:00', dayTitle)
+    expect(added.error).toBeNull()
+    expect(added.rows).toContainEqual({ id: '2026-12-24', title: '12月24日(木)', note: '10:00〜18:00', open: '10:00', close: '18:00' })
+    const live = { [sp.id]: added.rows }
+    expect(rowChanges(sp, live, {})).toBe(1)
+    expect(blockDirty(sp, seed, seed, live, {})).toBe(true)
+    expect(blockDirty(coll, seed, seed, live, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, {})).toBe(true)
+    expect(changedCount(sec, seed, seed, live, {})).toBe(1)
+    // …removed again is back to clean; committed (保存) is clean too.
+    expect(sectionDirty(sec, seed, seed, { [sp.id]: base }, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, live)).toBe(false)
+    // …a refused draft add leaves the rows as they were (a copy), with the door's own words.
+    expect(addSpecialDraft(added.rows, '2026-12-24', '10:00', '18:00', dayTitle)).toEqual({ rows: added.rows, error: 'その日はすでに特別営業日です' })
+    expect(addSpecialDraft(base, '', '10:00', '18:00', dayTitle).error).toBe('日付を選んでください。')
+    expect(addSpecialDraft(base, '2026-12-25', '18:00', '10:00', dayTitle).error).toBe('閉店時刻は開店時刻より後にしてください。')
+    // …and the screen really wires the OFF world to the draft (the refusal line is gone), and 保存 commits it.
+    expect(SCREEN_CODE).toContain(': addSpecialRow(b))}')
+    expect(SCREEN_CODE).toContain(': removeSpecialRow(b, date))}')
+    expect(SCREEN_CODE).toContain('for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)')
+    expect(SCREEN_CODE).not.toContain('実データ接続後に追加できます')
+  })
+
+  it('⚖ PKT-S30 F4 — in the ON world dirty/unsaved state ignores BOTH store-days blocks, even with pending rows', async () => {
+    // ON: each write is core's own at once; the rows the screen holds live in liveClosures /
+    // liveSpecial (the reducers' output), NEVER in the section's rows map — so the save bar
+    // never counts them, however many rows are pending or landed.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const heldClosures = applyClosureAdded([], { ok: true, value: { id: 'uuid-1', date: '2026-12-24', reason: null } })
+    const heldSpecial = applySpecialOpenDays([], { ok: true, value: [{ date: '2026-12-25', open: '10:00', close: '18:00' }] })
+    expect(heldClosures).toHaveLength(1)
+    expect(heldSpecial).toHaveLength(1)
+    for (const b of [coll, sp]) {
+      expect(rowChanges(b, {}, {})).toBe(0)
+      expect(blockDirty(b, seed, seed, {}, {})).toBe(false)
+    }
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+    expect(changedCount(sec, seed, seed, {}, {})).toBe(0)
+    // …because none of the four LIVE callbacks touches the rows maps.
+    for (const name of ['addClosureLive', 'removeClosureLive', 'addSpecialLive', 'removeSpecialLive']) {
+      const from = SCREEN_CODE.indexOf(`const ${name} = useCallback`)
+      expect(from).toBeGreaterThan(-1)
+      const body = SCREEN_CODE.slice(from, SCREEN_CODE.indexOf('}, [', from))
+      expect({ name, touchesRows: /setListRows|setSavedRows/.test(body) }).toEqual({ name, touchesRows: false })
+    }
+  })
+
   it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {
     const props = await room({ store: STORE_A })
     const hours = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.hours')!
@@ -2550,12 +2623,17 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
     const coll = block.collection!
     expect(block.title).toBe('臨時休業')
-    // ⚠ 特別営業 IS GONE FROM THE PAGE, AND FROM THE PLANE BEHIND IT. Core has no
-    // field for it (registry ⑨ `special_open_days`), and a control that offers a
-    // value the store cannot save is a lie with a picture on it. The `kind`
-    // discriminator went with it, so a later round cannot quietly re-derive the
-    // option from data that is still there.
+    // ⚖ PKT-S29-B1 (9/29) — 特別営業日 IS BACK, under its OWN dial (⚖ Liam 9/28
+    // 20:0x ruling superseding the 9/6 removal this test used to pin: core has
+    // carried `special_open_days` since CORE-10, 9/14). It is its own block —
+    // never folded into 臨時休業's own object — so 臨時休業's block still never
+    // mentions it, exactly as before.
     expect(JSON.stringify(block)).not.toContain('特別営業')
+    const specialBlock = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.special-open')!
+    expect(specialBlock.title).toBe('特別営業日')
+    expect(specialBlock.specialDays).not.toBeNull()
+    // `kind`-style fixture discriminator stays gone (R10: fixtures-settings.ts is untouched — no fixture
+    // field for 特別営業日 was ever added; the live block above reads through the door, not a fixture).
     expect(JSON.stringify(storeDials)).not.toContain('特別営業')
     expect(JSON.stringify(storeDials)).not.toContain("'extra'")
     // …and no closure's REASON describes the opposite of a closure. A row that
@@ -3303,6 +3381,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
       '@media (min-width: 1440px)',
       '@media (max-width: 1399px)',
       '@media (max-width: 1023px)',
+      '@media (pointer: coarse)',
       '@media (max-width: 899px)',
       '@media (min-width: 900px)',
       '@media (prefers-reduced-motion: reduce)',
@@ -3311,10 +3390,13 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     }
   })
 
-  it('≥44px targets from 1023 down — every touch device, not just the phone', () => {
-    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+  // ⚖ R70 (S50 P5c) — the floor moved from `(max-width: 1023px)` to `(pointer: coarse)`:
+  // 44px is a hit area for a finger, never a width rule. The switch's own coarse size
+  // moved with it into switch.css (⚖ R93), pinned in settings-primitives.test.tsx.
+  it('≥44px targets wherever the pointer is coarse — every touch device, at every width', () => {
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
     for (const sel of [
-      '.st-opt', '.st-pick', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input',
+      '.st-opt', '.st-pick', '.st-help', '.st-swatch', '.st-select', '.st-input',
       '.st-back', '.st-link', '.st-save', '.st-jump-item', '.st-rail-item', '.st-det-btn',
       '.st-search-field', '.st-coll-del', '.st-spot-foot button',
       // ⚖ S17 fix round 1 · F14 — AND #812'S OWN CONTROL VOCABULARY. This list
@@ -3445,7 +3527,9 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
        is named for is its head's 44px touch height — nothing held the box's own
        padding. The head is 44 and the box's borders are 1 each way, so 3px of
        padding puts the closed box at 52 against the bar's 56. */
-    expect(phone).toMatch(/\.st-jump-head \{[\s\S]*?min-height: 44px/)
+    // ⚖ R70 — the head's 44 is a finger's hit area, so it lives in the coarse band:
+    // pinned on the PARSED tree in business-css-parses.test.ts (S54 R165(2)), one truth.
+    expect(phone).not.toMatch(/\.st-jump-head \{[^}]*min-height/)
     expect(phone).toContain('.biz .pg-settings .st-jump:has(.st-jump-head[aria-expanded="false"]) { padding-top: 3px; padding-bottom: 3px; }')
     // …and only when it is CLOSED: an open list keeps the box it needs.
     expect(phone).not.toMatch(/\.st-jump:has\(\.st-jump-head\[aria-expanded="true"\]\)/)
@@ -3466,7 +3550,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     expect(phone).toMatch(/\.st-back \{[\s\S]*?align-self: flex-start; justify-self: start;/)
     expect(phone).toMatch(/\.pg-settings\.is-detail \.st-panel \{ display: grid; \}/)
     // …and it is still a 44px target: the floor is the touch band's shared group.
-    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
     expect(touch).toMatch(/\.st-back,[\s\S]*min-height: 44px/)
   })
 })
@@ -3511,7 +3595,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
       // exemption (「focus rings and focus-visible styles (a11y)」: a ring drawn
       // around the thing being taught is the same category), the second is a
       // control.
-      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
+      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
       expect({ sel, pressable }).toEqual({ sel, pressable: true })
     }
     // …and the WASH really is limited to the surfaces the law names — a selected
@@ -3519,7 +3603,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
     // the scan above stopped looking at it.
     const washed = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--st-accent-wash\)[^}]*\}/g)].map((m) => m[1].trim())
     for (const sel of washed) {
-      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
+      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
       expect({ sel, named }).toEqual({ sel, named: true })
     }
     // The selected option really is R13's wash recipe, never a solid fill — and
@@ -3560,6 +3644,78 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
+  // EVERY rule, never one literal selector: each innermost `selector { body }` of the comment-stripped sheet
+  // (inside @media / @container too), split into its selector list and its declarations. A selector's SUBJECT
+  // is its last compound, so `.st-panel:has(.cl-phone)` targets the panel, not the phone.
+  const RULES = [...CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sels: m[1].split(',').map((x) => x.trim()),
+    decls: m[2].split(';').map((d) => d.split(':')).filter((d) => d.length > 1).map(([k, ...v]) => [k.trim(), v.join(':').trim()] as const),
+  }))
+  const subject = (sel: string) => sel.split(/\s*[>+~]\s*|\s+(?![^(]*\))/).pop()!
+  /** every value the sheet ever gives `prop` on a box whose subject matches `box` (a regex on the last compound) */
+  const valuesOn = (box: RegExp, prop: RegExp) =>
+    RULES.filter((r) => r.sels.some((x) => box.test(subject(x)))).flatMap((r) => r.decls.filter(([k]) => prop.test(k)).map(([, v]) => v))
+  const TRANSFORMS = /^(-webkit-)?(transform|scale|zoom|rotate|translate)$/
+  it('1b-2 — the phone FRAME carries the fit transform; the app scroller inside it never does (every rule scanned)', () => {
+    // the frame box itself (not its ::after ring): exactly the one transform, in every rule, every block
+    expect(valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, TRANSFORMS)).toEqual(['scale(var(--cl-scale))'])
+    // the app scroller, in any selector whose subject is .cl-phone: no transform other than none, anywhere
+    expect(valuesOn(/\.cl-phone(?![\w-])/, TRANSFORMS).filter((v) => v !== 'none')).toEqual([])
+  })
+  it('1b-2 — the FRAME scales from its top-left corner in every rule that sets an origin (else a scaled frame sits off-centre and clipped in its strip)', () => {
+    const origins = valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, /^(-webkit-)?transform-origin$/)
+    expect(origins.length).toBeGreaterThan(0)
+    expect(origins.filter((v) => !/^(top left|left top|0 0|0px 0px)$/.test(v))).toEqual([])
+  })
+  it('S46 — the strip\'s HEIGHT comes from its own WIDTH in CSS (aspect-ratio 393/760, capped at 760), never a fixed or var()-driven height: the fit must not feed the side column\'s scrollbar (every rule scanned)', () => {
+    const strip = /\.cl-strip(?![\w-])(?!.*::)/
+    expect(valuesOn(strip, /^aspect-ratio$/)).toEqual(['393 / 760'])
+    expect(valuesOn(strip, /^max-height$/)).toEqual(['760px'])
+    // the floor is 0 (a clip box's aspect-ratio would otherwise be floored at the unscaled frame's 760)
+    expect(valuesOn(strip, /^min-height$/)).toEqual(['0'])
+    // no rule sizes its block axis any other way (a fixed or var() height is what the script used to write)
+    expect(valuesOn(strip, /^(height|block-size|min-block-size|max-block-size|contain-intrinsic-size|contain-intrinsic-height)$/)).toEqual([])
+    // …and it is never a scroller (a bar in it would narrow it), at any width: clip, in every rule that names it
+    expect(valuesOn(strip, /^overflow(-[xy])?$/)).toEqual(['clip'])
+  })
+  it('S46 — the card-look side column holds the 393 phone AND the widest scrollbar the app draws, so the fit\'s width never depends on the bar (every rule scanned)', () => {
+    const panel = /\.st-panel:has\(\.cl-phone\)$/
+    expect(valuesOn(panel, /^--st-side-w$/)).toEqual(['calc(393px + var(--cl-bar-reserve))'])
+    const reserve = valuesOn(panel, /^--cl-bar-reserve$/)
+    expect(reserve).toHaveLength(1)
+    // the widest bar globals.css draws in Chromium/WebKit (every ::-webkit-scrollbar width)…
+    const GLOBALS = read('src/app/globals.css')
+    const webkit = [...GLOBALS.matchAll(/::-webkit-scrollbar\s*\{([^}]*)\}/g)].flatMap((m) => [...m[1].matchAll(/(?:^|;|\s)width:\s*(\d+(?:\.\d+)?)px/g)].map((w) => Number(w[1])))
+    expect(webkit.length).toBeGreaterThan(0)
+    // …and Firefox, which ignores those and draws its OS default (17px on Windows) where no scrollbar-width is set
+    expect(GLOBALS).not.toMatch(/(^|[\s;{])scrollbar-width:\s*(thin|auto)/)
+    expect(Number(reserve[0].replace(/px$/, ''))).toBeGreaterThanOrEqual(Math.max(17, ...webkit))
+    // the phone's own column stays 393: the reserve is spare room to its right, never a wider phone
+    expect(valuesOn(/\.cl-preview$/, /^max-width$/)).toEqual(['393px'])
+  })
+  it('S47 R77 — the card-look side column keeps a STABLE scrollbar gutter, so the strip\'s width never depends on the bar\'s presence for ANY bar width; no other side column gets one (every rule scanned)', () => {
+    // every rule whose subject is .st-side inside the card-look panel (a selector that names `.st-panel:has(.cl-phone)`)
+    const cardSide = RULES.filter((r) => r.sels.some((x) => /\.st-panel:has\(\.cl-phone\)/.test(x) && /^\.st-side$/.test(subject(x))))
+    expect(cardSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter').map(([, v]) => v))).toEqual(['stable'])
+    // …and no OTHER .st-side rule in settings.css sets a gutter (it must not reach any other section's side column)
+    const otherSide = RULES.filter((r) => r.sels.some((x) => /^\.st-side$/.test(subject(x)) && !/\.st-panel:has\(\.cl-phone\)/.test(x)))
+    expect(otherSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter'))).toEqual([])
+  })
+  it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
+    const ring = /\.cl-frame(?![\w-]).*::after$/
+    // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)
+    expect(valuesOn(ring, /^pointer-events$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(ring, /^pointer-events$/).filter((v) => v !== 'none')).toEqual([])
+    // …and it IS the ring: every box-shadow on it is inset (an outside one is clipped by the strip)
+    expect(valuesOn(ring, /^box-shadow$/).length).toBeGreaterThan(0)
+    expect(valuesOn(ring, /^box-shadow$/).every((v) => /\binset\b/.test(v))).toBe(true)
+    // the phone's own scrollbar: none in the standard property AND in older WebKit/Blink (Safari < 18.2, Chromium < 121)
+    const phone = /\.cl-phone(?![\w-])(?!.*::)/
+    expect(valuesOn(phone, /^scrollbar-width$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(phone, /^scrollbar-width$/).filter((v) => v !== 'none')).toEqual([])
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/).filter((v) => v !== 'none')).toEqual([])
+  })
   it('the PAGE scrolls, and the two boxes that own an axis are the two that are pinned', () => {
     // ⚖ S17 STEP 1 — RE-DERIVED FROM 「NOT ONE CONTAINER」 TO 「TWO, NAMED」, and
     // the reason is a property of `position: sticky` rather than a preference: a
@@ -3571,6 +3727,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // stated where it is made — and the pin NAMES them so a third one goes red.
     const axisOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-y:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(axisOwners).toEqual([
+      // ⚖ 1b-2 B3 — the THIRD, named: the phone frame's own app page (the mock's .pv). It is a picture of
+      // Reserve's scrolling page inside a fixed 393×760 frame, so the room's page does not grow with the
+      // card list; it is not a sticky-cap scroller and lives outside ③ (every width has the frame).
+      '.biz .pg-settings .cl-phone',
       '.biz .pg-settings .st-side',
       // ⚠ THE LIST, NOT THE RAIL. The rail is the pinned FRAME and the list is
       // what moves inside it, so the 設定を検索 field and the count stay put
@@ -3582,7 +3742,8 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and BOTH are inside the ③ query, where the stickiness that makes them
     // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
-    for (const owner of axisOwners) expect(three).toContain(owner)
+    // the ONE exemption: .cl-phone is a device preview whose inner scroll exists at every width by design; the page itself still owns no axis below 960
+    for (const owner of axisOwners.filter((o) => o !== '.biz .pg-settings .cl-phone')) expect(three).toContain(owner)
     // ⚠ AND THE PANEL NEVER DOES. The reading column is what the page is for; a
     // scroller around it would put the room's content behind a second scrollbar.
     expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)
@@ -3600,13 +3761,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     expect(three).toMatch(/\.st-save-card \{[^}]*white-space: normal/)
 
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
-    // a one-line chip scroller and says so by removing the vertical one — and
-    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
-    // bytes that never scrolls: a 393px phone in a 393px strip, there for the
-    // card's own paint layer; narrower, it scales and `.is-scaled` clips instead.
+    // a one-line chip scroller and says so by removing the vertical one.
+    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip is `overflow: clip` at every
+    // width (⚖ S46: never a scroller, never a bar), so it owns no axis.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
-    expect(xOwners).toEqual(['.biz .pg-settings .cl-strip', '.biz .pg-settings .st-jump-list'])
-    expect(CSS_CODE).toContain('.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }')
+    expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 
@@ -4149,7 +4308,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => typeless }))
     jest.doMock('@/business/lib/practice-door/sample-facade', () => {
       const actual = jest.requireActual('@/business/lib/practice-door/sample-facade')
-      return { ...actual, storeSample: (id: string) => ({ ...actual.storeSample(id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
+      return { ...actual, storeSample: (on: boolean, id: string) => ({ ...actual.storeSample(on, id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
     })
     let props!: SettingsProps
     try {
@@ -4224,14 +4383,14 @@ describe('S28 — the 0-minute fact and the auto-assignment note, byte-for-byte'
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ A1b — カードの見た目: one colour per business, the curated 12, the room’s own save bar', () => {
   const LOOK_CODE = stripLine(stripComments(read(`${ROOM_DIR}/ReserveCardLookSection.tsx`)))
-  const lookOf = async (input?: { store?: string; role?: string }) => sectionOf(await room(input), CARD_LOOK_ID)
+  const lookOf = async (input?: { store?: string; role?: string }) => sectionOf(await room(input), STORE_PAGE_ID)
 
   it('the rail row sits between Reserve 受付 and 通知, scope business, gated by settings.manage', () => {
     const ids = RAIL.map((e) => e.id)
-    expect(ids.indexOf(CARD_LOOK_ID)).toBe(ids.indexOf('reserve-acceptance') + 1)
-    expect(ids.indexOf('notifications')).toBe(ids.indexOf(CARD_LOOK_ID) + 1)
-    const entry = sectionById(CARD_LOOK_ID)!
-    expect(entry).toEqual({ id: CARD_LOOK_ID, group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' })
+    expect(ids.indexOf(STORE_PAGE_ID)).toBe(ids.indexOf('reserve-acceptance') + 1)
+    expect(ids.indexOf('notifications')).toBe(ids.indexOf(STORE_PAGE_ID) + 1)
+    const entry = sectionById(STORE_PAGE_ID)!
+    expect(entry).toEqual({ id: STORE_PAGE_ID, group: 'Reserve設定', label: 'お店ページ', scope: 'business', needs: 'settings.manage' })
     expect(gateOf(entry, accessFor('店舗管理者', rulebook))).toBe('open')
     expect(gateOf(entry, accessFor('スタッフ', rulebook))).toBe('no-rights')
   })
@@ -4246,16 +4405,15 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
     const s = await lookOf({ store: STORE_A })
-    expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'カードの見た目' })
-    expect(s.lead).toBe('お客様がReserveのホームで見る、お店のカードの色をここで選びます。色は事業全体でひとつで、店舗ごとには分かれていません。')
-    expect(s.guide).toBe('お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
+    expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'お店ページ' })
+    expect(s.lead).toBe('お客様のアプリに出るお店のページを、機能ごとに出す・出さないで決めます。業種を選ぶと標準の組み合わせになり、あとから一つずつ変えられます。プレビューは、いまの設定でお客様に見えるページです。「カードの見た目」の設定は、すべての店舗に共通で適用されます。') // S50 P3 — spec B3 / mock :758
+    expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
-      businessName: business.name,
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
-      scopeLabel: '事業全体',
+      scopeLabel: '全店共通',
       value: null,
-      palette: PALETTE,
+      palette: PALETTE, practice: true, // S64 R242 — door OFF (sample data) is a practice room
     })
   })
 
@@ -4273,7 +4431,9 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('the value rides the room’s save bar: one control id, +1 on a pick, 0 after 保存', async () => {
     const s = await lookOf({ store: STORE_A })
-    expect(controlIdsOf(s)).toEqual([CARD_COLOR_ID])
+    // S50 P3 — the colour first, then the store lens's 業種 + 16 switches (store-page-section.test.tsx pins those 17)
+    expect(controlIdsOf(s)[0]).toBe(CARD_COLOR_ID)
+    expect(controlIdsOf(s)).toHaveLength(19) // S75 fix 1: + the draft's defaults_type id
     const seed = { [CARD_COLOR_ID]: '' }
     expect(changedCount(s, seed, seed)).toBe(0)
     const picked = { [CARD_COLOR_ID]: '#00304C' }
@@ -4287,7 +4447,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('the palette is the curated 12, in order, stored exactly as the boundary stores them', () => {
     expect(PALETTE.map((c) => c.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-    expect(PALETTE.map((c) => c.name)).toEqual(['紺', '藍', '深緑', '松葉色', '墨', '焦茶', 'えんじ', '紫紺', '生成り', '白', '桜', '空色'])
+    expect(PALETTE.map((c) => c.name)).toEqual(['標準（紺）', '藍', '深緑', '松葉色', '墨', '焦茶', 'えんじ', '紫紺', '生成り', '白', '桜', '空色'])
     expect(PALETTE.map((c) => c.hex)).toEqual(['#1C2247', '#00304C', '#1F3D33', '#2D4722', '#26282B', '#4A2E22', '#6B1F2B', '#3B2A4F', '#EDE6D6', '#F2F4F3', '#F1D9DC', '#D7E6F2'])
     for (const c of PALETTE) expect(normalizeCardColor(c.hex)).toBe(c.hex)
   })
@@ -4349,24 +4509,37 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(PROPS_CODE).not.toContain('.upsert(')
   })
 
-  it('every Japanese string is JP-COPY-A1-FINAL’s, byte for byte', () => {
+  it('every Japanese string is the switchboard mock’s copy, or A1’s with the C8 Reserve → お客様のアプリ swap', () => {
     for (const line of [
       'カードの色',
-      '用意した12色から選びます。店名の位置や文字の大きさは、どのお店のカードでも同じです。',
+      'お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。',
       '現在の色',
-      '現在の色は「${look.palette[checked].name}」です。',
-      '色はまだ設定されていません。Reserveのカードは、これまでどおりの色で表示されます。',
+      '標準の色',
+      '色はまだ設定されていません。お客様のアプリのカードは、これまでどおりの色で表示されます。',
       '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。',
-      'Reserveでの見え方',
+      'お客様のアプリでの見え方',
       '表示のみ',
       'ホーム',
       'お店ページ',
-      '見本では、大きいカードも小さいカードも、このお店のものを表示しています。実際のReserveでは、次のご予約がいちばん近いお店が大きいカードになります。',
-      'カードを開くときの動きは見本用のもので、実際のReserveの動きとは異なります。',
-      '色が設定されていないため、見本では仮に紺で表示しています。実際のReserveのカードとは色が異なる場合があります。',
+      '見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。',
+      'カードを開く動きは、この見本だけのものです。',
+      '色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。',
       'カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。',
-      '選んだ色で、お店のカードがReserveでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
+      '選んだ色で、お店のカードがお客様のアプリでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
     ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
+  })
+
+  // S40 1b-1 — the string inventory (switchboard mock :761-797, :844): the next drift of a heading, the chip
+  // or the search terms fails here, not on Liam's screen.
+  it('the section speaks the approved mock: h3/h4, the 全店共通 chip, the search headings, the home-only notes', async () => {
+    const s = await lookOf({ store: STORE_A })
+    expect(s.cardLook?.scopeLabel).toBe('全店共通')
+    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方', 'ロゴ', 'ロゴ画像'])
+    expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
+    expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
+    expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')
+    expect(LOOK_CODE).toContain("{view === 'home' && <p className=\"st-pv-cap\">見本では、編集中のお店を大きいカードにしています。")
+    expect(LOOK_CODE).toContain("{(state !== 'set' || saved === STAND_IN) && (")
   })
 })
 
@@ -4409,6 +4582,8 @@ describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
       partJoin: '、',
       topNote: '練習用の事業',
       topNoteLabel: '練習用の事業 — 実在の店舗の予約・お客様ではありません',
+      // ⚖ S36 R35 — the bar's stamp where its commit reaches sample blocks only (door ON + 臨時休業 live).
+      pageOnlyStamp: '✓ この画面だけに反映しました',
     })
     expect(businessStrings.settings.typeUnset).toBe('未設定')
     expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')

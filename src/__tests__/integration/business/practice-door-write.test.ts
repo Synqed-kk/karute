@@ -48,7 +48,7 @@ function withReads(settings: Record<string, unknown> = {}): Spied {
   mockCore.reads = spied as unknown as CoreReads
   return spied
 }
-const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, businessId })
+const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, displayName: null, businessId })
 /** Core's answer to a PUT: the merged row (other keys kept), the sent key as core stored it. */
 const coreRow = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'y' })
 
@@ -204,7 +204,7 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
   it('switch OFF → tenant: no writer, nothing called, and the page offers no real save', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     const spy = withReads()
-    expect(data.practiceDoorOn()).toBe(false)
+    expect(await data.practiceDoorOn()).toBe(false)
     expect(await data.writeReserveCardColor(KON)).toEqual({ ok: false, reason: 'tenant' })
     for (const fn of Object.values(spy)) expect(fn).not.toHaveBeenCalled()
     expect(admission).not.toHaveBeenCalled()
@@ -334,7 +334,10 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
   it('G5 — core’s sheet says no (canSave false): the card section renders no 保存する and its foot is the forbidden line', () => {
     expect(SCREEN).toContain('type CardSave = { businessId: string; canSave: boolean }')
     expect(SCREEN).toContain('{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}')
-    expect(SCREEN).toContain('{props.saveCardColor?.canSave === false ? null : roomSave(section)}')
+    // the may-save answer is named ONCE (S60 P7A-R2b) and the save bar is drawn only when it says yes
+    expect(SCREEN.match(/const maySave = /g)).toHaveLength(1)
+    expect(SCREEN).toContain('const maySave = props.saveCardColor?.canSave !== false\n')
+    expect(SCREEN).toContain('{maySave ? roomSave(section, section.storePage ? () => undoSection(section) : undefined) : null}')
   })
   it('G7 — an old refusal is cleared by a new pick and by every section change (source pin: territory cannot mount a React tree)', () => {
     const at = (needle: string) => { const i = SCREEN.indexOf(needle); expect(i).toBeGreaterThan(-1); return SCREEN.slice(i, SCREEN.indexOf('}', SCREEN.indexOf('setPicked(', i) + 1) + 1) }
@@ -345,13 +348,13 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
   })
   it('the JP lines are JP-COPY-A2-FINAL’s, byte for byte, by id', () => {
     for (const line of [
-      "'色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card",
-      "forbidden: '設定を変更できる権限がないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.forbidden",
-      "tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant",
-      "invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid",
-      "core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core",
+      "'カードの変更は、全店のお客様のアプリに反映されます。' // save.note.card",
+      "forbidden: '設定を変更できる権限がないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.forbidden",
+      "tenant: 'ここからはこの事業の設定を保存できないため、お客様のアプリのカードはこれまでの色のままです。', // save.fail.tenant",
+      "invalid: '選んだ色が12色に含まれていないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.invalid",
+      "core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。', // save.fail.core",
     ]) expect(SCREEN).toContain(line)
-    expect(SCREEN).not.toContain('反映されます')
+    expect(SCREEN.match(/反映されます/g)).toHaveLength(1) // S40 C9: only the mock's save-bar warning says it
   })
 })
 
@@ -359,7 +362,7 @@ describe('⚖ A2 — the page', () => {
   const render = () => SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) })
 
   it('page.tsx ON: the screen is told the ADMITTED business (the route’s X-Expected-Business) and core’s yes', async () => {
-    expect(data.practiceDoorOn()).toBe(true)
+    expect(await data.practiceDoorOn()).toBe(true)
     const el = await render()
     expect(el.props.saveCardColor).toEqual({ businessId: TENANT, canSave: true })
   })

@@ -273,6 +273,11 @@ export async function POST(request: Request) {
         { status: 409, headers: { 'Retry-After': String(Number.isFinite(retryAfter) ? retryAfter : 5) } },
       )
     }
+    // The meter refused audio that opens with no container the recorders make
+    // (S60 A3) — before any spend. A literal 422 on both arms, never the 500.
+    if (error instanceof AppApiError && error.code === 'audio_unreadable') {
+      return NextResponse.json({ error: 'audio_unreadable' }, { status: 422 })
+    }
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[/api/ai/transcribe]', message)
     return NextResponse.json(

@@ -37,7 +37,11 @@ import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
+import { isCountedBooking } from '@/lib/appointments/by-date'
+import { BOOKING_ALREADY_STAFFED } from '@/lib/appointments/assign-refusal'
 import { type RecordStoreScope } from '@/lib/auth/store-lock'
+import { filterStaffIdsToStore } from '@/lib/auth/store-scope'
+import { AppApiError } from '@/lib/app-api/errors'
 import { audit, type AuditSeverity } from '@/lib/audit'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 
@@ -127,7 +131,7 @@ function bookingAuditSeverity(kind: 'no_show' | 'cancel', reason?: string): Audi
 
 type MutationClient = Pick<
   SynqedClient,
-  'appointments' | 'packs' | 'staffStores' | 'stores' | 'storePolicies'
+  'appointments' | 'packs' | 'staff' | 'staffStores' | 'stores' | 'storePolicies'
 >
 
 export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
@@ -155,6 +159,62 @@ async function defaultBookingStore(
   } catch {
     return undefined
   }
+}
+
+/** The one refusal for a staff who may not take this booking (inactive, of
+ *  another business, or not working at the booking's store). The house
+ *  `{ error }` shape every booking refusal uses (BookingTimeRefusal). */
+export const STAFF_NOT_ELIGIBLE = 'This staff member cannot take this booking.'
+
+/** The create door's refusal of a staff id that is not a bookable member of
+ *  this business — the facade create's sentence since #566, and the web
+ *  action's since fix round 6 F3. One definition for both doors. */
+export const STAFF_NOT_ON_ROSTER = 'staffProfileId is not a staff member of this business'
+
+/**
+ * ⚖ Greptile pass 2 P1 (B2 #1143, fix round 7) — the LIVE active + business
+ * judgement of a CORE staff id: one read of core's staff row, never a cache.
+ * Shared by the assign gate (refuseIneligibleStaff) and the create core, so a
+ * card switched off within any roster cache's TTL is refused on both doors.
+ * Throws whatever the read throws: each caller decides what a failed read
+ * means (assign refuses; create answers upstream_unavailable). No business on
+ * the actor = nothing to judge the staff against = false.
+ */
+async function staffIsActiveInBusiness(
+  synqed: MutationClient,
+  synqedStaffId: string,
+  businessId: string | null,
+): Promise<boolean> {
+  const staff = await synqed.staff.get(synqedStaffId)
+  return !!staff && !!staff.is_active && !!businessId && staff.business_id === businessId
+}
+
+/**
+ * ⚖ PR-B Q1 — may this CORE staff take a booking in this store? Active, of
+ * this business, and working at the store: a staff_stores row for it or no
+ * rows at all (floating) — the picker's own rule, `filterStaffIdsToStore`,
+ * never a second one. A booking with no store has no store to judge. Every
+ * failed read refuses (fail closed): this is a write gate, not a picker.
+ */
+async function refuseIneligibleStaff(
+  synqed: MutationClient,
+  synqedStaffId: string,
+  storeId: string | null,
+  businessId: string | null,
+): Promise<BookingTimeRefusal | null> {
+  const refusal = { error: STAFF_NOT_ELIGIBLE }
+  // A failed read refuses here (fail closed): this is a write gate.
+  const active = await staffIsActiveInBusiness(synqed, synqedStaffId, businessId).catch(() => false)
+  if (!active) return refusal
+  if (!storeId) return null
+  const storeIds = await synqed.staffStores
+    .get(synqedStaffId)
+    .then((a) => a.store_ids)
+    .catch(() => null)
+  if (!storeIds) return refusal
+  const assignment = { id: synqedStaffId, user_id: null, email: null, store_ids: storeIds }
+  const kept = filterStaffIdsToStore([{ id: synqedStaffId }], [assignment], storeId)
+  return kept.has(synqedStaffId) ? null : refusal
 }
 
 /**
@@ -185,6 +245,24 @@ export async function createAppointmentCore(
   // that forgets its own pre-check is still refused.
   const inputError = validateAppointmentInput(input)
   if (inputError) return inputError
+
+  // ⚖ Greptile pass 2 P1 (fix round 7) — the LIVE judgement of the resolved
+  // core id, before any read of hours and before any write: an inactive card,
+  // or one of another business, is refused with the doors' own roster refusal
+  // (a validation AppApiError: the facade's 400, the web action's { error }).
+  // The doors' roster gates are cached first checks; this is the authority.
+  // OUTSIDE the try below on purpose: that catch flattens every throw into a
+  // 200 { error }, and a failed read must stay an outage (facade 502, web
+  // failure line), never a refusal and never a booking.
+  let staffActive: boolean
+  try {
+    staffActive = await staffIsActiveInBusiness(synqed, deps.synqedStaffId, deps.actor.businessId)
+  } catch (err) {
+    throw err instanceof AppApiError
+      ? err
+      : new AppApiError('upstream_unavailable', 'staff read failed', undefined, err)
+  }
+  if (!staffActive) throw new AppApiError('validation', STAFF_NOT_ON_ROSTER)
 
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
@@ -622,6 +700,54 @@ export async function markNoShowAppointmentCore(
   }
 }
 
+// One definition, client-safe (the 担当未定 sheet recognises it): re-exported.
+export { BOOKING_ALREADY_STAFFED }
+
+/**
+ * ⚖ PR-B — give a booking that has NO staff its staff: the only write the
+ * 担当未定 sheet makes, on both transports (the web action
+ * assignAppointmentStaff and the facade's POST …/assign-staff). The row is read
+ * after the store lock; one that already has a staff is refused (reassignment
+ * is out of PR-B); then the shared staff check (active, this business, works at
+ * the booking's store) and a staff-only write with its audit row — all inside
+ * updateAppointmentCore, so the lock, the guards and the audit stay one path.
+ * Core has no compare-and-set, so two taps inside the same read→write gap can
+ * still both land; a tap on a booking whose staff is already SAVED cannot.
+ *
+ * ⚖ FIX ROUND 4 (R3) — each door hands in its OWN resolver (profile id → core
+ * staff id; the web's resolveSynqedStaffId, the facade's ForBusiness twin),
+ * never a resolved id. The resolver is create-on-miss and self-heals, so it
+ * runs only after the store lock and the BLOCK / terminal / already-staffed
+ * refusals: a refused assign never reaches it, so it never writes a core
+ * staff row on a booking the caller may not touch.
+ */
+export async function assignStaffToBooking(
+  synqed: MutationClient,
+  appointmentId: string,
+  resolveStaffId: () => Promise<string>,
+  actor: BookingActor,
+  scope: RecordStoreScope,
+): Promise<{ success: true } | BookingTimeRefusal> {
+  return updateAppointmentCore(
+    synqed,
+    appointmentId,
+    {},
+    actor,
+    // A staff-only patch never opens the time gate: no hours are consulted.
+    { operatingHours: undefined, orgSaved: undefined },
+    scope,
+    { unassigned: true, resolveStaffId },
+  )
+}
+
+/** A throw from a door's staff resolver (R3), carried past
+ *  updateAppointmentCore's catch so each door answers it exactly as before the
+ *  resolver moved inside (the facade's 400 / 5xx split, the web action's
+ *  coreFailureLine) — never turned into a booking `{ error }` here. */
+class StaffResolverFailure {
+  constructor(readonly cause: unknown) {}
+}
+
 /**
  * Reschedules and/or reassigns a booking (patch-style: only what the patch
  * names changes — the staff, the time, or both; no other appointment field is
@@ -680,6 +806,10 @@ export async function updateAppointmentCore(
     orgSaved: readonly WeekdayKey[] | undefined
   },
   scope: RecordStoreScope,
+  /** PR-B: refuse a booking that already has a staff (assignStaffToBooking).
+   *  `resolveStaffId` (R3): the staff is resolved only after the lock and the
+   *  refusals below, and becomes the patch's staffId. */
+  only: { unassigned?: boolean; resolveStaffId?: () => Promise<string> } = {},
 ): Promise<{ success: true } | BookingTimeRefusal> {
   try {
     // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
@@ -691,6 +821,35 @@ export async function updateAppointmentCore(
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
+    }
+    // ⚖ FIX ROUND 3 item 8 (B2-1) — the assign door takes only a counted
+    // BOOKING: a BLOCK (オーナー業務, a bed hold) is not a booking, so it reads as
+    // "not found", the same shape as the guards above. The kind rule is
+    // by-date's isCountedBooking — never a second literal here.
+    if (only.unassigned && !isCountedBooking(appt)) return { error: 'Booking not found.' }
+    if (only.unassigned && appt.staff_id) return { error: BOOKING_ALREADY_STAFFED }
+
+    // ⚖ FIX ROUND 4 (R3) — only now, past the lock and every refusal above,
+    // is the door's staff resolved (it may create or link a core staff row).
+    if (only.resolveStaffId) {
+      const resolve = only.resolveStaffId
+      const staffId = await resolve().catch((err: unknown) => {
+        throw new StaffResolverFailure(err)
+      })
+      patch = { ...patch, staffId }
+    }
+
+    // ⚖ PR-B Q1 — the staff written must be able to take THIS booking. Both
+    // transports (the web action and the facade's assign-staff) land here,
+    // after the staff id is resolved and before anything reaches core.
+    if (patch.staffId !== undefined) {
+      const staffRefusal = await refuseIneligibleStaff(
+        synqed,
+        patch.staffId,
+        appt.store_id ?? null,
+        actor.businessId,
+      )
+      if (staffRefusal) return staffRefusal
     }
 
     // ⚖ W0.5 fix 1 — the interval judged below is the interval core stores.
@@ -819,6 +978,9 @@ export async function updateAppointmentCore(
         // (settings.staff_stores_change, src/actions/stores.ts) — AuditEvent's
         // detail values are scalar-only, so a multi-value field joins here.
         changed: changed.join(','),
+        // The assigned staff's core id (an id, never a name) — only when the
+        // staff changed, so an assign row says WHO was assigned.
+        ...(changed.includes('staff') ? { staff_id: patch.staffId } : {}),
       },
       requestId: actor.requestId,
       source: actor.source,
@@ -826,6 +988,7 @@ export async function updateAppointmentCore(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof StaffResolverFailure) throw err.cause
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }

@@ -404,3 +404,24 @@ describe('the burn history is TRI-STATE', () => {
 })
 
 export {}
+
+describe('PR-B — the re-point list is a recording-target list (isRecordingTarget)', () => {
+  it('a 担当未定 booking (staff_id null) is never offered as a re-point target', async () => {
+    appointmentsList.mockImplementationOnce((async () => ({
+      appointments: [
+        { id: 'appt-1', customer_id: 'cust-1', staff_id: 'staff-1', starts_at: '2026-08-18T04:00:00.000Z', duration_minutes: 60, title: 'トリートメント', notes: null, status: 'SCHEDULED', source: 'manual', created_at: '2026-08-01T00:00:00.000Z' },
+        { id: 'appt-nostaff', customer_id: 'cust-1', staff_id: null, starts_at: '2026-08-18T06:00:00.000Z', duration_minutes: 60, title: 'カット', notes: null, status: 'SCHEDULED', source: 'manual', created_at: '2026-08-01T00:00:00.000Z' },
+      ],
+      total: 2,
+    })) as never)
+    const facts = await run()
+    expect(facts.bookings.map((b) => b.id)).toEqual(['appt-1'])
+  })
+
+  it('both transports take the list from this one derivation (web action + phone route)', () => {
+    const fs = jest.requireActual<typeof import('node:fs')>('node:fs')
+    for (const f of ['src/actions/recovery.ts', 'src/app/api/app/v1/recovery/day-facts/route.ts']) {
+      expect(fs.readFileSync(f, 'utf8')).toContain('buildRecoveryDayFacts')
+    }
+  })
+})

@@ -71,12 +71,14 @@ import {
   sellStaffLanes,
   warnFaceFor,
   windowsOf,
-  lostOn,
+  heldPriceOf,
+  type DayWindows,
   type GuardRail,
   type RailCell,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import { type GapCell, type SellCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
@@ -1059,7 +1061,8 @@ describe('4 — what paints, and what stops', () => {
     const screen = SRC('TodayScreen.tsx')
     expect(screen).toContain('data-guide={honest')
     // main's line, byte for byte, as the OFF arm.
-    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}")
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the OFF arm is JP-STRINGS-FINAL key J2 (the popup reads the store's numbers now).
+    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。'}")
     // …and it is not a read of the round's gate at all: the doors suite pins
     // `HONEST_HELD` at exactly three code occurrences (the import and the two
     // memos — the settled netting and, since fix 6, the live one), and a
@@ -2656,8 +2659,8 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 // 8 — THE STAGED ORIGIN BOARD, AND THE SENTENCE IT PAYS FOR.
 //
 // `honestOrigin` is the 元に戻す board's own honest set, and the whole of the
-// 16:00 warning rides on it: `lostOn` subtracts the two SETTLED boards, and if
-// the origin one collapses to the staged answer the subtraction is zero and the
+// 16:00 warning rides on it: `heldDelta` compares the two SETTLED boards, and if
+// the origin one collapses to the staged answer the delta is empty and the
 // card goes quiet about a 枠 the store really loses. Codex's mutant
 // (「`if (dayStaged) return honest` at the top of `honestOrigin`」) does exactly
 // that and no suite in the family noticed.
@@ -2667,7 +2670,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 // so the memo cannot be exercised through a render here. Two pins instead, and
 // between them they cover what the mutant breaks:
 //   (a) the staged board's data path, end to end through the real producers —
-//       two settled boards, one netting each, `lostOn`, and the sentence the
+//       two settled boards, one netting each, `heldDelta`, and the sentence the
 //       card prints, byte for byte, plus the undo and the price-0 cases;
 //   (b) the memo's own head as an anchored slice, so an early `return honest`
 //       in front of the guard cannot be added silently.
@@ -2681,7 +2684,7 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
   const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, LANE_WORDS, {}, REAL.bedCleanupMinutes)
 
   /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
-   *  BOTH sides of `lostOn` read since this round. */
+   *  BOTH sides of `heldDelta` read since this round. */
   const dayOf = (lanes: BoardLane[], released: readonly ReleasedWindow[] = []) => {
     const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
     const book = bedViewsFor(lanes, frame, null, ASK_A).world
@@ -2689,17 +2692,20 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
       lanes, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute,
       guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, book, released,
     })
-    return windowsOf(honestHeld(mask, lanes, book, true), lanes)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): windowsOf reads `locked` for the one sellable predicate; nothing is locked here.
+    return windowsOf(honestHeld(mask, lanes, book, true), lanes, [])
   }
 
   /** The card's own face, composed by the one producer the screen calls. */
-  const faceFor = (rows: ReturnType<typeof lostOn>, landing: string, listPrice: number) =>
+  // R1/R2 (DECISIONS.md today-impact-2026-09-30): the card reads ONE store-level
+  // delta of the two settled boards (heldDelta), no longer the per-lane lostOn rows.
+  const faceFor = (before: DayWindows, after: DayWindows, listPrice: number) =>
     warnFaceFor({
       rows: [],
       cell: {
         start: 16 * 60, state: 'warn', label: '', sentence: '', reason: null,
         alternatives: [], alternativeKind: null, ackAllowed: true,
-        day: { laneKey: landing, before: rows.reduce((a, r) => a + r.before.length, 0), after: rows.reduce((a, r) => a + r.after.length, 0), lostOn: rows },
+        day: heldDelta(before, after, heldPriceOf(priceOf().frame, priceOf().depth, REAL.guard.protectedDurationMin)),
       } as unknown as RailCell,
       override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false,
       operatorName: '見本 たろう', listPrice,
@@ -2718,25 +2724,32 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lanes = restLanes()
     const before = dayOf(lanes)
     const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
-    const rows = lostOn(before, after)
     const lost = lanes.find((l) => l.key === LOST.laneKey)!
-    expect(rows.map((r) => ({ laneKey: r.laneKey, label: r.label, before: r.before, after: r.after, listPrice: r.listPrice })))
-      .toEqual([{ laneKey: LOST.laneKey, label: lost.label, before: [LOST.windowStart], after: [], listPrice: lost.listPrice }])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta names the lost window by identity (laneKey|windowStart).
+    const d = heldDelta(before, after, () => 0)
+    expect({ lost: d.lost, gained: d.gained, shifted: d.shifted }).toEqual({
+      // Fix round 1 X-D: a WindowRef carries its lane's online `sellable` (しろう is sold online).
+      lost: [{ laneKey: LOST.laneKey, label: lost.label, windowStart: LOST.windowStart, listPrice: lost.listPrice, sellable: true }], gained: [], shifted: [],
+    })
+    const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A — the STORE pair and every lost window named.
     expect({ face: face.face, sentence }).toEqual({
       face: 'warn',
-      sentence: `ここに置くと、${lost.label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が1枠から0枠に減ります。`,
+      sentence: `ここに置くと、店全体で新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が${before.total}枠から${after.total}枠に減ります。なくなるのは${lost.label}の15:45の枠です。`,
     })
+    expect(before.total - after.total).toBe(1)
     expect(face.impact.yen).toMatch(/^約¥[\d,]+$/)
     expect({ kind: face.commit?.kind, label: face.commit?.label }).toEqual({ kind: 'hold', label: '長押しで注意して配置' })
   })
 
   it('undo: with nothing staged the two boards agree and the card goes quiet', () => {
     const lanes = restLanes()
-    const rows = lostOn(dayOf(lanes), dayOf(lanes))
-    expect(rows).toEqual([])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta of two agreeing boards is empty.
+    const d = heldDelta(dayOf(lanes), dayOf(lanes), () => 0)
+    expect([d.lost, d.gained, d.shifted]).toEqual([[], [], []])
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the card reads the one delta of the two boards.
+    const face = faceFor(dayOf(lanes), dayOf(lanes), lanes.find((l) => l.key === LANDING)!.listPrice)
     expect({ face: face.face, head: face.impact.head, commit: face.commit }).toEqual({ face: 'clean', head: '', commit: null })
   })
 
@@ -2744,15 +2757,17 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lanes = restLanes().map((l) => (l.key === LOST.laneKey ? { ...l, listPrice: 0 } : l))
     const before = dayOf(lanes)
     const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
-    const rows = lostOn(before, after)
-    expect(rows.map((r) => ({ laneKey: r.laneKey, listPrice: r.listPrice, before: r.before, after: r.after })))
-      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, before: [LOST.windowStart], after: [] }])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the lost window by identity, carrying its lane's price-0.
+    const d = heldDelta(before, after, () => 0)
+    expect(d.lost.map((w) => ({ laneKey: w.laneKey, listPrice: w.listPrice, windowStart: w.windowStart })))
+      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, windowStart: LOST.windowStart }])
+    const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const label = lanes.find((l) => l.key === LOST.laneKey)!.label
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A on the store pair; a price-0 lane still prices nothing.
     expect({ face: face.face, yen: face.impact.yen, head: face.impact.head, tail: face.impact.tail }).toEqual({
       face: 'warn', yen: null,
-      head: `ここに置くと、${label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
-      tail: 'が1枠から0枠に減ります。',
+      head: `ここに置くと、店全体で新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
+      tail: `が${before.total}枠から${after.total}枠に減ります。なくなるのは${label}の15:45の枠です。`,
     })
   })
 

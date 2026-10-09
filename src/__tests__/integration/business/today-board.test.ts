@@ -60,7 +60,22 @@ import {
   bookingCategory,
   buildLanes,
   dayBookings,
-  drawnWindow,
+  boardDay,
+  boardRows,
+  boardCells,
+  familyNameOf,
+  labelTier,
+  LABEL_TIER_PX,
+  CARD_MENU_PX,
+  minPxPer30,
+  trackOverflows,
+  floorSlots,
+  edgeText,
+  FAMILY_NAME_PX,
+  CARD_TIGHT_PAD_PX,
+  CARD_TIME_PX,
+  CARD_PAD_PX,
+  OFFER_PAD_PX,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -68,6 +83,7 @@ import {
   place,
   rulerLabels,
   rulerLead,
+  stripColumns,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -385,26 +401,26 @@ describe('board derivations', () => {
       operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
     } as unknown as BuildInput
     const bookings = dayBookings(input)
-    const card = buildLanes({ ...input, hours: drawnWindow(gym, bookings) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
+    const card = buildLanes({ ...input, hours: boardDay({ hours: gym, rows: boardRows(input, bookings) }) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
     expect(card && [card.x >= 0, card.x <= 100, card.w >= 0, card.x + card.w <= 100 + 1e-9]).toEqual([true, true, true, true])
   })
 
   // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
-  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; grown in whole hours from the store\'s own edges', () => {
+  it('§v11 V11-15 P11 — boardDay(): inside and edge-touching grow nothing; outside grows to the whole hour; never before 0, no clamp past 1440 (⚖ S25-2); grown in whole hours from the store\'s own edges', () => {
     const gym = { open: 420, close: 1320 }
-    const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
-    expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
-    expect(drawnWindow(gym, at([420, 480], [1260, 1320]))).toEqual(gym)
-    expect(drawnWindow(gym, at([390, 450]))).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
-    expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
-    expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
-    expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
-    expect(drawnWindow(gym, at([1410, 30]))).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
-    const w = drawnWindow(gym, at([395, 1395]))
+    const at = (...spans: Array<[number, number]>) => spans.map(([start, end]) => ({ start, end }))
+    expect(boardDay({ hours: gym, rows: at([600, 660], [1000, 1100]) })).toEqual(gym)
+    expect(boardDay({ hours: gym, rows: at([420, 480], [1260, 1320]) })).toEqual(gym)
+    expect(boardDay({ hours: gym, rows: at([390, 450]) })).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
+    expect(boardDay({ hours: gym, rows: at([1290, 1350]) })).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
+    expect(boardDay({ hours: gym, rows: at([1350, 1395]) })).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
+    expect(boardDay({ hours: gym, rows: at([-10, 20], [1430, 1500]) })).toEqual({ open: 0, close: 1500 }) // ⚖ S25-2: never before 0; past 24:00 is drawn (25:00), no board clamp
+    expect(boardDay({ hours: gym, rows: at([1410, 30]) })).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
+    const w = boardDay({ hours: gym, rows: at([395, 1395]) })
     expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
     // B3: growth is anchored at the store's own edges — a fractional pair keeps its left edge (the drag lattice's anchor).
-    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 630, close: 1110 })
-    expect(drawnWindow({ open: 630, close: 1110 }, at([600, 640], [1100, 1130]))).toEqual({ open: 570, close: 1170 })
+    expect(boardDay({ hours: { open: 630, close: 1110 }, rows: [] })).toEqual({ open: 630, close: 1110 })
+    expect(boardDay({ hours: { open: 630, close: 1110 }, rows: at([600, 640], [1100, 1130]) })).toEqual({ open: 570, close: 1170 })
   })
 
   // ⚖ §v11 V11-15 fix round 1 — P15: a bed's turnover is cut by the store's closing time, not by an axis a late card grew.
@@ -424,28 +440,76 @@ describe('board derivations', () => {
 
   // ⚖ §v11 V11-15 fix round 4 — P20 (Greptile P1 on 8637ba1d7): the AXIS may be fractional (B3); the RULER prints whole
   // hours at their minute positions, so a label sits on the gridline of its own hour on any axis.
-  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []', () => {
-    const whole = rulerLabels({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
+  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []; ⚖ S25-2 the closing hour IS printed as an edge tick', () => {
+    const cols = (axis: { open: number; close: number }) => rulerLabels(axis).filter((l) => !l.edge) // the hour columns; the edge tick is asserted below
+    const whole = cols({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
     expect(whole.map((l) => l.hour)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
     whole.forEach((l, i) => { expect(l.leftPct).toBe((i / 10) * 100); expect(l.widthPct).toBeCloseTo(10, 10) })
     for (const axis of [{ open: 600, close: 1140 }, { open: 420, close: 1320 }, { open: 0, close: 1440 }]) { // every whole-hour axis = today's label set and columns
       const count = (axis.close - axis.open) / 60
-      const got = rulerLabels(axis)
+      const got = cols(axis)
       expect(got.map((l) => String(l.hour))).toEqual(Array.from({ length: count }, (_, i) => String(axis.open / 60 + i)))
       got.forEach((l, i) => { expect(l.leftPct).toBeCloseTo((i / count) * 100, 10); expect(l.widthPct).toBeCloseTo(100 / count, 10) })
     }
-    const late = rulerLabels({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
+    const late = cols({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
     expect(late.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
     expect(late[0].leftPct).toBeCloseTo((30 / 870) * 100, 10)
     late.forEach((l) => expect(l.widthPct).toBeCloseTo((60 / 870) * 100, 10))
     expect(late.at(-1)!.leftPct + late.at(-1)!.widthPct).toBeCloseTo(100, 10)
-    const both = rulerLabels({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
-    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    const both = cols({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close → no 「22」 column (S26 E3b)
+    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
     expect(both[0].leftPct).toBeCloseTo((30 / 780) * 100, 10)
-    expect(both.at(-1)!.widthPct).toBeCloseTo((30 / 780) * 100, 10)
-    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    expect(both.at(-1)!.widthPct).toBeCloseTo((60 / 780) * 100, 10)
+    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo((750 / 780) * 100, 10) // 「21」 ends at 22:00; the edge tick names 22:30
+    // ⚖ 10/7 S25-2 — the closing hour is PRINTED: one edge tick at 100 %, labelled with the closing hour (翌 past 24:00).
+    expect(rulerLabels({ open: 540, close: 1140 }).at(-1)).toEqual({ hour: 19, text: '19', leftPct: 100, widthPct: 0, edge: true })
+    expect(rulerLabels({ open: 420, close: 1320 }).filter((l) => l.edge).map((l) => l.text)).toEqual(['22'])
+    expect(rulerLabels({ open: 570, close: 1440 }).at(-1)!.text).toBe('24') // ⚖ S25-2 R2: a 24:00 close reads 「24」
+    expect(rulerLabels({ open: 1080, close: 1560 }).map((l) => l.text)).toEqual(['18', '19', '20', '21', '22', '23', '翌0', '翌1', '翌2'])
+    expect(rulerLabels({ open: 570, close: 1350 }).at(-1)!.text).toBe('22:30')
+    // ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — a close at exactly 24:00 reads 「24」; 翌N starts past it.
+    expect([1380, 1440, 1500, 1560].map(edgeText)).toEqual(['23', '24', '翌1', '翌2'])
+    // S25-15 (10) — a fractional close past 24:00 prints the 翌 form always (never 「24:30」); a whole hour and 24:00 as before.
+    expect([1470, 1530, 1500, 1440, 1350].map(edgeText)).toEqual(['翌0:30', '翌1:30', '翌1', '24', '22:30'])
+    expect([1380, 1440, 1500, 1560].map((close) => rulerLabels({ open: 1080, close }).at(-1)!.text)).toEqual(['23', '24', '翌1', '翌2'])
+    expect(rulerLabels({ open: 1080, close: 1560 }).find((l) => l.hour === 24)!.text).toBe('翌0') // a COLUMN at 24 inside a day that runs on
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
+  })
+  it('⚖ S26 Round E3b — a whole-hour column label prints only for a FULL hour; a partial last hour is named by the edge tick alone; a partial first hour is never a column', () => {
+    const at = (open: number, close: number) => { const l = rulerLabels({ open, close }); const c = l.filter((x) => !x.edge); return [c[0].text, c.at(-1)!.text, l.find((x) => x.edge)!.text] }
+    expect([at(420, 1265), at(420, 1290), at(420, 1260), at(420, 1320), at(450, 1320)]).toEqual([
+      ['7', '20', '21:05'], // 07:00–21:05
+      ['7', '20', '21:30'], // 07:00–21:30
+      ['7', '20', '21'], //    07:00–21:00
+      ['7', '21', '22'], //    07:00–22:00
+      ['8', '21', '22'], //    07:30–22:00: the loop starts at ⌈open/60⌉ = 8, no 「7」
+    ])
+    expect(rulerLabels({ open: 450, close: 1320 }).some((l) => l.text === '7')).toBe(false)
+    // every column is a whole hour wide; the gridline lead is unchanged
+    for (const [open, close] of [[420, 1265], [420, 1290], [450, 1320], [600, 1290]]) {
+      rulerLabels({ open, close }).filter((l) => !l.edge).forEach((l) => expect(l.widthPct).toBeCloseTo((60 / (close - open)) * 100, 10))
+      expect(rulerLead({ open, close })).toBeCloseTo(((Math.ceil(open / 60) * 60 - open) / (close - open)) * 100, 10)
+    }
+  })
+  it('⚖ S26 Round E (E1) — the strip\'s columns are each cell\'s real share of the day (one source with place()): steps 30 · 45 · 60 on 07–22 and 07–24', () => {
+    for (const day of [{ open: 420, close: 1320 }, { open: 420, close: 1440 }]) {
+      for (const step of [30, 45, 60]) {
+        const starts: number[] = []
+        for (let m = day.open; m < day.close; m += step) starts.push(m)
+        const cols = stripColumns(day, step, starts).split(' ')
+        expect(cols.every((c) => c.endsWith('%'))).toBe(true)
+        const widths = cols.map((c) => parseFloat(c))
+        const lefts = widths.map((_, i) => widths.slice(0, i).reduce((a, b) => a + b, 0))
+        const i13 = starts.indexOf(780)
+        expect([widths.length, i13 >= 0]).toEqual([boardCells(day, step), true])
+        expect(lefts.at(-1)! + widths.at(-1)!).toBeCloseTo(100, 9) // the last cell's right edge = the track's right edge
+        expect(lefts[i13]).toBeCloseTo(place(780, 780, day).x, 9) // the 13:00 cell's left = place(780).x
+        expect(widths.at(-1)).toBeCloseTo(place(starts.at(-1)!, starts.at(-1)! + step, day).w, 9) // a partial last cell keeps its own share
+      }
+    }
+    // the drift the equal 1fr columns had: 45 minutes on 07–24 is 22.67 cells, so the 13:00 cell sat at 8/23 of the track
+    expect((8 / 23) * 100).not.toBeCloseTo(place(780, 780, { open: 420, close: 1440 }).x, 1)
   })
 
   it('§v11 V11-15 P20 — rulerLead: the gridlines\' lead is the axis share before the first whole hour (= the first label\'s left); 0 on a whole-hour axis or an empty span', () => {
@@ -455,11 +519,28 @@ describe('board derivations', () => {
     expect(rulerLead({ open: 600, close: 600 })).toBe(0)
   })
 
-  // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
-  it('§v11 V11-15 P17 — only bookings grow the axis: the page feeds drawnWindow its drawn cards alone, and a shift or 勤務不可 past close leaves the axis at the store\'s hours', () => {
+  // ⚖ 10/7 S25-2 (Liam) — amends P17 (stress mutant M3, 「only BOOKINGS grow the axis」): every DRAWN row widens the day.
+  it('⚖ S25-2 — every drawn row widens the day: the page feeds boardDay every drawn row, a shift past close grows the day, and a 勤務不可 that cuts the shift keeps it at the store\'s hours', () => {
     const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(page).toContain('const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))')
-    expect(page.split('drawnWindow(').length - 1).toBe(1)
+    expect(page).toContain('const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })')
+    expect(page.split('boardDay(').length - 1).toBe(1)
+    // ONE SOURCE: the store's hours never enter a width/position formula in the board's three files — only boardDay's day does.
+    for (const f of ['src/business/lib/today-board.ts', 'src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'src/app/[locale]/(business)/business/today/today-interactions.ts']) {
+      expect(readFileSync(join(process.cwd(), f), 'utf8').split('\n').filter((l) => /operatingHours/.test(l) && /place\(|Pct|--x|--w|\/ \(|scroll/.test(l))).toEqual([])
+    }
+    // S25-15 (10) — the scan reads each file WHOLE (comments stripped, so a statement split over lines is still one
+    // string) and matches ANY arithmetic on the store's hours: an operator before `…operatingHours` / `drawnWindow`, or
+    // one after it (with or without `.open` / `.close`). page.tsx is scanned too; its one read (boardDay's input) passes.
+    const HOURS = String.raw`(?:operatingHours|drawnWindow)`
+    const arithmeticOnHours = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').match(new RegExp(String.raw`[-+*/%]\s*(?:[\w$]+\??\.)*${HOURS}\b|${HOURS}(?:\??\.(?:open|close))?\s*[-+*/%]`, 'g')) ?? []
+    expect(arithmeticOnHours('const w = (operatingHours.close-operatingHours.open)*2')).toEqual(['operatingHours.close-']) // the planted evader FAILS the scan (matches never overlap: the `-` is taken once)
+    expect(arithmeticOnHours('const w = (\n  planes.operatingHours.close\n  - planes.operatingHours.open\n) * 2').length).toBeGreaterThan(0) // multi-line
+    expect(arithmeticOnHours('const span = 60 * drawnWindow')).toEqual(['* drawnWindow'])
+    expect(arithmeticOnHours('const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })')).toEqual([])
+    for (const f of ['src/business/lib/today-board.ts', 'src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'src/app/[locale]/(business)/business/today/today-interactions.ts', 'src/app/[locale]/(business)/business/today/page.tsx']) {
+      expect([f, arithmeticOnHours(readFileSync(join(process.cwd(), f), 'utf8'))]).toEqual([f, []])
+    }
     const gym = { open: 420, close: 1320 }
     const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
     const row = { ...base, id: 'apt-in-hours', staff_id: 'p-late-shift', resource_id: null, starts_at: '2026-09-14T03:00:00.000Z', ends_at: '2026-09-14T04:00:00.000Z' } // 12:00–13:00 JST
@@ -471,8 +552,10 @@ describe('board derivations', () => {
       operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
     } as unknown as BuildInput
     const bookings = dayBookings(input)
-    const axis = drawnWindow(gym, bookings)
-    expect(axis).toEqual(gym)
+    const axis = boardDay({ hours: gym, rows: boardRows(input, bookings) })
+    expect(axis).toEqual(gym) // the 勤務不可 from 21:40 cuts the drawn shift there (effectiveShift), so nothing is drawn past close
+    const noAbsence = { ...input, absence: null } as unknown as BuildInput
+    expect(boardDay({ hours: gym, rows: boardRows(noAbsence, dayBookings(noAbsence)) })).toEqual({ open: 420, close: 1440 }) // the shift to 23:20 → 24:00
     const items = buildLanes({ ...input, hours: axis, businessHours: gym }, bookings).flatMap((l) => l.items)
     expect(items.length).toBeGreaterThan(1) // the card and the 勤務不可 — never a vacuous pass
     expect(items.filter((i) => !(i.x >= 0 && i.x + i.w <= 100 + 1e-9))).toEqual([])
@@ -814,7 +897,8 @@ describe('今日の運営 screen', () => {
   it('E — the board head has its hours ruler, its sell shelf and a day label', async () => {
     const p = await board(STORE_A)
     expect(p.hours.count).toBe((operatingHours.close - operatingHours.open) / 60)
-    expect(p.hours.labels).toHaveLength(p.hours.count)
+    expect(p.hours.labels).toHaveLength(p.hours.count + 1) // ⚖ S25-2 — one label per hour column + the closing edge tick (printed)
+    expect(p.hours.labels.at(-1)).toMatchObject({ hour: operatingHours.close / 60, edge: true })
     expect(p.hours.labels[0].hour).toBe(operatingHours.open / 60) // P20 — labels are { hour, leftPct, widthPct }
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
     // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the
@@ -1755,5 +1839,116 @@ describe('⚖ PR-3 — SOURCE_WORD / sourceLine / decisionTitle', () => {
     expect(tb.decisionTitle('担当変更', { customerName: '', startMinute: 600 }, null)).toBe('10:00 お客様へ担当変更案を送る')
     expect(tb.decisionTitle('Reserve販売', undefined, 780)).toBe('13:00の安全な1枠を販売する')
     for (const k of ['レジ', '担当不在', '担当変更']) expect(tb.decisionTitle(k, undefined, null)).not.toContain('様様')
+  })
+})
+
+// ⚖ 10/7 S25 D6 (a) — the day shapes, pure arithmetic (no DOM): start/end, the closing edge on the ruler, the strip's
+// cell count, the tier of a one-cell card at the floor, and whether the track overflows at the measured frames
+// (MOCK-REPORT-AXIS-S24 § MEASUREMENTS: 840 = 1280 sidebar open · 740 = 1180 sidebar open · 1028 = 1280 sidebar collapsed).
+describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
+  const step = opsConfig.bookingStepMin
+  const FRAMES = [840, 740, 1028]
+  const salon = { open: 600, close: 1140 }
+  const gym = { open: 420, close: 1320 }
+  const noLaneBlock = boardRows({ staff: [], resources: [], shifts: [], absence: null, blocks: [{ staff_id: null, resource_id: null, start: 1140, end: 1200 }], sellSlots: [] } as unknown as BuildInput, [])
+  const shapes: Array<[string, { open: number; close: number }, Array<{ start: number; end: number }>, { open: number; close: number }, string, number, boolean[]]> = [
+    ['salon 10–19', salon, [], salon, '19', 18, [false, false, false]],
+    ['gym 07–22', gym, [], gym, '22', 30, [true, true, false]],
+    ['24 h 00–24', { open: 0, close: 1440 }, [], { open: 0, close: 1440 }, '24', 48, [true, true, true]],
+    ['bar 18–26 (model + ruler only)', { open: 1080, close: 1560 }, [], { open: 1080, close: 1560 }, '翌2', 16, [false, false, false]],
+    ['split 10–14 + 17–22: one span', { open: 600, close: 1320 }, [{ start: 840, end: 1020 }], { open: 600, close: 1320 }, '22', 24, [false, true, false]],
+    ['a shift ending after close (23:20)', gym, [{ start: 660, end: 1400 }], { open: 420, close: 1440 }, '24', 34, [true, true, true]],
+    ['a 06:30 booking before open', gym, [{ start: 390, end: 420 }], { open: 360, close: 1320 }, '22', 32, [true, true, true]],
+    ['勤務不可 13:00〜閉店', gym, [{ start: 780, end: 780 }], gym, '22', 30, [true, true, false]],
+    ['a closed day with no rows (the served pair, no rows)', salon, [], salon, '19', 18, [false, false, false]],
+    ['a store-less row (on no lane: widens nothing)', salon, noLaneBlock, salon, '19', 18, [false, false, false]],
+    // S25-15 (3), Liam S25-17 (1) — a whole-day split piece and a row more than a day outside never widen; the rest is bounded.
+    ['a whole-day split piece 0–1440 (widens nothing)', salon, [{ start: 0, end: 1440 }], salon, '19', 18, [false, false, false]],
+    ['a block 18:00 → tomorrow 06:00 (its first piece 1080–1440 widens)', salon, [{ start: 1080, end: 1440 }], { open: 600, close: 1440 }, '24', 28, [true, true, false]],
+    ['a row ending at 99999 (bounded at close + 1440)', salon, [{ start: 1000, end: 99999 }], { open: 600, close: 2580 }, '翌19', 66, [true, true, true]],
+    ['a row at −5000 (more than a day before open: widens nothing)', salon, [{ start: -5000, end: -4970 }], salon, '19', 18, [false, false, false]],
+    ['a row ending at open − 1439 (inside a day: widens, never before 0)', salon, [{ start: -869, end: -839 }], { open: 0, close: 1140 }, '19', 38, [true, true, true]],
+    ['a row starting at close + 1439 (widens, bounded at close + 1440)', salon, [{ start: 2579, end: 2609 }], { open: 600, close: 2580 }, '翌19', 66, [true, true, true]],
+    ['a row starting at close + 1440 (more than a day after close: widens nothing)', salon, [{ start: 2580, end: 2610 }], salon, '19', 18, [false, false, false]],
+  ]
+  it.each(shapes)('%s', (_name, hours, rows, day, edge, cells, overflow) => {
+    const got = boardDay({ hours, rows })
+    expect(got).toEqual(day)
+    expect(rulerLabels(got).filter((l) => l.edge).map((l) => l.text)).toEqual([edge])
+    expect(boardCells(got, step)).toBe(cells)
+    expect(labelTier(minPxPer30)).toBe('narrow') // a one-cell card at the floor shows its family name
+    expect(FRAMES.map((px) => trackOverflows(got, px))).toEqual(overflow)
+  })
+  it('S25-15 (2) — the floor is a time density: per 30 minutes of the day at every grid step (5 · 10 · 15 · 30 · 60) — salon 18 × 33 = 594, gym 30 × 33 = 990 — and trackOverflows flips at that same width; the strip keeps its step cells', () => {
+    for (const [day, slots, px] of [[salon, 18, 594], [gym, 30, 990]] as const) {
+      for (const s of [5, 10, 15, 30, 60]) {
+        expect([s, floorSlots(day), floorSlots(day) * minPxPer30, boardCells(day, s)]).toEqual([s, slots, px, Math.ceil((day.close - day.open) / s)])
+        expect([s, trackOverflows(day, px - 1), trackOverflows(day, px)]).toEqual([s, true, false])
+      }
+    }
+    expect(labelTier(minPxPer30 / 2)).toBe('sliver') // a 15-minute card at the floor is SLIVER (D5) — the design
+    const screen = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(screen).toContain("'--board-cells': boardCells(hours, props.guard.bookingStepMin), '--floor-slots': floorSlots(hours), '--cell-floor'")
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px))')
+    expect(css).not.toContain('var(--board-cells, 0) * var(--cell-floor')
+  })
+  it('S25-15 (6) — rows with non-finite minutes are dropped from the widening with one development warning; never a blank board', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const bad = [{ start: NaN, end: 500 }, { start: undefined as unknown as number, end: 450 }]
+      expect(boardDay({ hours: gym, rows: [...bad, { start: 390, end: 450 }, { start: 600, end: 660 }] })).toEqual({ open: 360, close: 1320 })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toMatch(/^boardDay: 2 row\(s\) with non-finite minutes .*first: rows\[0\]/)
+      expect(boardDay({ hours: gym, rows: bad })).toEqual(gym)
+      expect(boardDay({ hours: gym, rows: [{ start: 600, end: Infinity }] })).toEqual(gym)
+      expect(warn).toHaveBeenCalledTimes(3)
+      expect(boardDay({ hours: gym, rows: [{ start: 390, end: 450 }] })).toEqual({ open: 360, close: 1320 })
+      expect(warn).toHaveBeenCalledTimes(3) // good rows only: no warning
+    } finally {
+      warn.mockRestore()
+    }
+  })
+  it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 53 = max(26, 「07:00〜」 46) + 7 · WIDE from 95 = max(26, 46, menu/price 77) + 18 (the lines stack: the widest line, not the sum); the CSS @container rules mirror them in content-box px', () => {
+    expect([FAMILY_NAME_PX, CARD_TIGHT_PAD_PX, minPxPer30, CARD_TIME_PX, CARD_PAD_PX]).toEqual([26, 7, 33, 46, 18])
+    expect([CARD_MENU_PX, LABEL_TIER_PX]).toEqual([77, { sliver: 20, mid: 53, wide: 95 }])
+    expect([19, 20, 32, 33, 52, 53, 94, 95].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
+    expect(labelTier(2 * minPxPer30)).toBe('mid') // a 60-minute card at the floor (66 px) keeps its time line
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    for (const px of [LABEL_TIER_PX.wide, LABEL_TIER_PX.mid, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - CARD_PAD_PX}px)`)
+    // the offers (確保 · 詰め込み · スキマ枠 · 販売可能枠) take the same SLIVER boundary on their own padding + border.
+    expect(css).toContain(`@container (width < ${LABEL_TIER_PX.sliver - OFFER_PAD_PX}px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }`)
+  })
+  it('round 3 (D5: NARROW = the family name ONLY) — familyNameOf: the text before the first half- or full-width space, trimmed; no space = the whole name (it ellipsises at the floor as the last resort)', () => {
+    expect(['山本 大輔', '山本\u3000大輔', 'ブラウン ジョン', '山本', ' 山本 大輔 ', '\u3000山本\u3000大輔\u3000'].map(familyNameOf)).toEqual(['山本', '山本', 'ブラウン', '山本', '山本', '山本'])
+    // S25-15 (10) — 「・」 splits too; a Latin given-name-first name keeps its first token (the given name, the known limit S25-5).
+    expect(['ジョン・スミス', 'John Smith'].map(familyNameOf)).toEqual(['ジョン', 'John'])
+  })
+  it('round 2 item 8 — the strip has one cell per grid unit of the ruler span (gym 07–22 · the 06:30-widened day · 24 h), and the overflow arithmetic at the floor', () => {
+    const perHour = 60 / step
+    for (const [day, cells] of [[gym, 30], [{ open: 360, close: 1320 }, 32], [{ open: 0, close: 1440 }, 48]] as const) {
+      const columns = rulerLabels(day).filter((l) => !l.edge).length
+      expect([boardCells(day, step), columns * perHour, (day.close - day.open) / step]).toEqual([cells, cells, cells])
+    }
+    // the gym at the floor: 30 × 33 = 990 px → 150 px over at 840, 250 over at 740, fits at 1028; the salon 18 × 33 = 594 never.
+    const over = (day: { open: number; close: number }) => FRAMES.map((px) => [px, Math.max(0, floorSlots(day) * minPxPer30 - px), trackOverflows(day, px)])
+    expect([floorSlots(gym) * minPxPer30, over(gym)]).toEqual([990, [[840, 150, true], [740, 250, true], [1028, 0, false]]])
+    expect([floorSlots(salon) * minPxPer30, over(salon)]).toEqual([594, [[840, 0, false], [740, 0, false], [1028, 0, false]]])
+  })
+})
+
+describe('S26 round C — the real page numbers (FIX 2) and the proof script mirror (C8)', () => {
+  it('the measured overflow is floorSlots × minPxPer30 − (clientWidth − --label): 154 at 1280, 254 at 1180', () => {
+    const gym = { open: 420, close: 1320 }
+    const LABEL = 136 // today.css: `.page-today .timeline` at max-width 1320px — the real page's label column
+    const over = (clientWidth: number) => [floorSlots(gym) * minPxPer30 - (clientWidth - LABEL), trackOverflows(gym, clientWidth - LABEL)]
+    expect([LABEL + floorSlots(gym) * minPxPer30, over(972), over(872)]).toEqual([1126, [154, true], [254, true]])
+  })
+  // S26 Round E (E5): the hand-run proof script left this PR (outside Business territory); the regex it copies stays pinned here.
+  it('familyNameOf splits the family name on whitespace or 「・」 (the regex the hand-run proof script copies)', () => {
+    const lib = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    const libRe = lib.slice(lib.indexOf('export function familyNameOf')).match(/\.search\((\/[^)]*\/)\)/)?.[1]
+    expect(libRe).toBe('/[\\s\\u30FB]/')
+    expect([familyNameOf('ジョン・スミス'), familyNameOf('山本 大輔'), familyNameOf('John Smith')]).toEqual(['ジョン', '山本', 'John'])
   })
 })

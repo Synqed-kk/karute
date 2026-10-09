@@ -1,0 +1,51 @@
+/* ⚖ R93 — the room's ONE dialog (Dialog.tsx). The scrim is portaled to the room
+   root, a sibling of `.st-body`, so `position: fixed` here is the viewport's and
+   not a container's. The scrim is a close target (R112): a press that both
+   STARTS and ends on it closes the dialog. Only opacity animates, and reduced
+   motion drops even that. */
+.biz .pg-settings .st-dlg-scrim {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: rgba(16, 24, 40, .32);
+  animation: st-dlg-in 160ms ease-out;
+}
+.biz .pg-settings .st-dlg {
+  width: 100%; max-width: 440px; max-height: calc(100dvh - 32px); overflow: auto;
+  padding: 20px; border: 1px solid var(--line); border-radius: 14px;
+  background: #fff; box-shadow: 0 12px 32px rgba(16, 24, 40, .18);
+}
+.biz .pg-settings .st-dlg:focus { outline: none; }
+/* R187(c) - the dialog's type, defined ONCE here for every dialog in the room,
+   from the room's own block type in settings.css: the title copies
+   `.st-block-head h3` (settings.css:438), the body copies `.st-block-note`
+   (settings.css:443; that rule states no weight, so the body is normal).
+   S62 R231 - the sheet is excluded: it shows the preview as it is inline. */
+.biz .pg-settings .st-dlg:not(.st-sheet) h4 { font-size: 14px; font-weight: 700; line-height: 1.4; }
+.biz .pg-settings .st-dlg:not(.st-sheet) p { font-size: 12px; font-weight: 400; line-height: 1.7; }
+@keyframes st-dlg-in { from { opacity: 0; } to { opacity: 1; } }
+/* S62 R227-R229 - the sheet form (`<Dialog sheet>`): full width, from the
+   bottom, scrolls inside itself. Its arrival is the mock's (MOCK :560-564), to
+   the digit: transform + opacity only, no exit animation. Width, overflow,
+   border, background and shadow stay `.st-dlg`'s. */
+.biz .pg-settings .st-dlg-scrim.is-sheet { align-items: flex-end; padding: 0; }
+.biz .pg-settings .st-dlg.st-sheet {
+  max-width: none; max-height: 92dvh;
+  padding: 14px 14px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 18px 18px 0 0; border-bottom: 0;
+  overscroll-behavior: contain;
+  will-change: transform, opacity;
+  animation: st-sheet-up 220ms cubic-bezier(.32,.72,0,1) both;
+}
+@keyframes st-sheet-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-dlg-scrim { animation: none; }
+  .biz .pg-settings .st-dlg.st-sheet { animation: none; }
+}
+/* R187(b) - every button in the dialog gets the room's touch hit area, in the
+   form settings.css's coarse block uses for the room's buttons
+   (settings.css:1621 and :1646/:1657, `.biz .pg-settings .sp-seg button` ...
+   `{ min-height: 44px; }`). 44px is a hit area, so it lives only here. */
+@media (pointer: coarse) {
+  .biz .pg-settings .st-dlg button { min-height: 44px; }
+}

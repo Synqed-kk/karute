@@ -44,6 +44,8 @@ import {
   listAbsenceByDay,
   listBlocksByDay,
   listShiftsByDay,
+  listHoursByDay,
+  BOARD_REACH_DAYS,
   listStoreOptions,
   readBookingColors,
   readDayPlanes,
@@ -51,6 +53,7 @@ import {
   readStaffStores,
   renderNow,
   type StoreLens,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import {
   absenceForDay,
@@ -61,7 +64,8 @@ import {
   dayBookings,
   dayTotals,
   decisionTitle,
-  drawnWindow,
+  boardDay,
+  boardRows,
   hhmm,
   laneMinutes,
   openDecisions,
@@ -123,7 +127,7 @@ export function bookingProofs(resourceProof: string | null, priced: boolean, has
 }
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
-const WINDOW = 45
+const WINDOW = BOARD_REACH_DAYS // ⚖ S82 G2 — the door reads 臨時休業 over this same reach
 
 export default async function TodayPage({
   params,
@@ -160,7 +164,7 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw] =
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw, hoursByDay] =
     await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
@@ -182,6 +186,8 @@ export default async function TodayPage({
     listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
     // 予約の色分け — the business's raw colour keys (one per store + the legacy map); resolved below, beside `storeOfBooking`.
     readBookingColors(),
+    // ⚖ S81 F1 + S82 G5 — each day's OWN closure and window (臨時休業 / 臨時営業日 included), from the one shared hours read.
+    listHoursByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -199,12 +205,15 @@ export default async function TodayPage({
   // planes it paints (シフトと休み・販売可能枠・営業時間), never one per lane. The
   // decisions: ONE section mark (the cards carry none). 勤務不可: its strip's
   // own. Switch OFF every reader answers nothing and no prop is added.
+  const doorOn = await practiceDoorOn() // R50 — this business's door, once
   const markStores = clamped ? [storeId!] : storeOptions.map((s) => s.id)
-  const boardMark = samplePart(markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
-  const decisionsMark = sampleWhole(markStores, 'decisions')
-  const absenceMark = sampleWhole(markStores, 'absence', 'recoverySteps')
+  // ⚖ S81 F5 — 営業時間 is named only when the hours the board paints ARE the sample set; a store whose hours come from
+  // core ('core') is not marked for them (the other three planes are still sample).
+  const boardMark = samplePart(doorOn, markStores, 'shifts', 'absence', 'sellSlots', ...('hoursSource' in planes && planes.hoursSource === 'core' ? [] : (['operatingHours'] as const)))
+  const decisionsMark = sampleWhole(doorOn, markStores, 'decisions')
+  const absenceMark = sampleWhole(doorOn, markStores, 'absence', 'recoverySteps')
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
-    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
+    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(doorOn, s.id).words)]),
   )
   // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
   // board this map used to carry every store's row, so a shared staff lane
@@ -264,9 +273,9 @@ export default async function TodayPage({
   }
 
   const bookings = dayBookings(input)
-  // ⚖ §v11 V11-15(a)(b) — the AXIS is the drawn window (the store's hours grown around every card); the store's own
-  // hours stay the RULE (the washes' 開店/閉店, the sell and guard frames, the dialogs). The plane is never written.
-  const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))
+  // ⚖ §v11 V11-15(a)(b), amended ⚖ 10/7 S25-2 — the AXIS is the board's day (the store's hours grown around every drawn
+  // row); the store's own hours stay the RULE (the washes' 開店/閉店, the sell and guard frames, the dialogs). The plane is never written.
+  const drawn = boardDay({ hours: planes.operatingHours, rows: boardRows(input, bookings) })
   const lanes = buildLanes({ ...input, hours: drawn, businessHours: planes.operatingHours }, bookings)
   const minutes = laneMinutes(input, bookings)
   const util = utilization(minutes)
@@ -322,9 +331,13 @@ export default async function TodayPage({
     if (!shifts) return { offset, ...p, covered: false }
     // 定休日 has no capacity to advertise — a closed day advertising capacity is
     // the impossible state, not a rounding question.
-    const closed = planes.closedWeekdays.includes(p.wd)
-    // ⚖ §v11 V11-7 — the day's OWN window (a closed day counts 0 below; the shown pair keeps the read total).
-    const own = planes.weeklyHours[p.wd] ?? planes.operatingHours
+    // ⚖ S81 R7 — the SHOWN day answers for itself (a 臨時休業 date closes it, a 臨時営業日 opens it with its own window).
+    const shown = dayKey === shownKey
+    // ⚖ S81 F1 — every other day answers through ITS OWN resolution (a 臨時休業 closes it like a 定休日; a 臨時営業日 opens it).
+    const closed = shown ? planes.shownDayClosed !== null : (hoursByDay.get(dayKey)?.closed ?? null) !== null
+    // ⚖ §v11 V11-7, S82 G5 — the day's OWN window (a closed day counts 0 below): the shown day's from its planes, every
+    // other day's from its own resolution (a 臨時営業日 clips to ITS window, never the shown day's).
+    const own = shown ? planes.operatingHours : (hoursByDay.get(dayKey)?.window ?? planes.operatingHours)
     // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
     // The absence comes from its own per-day door rather than from the shown
     // day's planes, so today's cell carries today's incident while the operator

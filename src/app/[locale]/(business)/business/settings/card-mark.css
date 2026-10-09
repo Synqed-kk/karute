@@ -1,0 +1,9 @@
+/* The card mark block (CardMarkBlock.tsx). Type sizes follow the room's own blocks (st-block-note 12px, st-sec-l 13px). */
+.biz .pg-settings .cm-block { margin: 18px 0 0; }
+.biz .pg-settings .cm-act { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+.biz .pg-settings .cm-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.biz .pg-settings .cm-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 8px 0 0; font-size: 12px; line-height: 1.7; }
+.biz .pg-settings .cm-state--ng { color: var(--orange); }
+.biz .pg-settings .cm-state--ok { color: var(--ink-2, var(--ink)); }
+.biz .pg-settings .cm-fn { min-width: 0; overflow: hidden; color: var(--ink-3); text-overflow: ellipsis; white-space: nowrap; }
+.biz .pg-settings .cm-rm { margin-left: auto; }

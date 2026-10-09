@@ -1,3 +1,5 @@
+// PR-2 (稼働 ON): this file pins the OFF figures, so it runs with shiftLanes mocked OFF.
+jest.mock('@/lib/appointments/booking-switches', () => ({ BOOKING_SWITCHES: { ...jest.requireActual('@/lib/appointments/booking-switches').BOOKING_SWITCHES, shiftLanes: false } }))
 /**
  * ⚖ THE WEB DOOR TO THE 予約 NUMBERS — getAppointmentWindow.
  *
@@ -163,17 +165,18 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 })
 
-describe('getAppointmentWindow — a filter it cannot place reads ZERO, never everyone (mutant m9)', () => {
-  it('an unplaceable ?staff= id: empty window, not truncated, and NO fetch', async () => {
+describe('getAppointmentWindow — a filter it cannot place keeps only 担当未定 rows, read without staff_id, never everyone (mutant m9)', () => {
+  it('an unplaceable ?staff= id: no placed staff\'s rows, not truncated, read without staff_id', async () => {
     const win = await getAppointmentWindow(FROM, TO, 'somebody-who-left')
     const s = await spies()
+    // The default core answer is the VIEWER's booking only — it must not count.
     expect(win.counted).toEqual([])
     expect(win.cancelled).toEqual([])
     expect(win.noShow).toEqual([])
     expect(win.truncated).toBe(false)
-    expect(s.list).not.toHaveBeenCalled()
-    // ⚖ R1-9: and it SAYS the window is empty by construction, so the screen
-    // does not read those zero rows as a real day and divide them by one lane.
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    // ⚖ R1-9: and it SAYS the filter is unplaced, so the screen does not read
+    // those rows as a real day and divide them by one lane.
     expect(win.staffFilterUnknown).toBe(true)
   })
 
@@ -182,12 +185,13 @@ describe('getAppointmentWindow — a filter it cannot place reads ZERO, never ev
     expect(win.staffFilterUnknown).toBe(false)
   })
 
-  it('a placeable colleague id still filters at the fetch', async () => {
-    await getAppointmentWindow(FROM, TO, COLLEAGUE_PROFILE)
+  it('a placeable colleague id filters by the list\'s own rule: read without staff_id, the viewer\'s row dropped', async () => {
+    const win = await getAppointmentWindow(FROM, TO, COLLEAGUE_PROFILE)
     const s = await spies()
     expect(s.list).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: COLLEAGUE_CORE, store_id: GINZA }),
+      expect.objectContaining({ staff_id: undefined, store_id: GINZA }),
     )
+    expect(win.counted).toEqual([])
   })
 
   it('no filter on: no roster read and no staff_id', async () => {
@@ -200,10 +204,17 @@ describe('getAppointmentWindow — a filter it cannot place reads ZERO, never ev
 
 describe("getAppointmentWindow — 'self' is the SERVER's answer, never the caller's", () => {
   it("resolves 自分 through getCurrentUserStaffId", async () => {
-    await getAppointmentWindow(FROM, TO, 'self')
     const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 2,
+      page: 1,
+      page_size: 500,
+    })
+    const win = await getAppointmentWindow(FROM, TO, 'self')
     expect(getCurrentUserStaffId).toHaveBeenCalled()
-    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ staff_id: VIEWER_CORE }))
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ staff_id: undefined }))
+    expect(win.counted.map((a) => a.id)).toEqual(['a1'])
   })
 
   it('takes no viewer-id argument at all, and ignores one if a caller POSTs it', async () => {
@@ -213,14 +224,21 @@ describe("getAppointmentWindow — 'self' is the SERVER's answer, never the call
     // ask about opening hours — it can never name an identity, and the three
     // REQUIRED arguments are still the three that were always there.
     expect(getAppointmentWindow).toHaveLength(3)
-    await (getAppointmentWindow as unknown as (...a: unknown[]) => Promise<unknown>)(
+    const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 2,
+      page: 1,
+      page_size: 500,
+    })
+    const win = (await (getAppointmentWindow as unknown as (...a: unknown[]) => Promise<unknown>)(
       FROM,
       TO,
       'self',
       COLLEAGUE_PROFILE,
-    )
-    const s = await spies()
-    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ staff_id: VIEWER_CORE }))
+    )) as Awaited<ReturnType<typeof getAppointmentWindow>>
+    // 自分 is still the VIEWER: the colleague's row never counts.
+    expect(win.counted.map((a) => a.id)).toEqual(['a1'])
   })
 
   it('a viewer with no staff row reads UNFILTERED, exactly as the day path does', async () => {
@@ -324,5 +342,109 @@ describe('⚖ W0.5 — the window read carries 臨時営業日 into the hours fa
     s.closedDays.mockResolvedValue({ closed_days: [{ date: '2026-09-15' }] })
     const win = await getAppointmentWindow(FROM, TO, 'all')
     expect(win.hoursFacts[0][1]).toMatchObject({ closed: true, kind: 'closed_date' })
+  })
+})
+
+describe('getAppointmentWindow — every window (day, week, month, 先月比) counts 担当未定 under every filter (PR-B)', () => {
+  it('自分: one own booking + one staff-less → 2 counted, read without staff_id', async () => {
+    const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('nostaff'), staff_id: null }, { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 3,
+      page: 1,
+      page_size: 500,
+    })
+    const win = await getAppointmentWindow(FROM, TO, 'self')
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id).sort()).toEqual(['a1', 'nostaff'])
+  })
+
+  // Fix round 3 (reader S2): the list's rule never widens who reads.
+  it('an unassigned actor (no store, allowedStoreIds []) reads NOTHING', async () => {
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: null, allowedStoreIds: [] })
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    const s = await spies()
+    expect(s.list).not.toHaveBeenCalled()
+    expect(win.counted).toEqual([])
+  })
+
+  it('an unplaceable ?staff= id reads unfiltered and keeps only the staff-less rows', async () => {
+    const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('nostaff'), staff_id: null }, { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 3,
+      page: 1,
+      page_size: 500,
+    })
+    const win = await getAppointmentWindow(FROM, TO, 'somebody-who-left')
+    expect(s.list).toHaveBeenCalledTimes(1)
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id)).toEqual(['nostaff'])
+  })
+
+  // Round 5: week, month and the 先月同期間比 base read through the SAME rule
+  // as the day line. Core is mocked to honour staff_id EQUALITY, as it does,
+  // so a read that still filtered at core would lose the staff-less row.
+  const WEEK = [
+    new Date('2026-09-14T00:00:00+09:00').toISOString(),
+    new Date('2026-09-20T23:59:59.999+09:00').toISOString(),
+  ] as const
+  const MONTH = [
+    new Date('2026-09-01T00:00:00+09:00').toISOString(),
+    new Date('2026-09-30T23:59:59.999+09:00').toISOString(),
+  ] as const
+  const PREV_SPAN = [
+    new Date('2026-08-01T00:00:00+09:00').toISOString(),
+    new Date('2026-08-15T23:59:59.999+09:00').toISOString(),
+  ] as const
+  async function coreHonoursStaffEquality(startsAt: string) {
+    const s = await spies()
+    const rows = [
+      { ...booking('viewer'), starts_at: startsAt },
+      { ...booking('colleague'), staff_id: COLLEAGUE_CORE, starts_at: startsAt },
+      { ...booking('nostaff'), staff_id: null, starts_at: startsAt },
+    ]
+    s.list.mockImplementation(async (q: { staff_id?: string }) => {
+      const hit = q.staff_id ? rows.filter((r) => r.staff_id === q.staff_id) : rows
+      return { appointments: hit, total: hit.length, page: 1, page_size: 500 }
+    })
+    return s
+  }
+
+  it.each([
+    ['week', '自分', 'self', 'viewer', WEEK],
+    ['week', 'one named staff', COLLEAGUE_PROFILE, 'colleague', WEEK],
+    ['month', '自分', 'self', 'viewer', MONTH],
+    ['month', 'one named staff', COLLEAGUE_PROFILE, 'colleague', MONTH],
+  ] as const)('%s under %s: 件 includes the staff-less booking, read without staff_id', async (
+    _view, _who, filter, own, [from, to],
+  ) => {
+    const s = await coreHonoursStaffEquality('2026-09-15T01:00:00Z')
+    const win = await getAppointmentWindow(from, to, filter)
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id).sort()).toEqual([own, 'nostaff'].sort())
+  })
+
+  it.each([
+    ['自分', 'self', 'viewer'],
+    ['one named staff', COLLEAGUE_PROFILE, 'colleague'],
+  ] as const)('先月同期間比 base under %s includes last month\'s staff-less booking', async (_who, filter, own) => {
+    const s = await coreHonoursStaffEquality('2026-08-10T01:00:00Z')
+    // The page's 先月比 read: the bare window (withHours false), same filter.
+    const win = await getAppointmentWindow(PREV_SPAN[0], PREV_SPAN[1], filter, false)
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(s.policyGet).not.toHaveBeenCalled()
+    expect(win.counted.map((a) => a.id).sort()).toEqual([own, 'nostaff'].sort())
+  })
+
+  it.each([
+    ['week', WEEK],
+    ['month', MONTH],
+  ] as const)('an unplaceable ?staff= id on the %s keeps the staff-less rows only, never empty', async (_view, [from, to]) => {
+    const s = await coreHonoursStaffEquality('2026-09-15T01:00:00Z')
+    const win = await getAppointmentWindow(from, to, 'somebody-who-left')
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id)).toEqual(['nostaff'])
+    expect(win.staffFilterUnknown).toBe(true)
   })
 })

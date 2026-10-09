@@ -1,5 +1,6 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import type { WeekStart } from '@/lib/date/week-start'
 import { isCountedBooking } from '@/lib/appointments/by-date'
@@ -8,6 +9,8 @@ import type { DayHoursFact } from '@/lib/operating-hours'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   capacityForDay,
+  type ShiftCapacityInput,
+  type ShiftState,
   type Band,
   type BookedSpan,
   type CapacityFact,
@@ -60,6 +63,12 @@ function durationMinutes(a: Appointment): number {
  *  wiring round does), but the week row, the month cell and both doors already
  *  agree about them. */
 export type CapacityRowFields = {
+  /** The WIRE state: never the internal 'inferred' (see shiftBasis). */
+  shiftState?: Exclude<ShiftState, 'inferred'>
+  /** 'inferred' = guess mode (no shift rows); the renderer prints 約nn%. */
+  shiftBasis?: 'rows' | 'inferred'
+  onShiftNoBooking?: number
+  unassignedOverflow?: number
   /** lanes × the day's declared minutes, or null when no honest capacity
    *  exists for this store-day. `capacityReason` says which. */
   capacityMinutes: number | null
@@ -151,6 +160,8 @@ type BookingSpan = { start: number; end: number }
  *  resolves all of it — the module itself knows nothing of stores, business
  *  types or switches, and this adapter reads the switch on its behalf. */
 export interface CapacityInputs {
+  shiftCapacity?: Omit<ShiftCapacityInput, 'date'>
+  blockAppointments?: readonly Appointment[]
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours).
    *  A missing key = hours unresolved for that day, so no capacity. */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
@@ -276,12 +287,22 @@ function capacityFactsFor(
     // through to the same no-store path an out-of-window month already hits
     // (capacityRowFields(undefined)), withholding capacity instead of
     // computing one off the org-wide fallback type.
-    if (inputs.storeRowDegraded) continue
+    if (inputs.storeRowDegraded && !BOOKING_SWITCHES.shiftLanes) continue
     const dayStartMs = jstDayStartMs(key)
     const hoursFact = inputs.hoursFacts?.get(key)
     facts.set(
       key,
       capacityForDay({
+        ...(BOOKING_SWITCHES.shiftLanes ? {
+          shift: {
+            storeId: '', rows: [], roster: null, breakMinutes: resolveBreakMinutes(null),
+            ...inputs.shiftCapacity,
+            readComplete: !inputs.storeRowDegraded && (inputs.shiftCapacity?.readComplete ?? false),
+            soloMode: inputs.soloMode,
+            date: key,
+            blocks: (inputs.blockAppointments ?? []).map(spanOf),
+          },
+        } : {}),
         laneKind: inputs.laneKind ?? 'staff',
         rosterLanes: rosterLanesFor(inputs, staffByStartDay.get(key)?.size ?? 0),
         hours: hoursFact
@@ -324,7 +345,10 @@ export function appointmentsToMonthFacts(
     keys.push(isoDay(cursor))
     cursor.setDate(cursor.getDate() + 1)
   }
-  return capacityFactsFor(appointments, keys, inputs)
+  const facts = capacityFactsFor(appointments, keys, inputs)
+  // R-K: every month dot uses booking density for the whole month.
+  if (BOOKING_SWITCHES.shiftLanes) for (const fact of facts.values()) fact.band = null
+  return facts
 }
 
 /** The wire/row shape of one capacity fact. One spelling, so the week row, the
@@ -356,6 +380,13 @@ export function capacityRowFields(fact: CapacityFact | undefined): CapacityRowFi
     }
   }
   return {
+    ...(fact.shiftState == null ? {} : {
+      // PR-2 wire seam: internal 'inferred' → 'entered' + shiftBasis 'inferred'.
+      shiftState: fact.shiftState === 'inferred' ? 'entered' : fact.shiftState,
+      shiftBasis: fact.shiftState === 'inferred' ? 'inferred' : 'rows',
+      onShiftNoBooking: fact.onShiftNoBooking,
+      unassignedOverflow: fact.unassignedOverflow,
+    }),
     capacityMinutes: fact.capacityMinutes,
     lanes: fact.lanes,
     laneKind: fact.laneKind,
@@ -408,8 +439,13 @@ export function appointmentsToWeekData(
    *  BOOKING_SWITCHES.multiStaffCapacity is OFF. */
   soloMode?: boolean,
   /** The store's lane kind and booking roster. Absent = no roster known, so
-   *  no day claims a capacity (fail closed). */
-  capacity: Omit<CapacityInputs, 'hoursFacts' | 'soloMode'> = {},
+   *  no day claims a capacity (fail closed).
+   *
+   *  `workedRows` — the rows whose minutes are somebody's WORK (予約時間, 稼働,
+   *  空き). Absent = `appointments` itself. The caller narrows it under a staff
+   *  filter (screen.ts `workedRowsOf`); 件 and the chips always read
+   *  `appointments`. */
+  capacity: Omit<CapacityInputs, 'hoursFacts' | 'soloMode'> & { workedRows?: Appointment[] } = {},
 ): WeekDayRowData[] {
   // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
   // WeekDayCard renders this verbatim, so it has to be localized at the source.
@@ -424,6 +460,15 @@ export function appointmentsToWeekData(
     const arr = buckets.get(key)
     if (arr) arr.push(a)
     else buckets.set(key, [a])
+  }
+
+  const { workedRows, ...capacityInputs } = capacity
+  const workedBuckets = new Map<string, Appointment[]>()
+  for (const a of workedRows ?? []) {
+    const key = isoDay(new Date(a.starts_at))
+    const arr = workedBuckets.get(key)
+    if (arr) arr.push(a)
+    else workedBuckets.set(key, [a])
   }
 
   const cancelledByDay = countByDay(terminal?.cancelled)
@@ -446,8 +491,8 @@ export function appointmentsToWeekData(
   // compares them. capacityFactsFor indexes by INTERSECTION for exactly that
   // reason. Counting and bookedMinutes stay start-day bucketed — that is the
   // app's rule on every other surface.
-  const capacityFacts = capacityFactsFor(appointments, dayKeys, {
-    ...capacity,
+  const capacityFacts = capacityFactsFor(workedRows ?? appointments, dayKeys, {
+    ...capacityInputs,
     hoursFacts,
     soloMode,
   })
@@ -463,13 +508,18 @@ export function appointmentsToWeekData(
       .filter(isCountedBooking)
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
 
-    const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
+    // 予約時間 and the fallback denominator are minutes somebody WORKS, so they
+    // read the worked rows (the same counted predicate); 件 reads dayAppts.
+    const workedAppts = workedRows
+      ? (workedBuckets.get(key) ?? []).filter(isCountedBooking)
+      : dayAppts
+    const bookedMinutes = workedAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
     // Capacity = open hours × the staff who actually worked that day (≥1), so
     // utilization is salon-wide and can't read >100% the way a single-chair
     // denominator did (a 6-staff day was showing "117% utilized"). Approximation:
     // a working staffer is treated as open the full business hours — refine when
     // per-staff schedules exist.
-    const staffOnDay = new Set(dayAppts.map((a) => a.staff_id)).size
+    const staffOnDay = new Set(workedAppts.map((a) => a.staff_id)).size
 
     const visible = dayAppts.slice(0, VISIBLE_BOOKING_LIMIT).map((a) => ({
       id: a.id,
@@ -493,7 +543,7 @@ export function appointmentsToWeekData(
       weekdayLabel: weekdayFmt.format(cursor),
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
-      bookedMinutes,
+      bookedMinutes: BOOKING_SWITCHES.shiftLanes ? (capacityFact?.bookedMinutes ?? bookedMinutes) : bookedMinutes,
       // Two-faced on purpose until the app-local row lands: the day's CAPACITY
       // when there is one, else today's exact fallback arithmetic so the npm
       // WeekDayCard renders byte-identically. This key means the DENOMINATOR

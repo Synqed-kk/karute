@@ -3,7 +3,7 @@
 import { normalizeCardColor } from "./card-color";
 
 export const PALETTE: ReadonlyArray<{ order: number; name: string; hex: string }> = [
-  { order: 1, name: "紺", hex: "#1C2247" },
+  { order: 1, name: "標準（紺）", hex: "#1C2247" },
   { order: 2, name: "藍", hex: "#00304C" },
   { order: 3, name: "深緑", hex: "#1F3D33" },
   { order: 4, name: "松葉色", hex: "#2D4722" },

@@ -118,6 +118,10 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key recordings.captureWarning is a skip row — same doctrine).
   'recording.capture_warned': 'recording',
   'recording.discard': 'recording',
+  // Choke emit: src/lib/recording/finalize-take.ts#finalizeTakeWithClient (via
+  // its private emitFinalizeRefused) — a take whose stored bytes are no
+  // recording, refused once per create-only `refused` mark (S60 A2).
+  'recording.finalize_refused': 'recording',
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam
   // 2026-09-13 sharing law; 2026-09-14 design D6). FIX ROUND 1: facade key

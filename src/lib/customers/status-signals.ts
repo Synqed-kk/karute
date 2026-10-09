@@ -11,7 +11,7 @@
 // of tree-shaking. The thin boundary plugin now refuses unported next/* imports
 // outright, so the client-safe surface lives here, importable from anywhere.
 
-import { jstDaysBetween } from '@/lib/date/jst'
+import { jstDayOf, jstDaysBetween } from '@/lib/date/jst'
 import type { CustomerStatusKey } from '@/components/customers/redesign/types'
 
 /** Every signal of prior history. Gathered the SAME way on each surface so the
@@ -109,4 +109,48 @@ export function deriveStatus(
     isExistingCustomer,
     karuteCount: priorVisitCount,
   })
+}
+
+/**
+ * R-O7 (PR-O commit 3, RULING-S67-PRO-STOP2) — THE ONE definition of "this
+ * karute row is evidence of a PRIOR visit". Every returning-customer gate
+ * reads its karute count through this and nowhere else: the write refusal
+ * (outcome.ts → revisit-guard), the enqueue refusals (both job doors →
+ * revisit-guard), the record screen's own gate (record-screen.ts
+ * targetReturning) and the karute detail's isReturningCustomer (S3).
+ *
+ * A row counts UNLESS it is the 仮カルテ placeholder on the SAME JST day as
+ * the anchor. The placeholder marker is the narrowest the row carries: status
+ * DRAFT AND no recording session — the manual ＋新規カルテ create
+ * (karute.core.ts createManualKaruteRecordWithClient) is the one door that
+ * writes that shape; an AI karute always carries its session, so a same-day
+ * recorded visit (DRAFT or not) still counts, and so does any placeholder
+ * from an EARLIER day (a regular whose past karutes never left DRAFT stays
+ * 既存のお客様). The row's day = its session_date (the visit day the manual
+ * create stamps, backdating included), else its created_at in JST.
+ * The anchor = the JST day of the recording session's START, or today in JST
+ * when there is no session (the record screen before recording).
+ */
+export interface PriorVisitRow {
+  status?: string | null
+  recording_session_id?: string | null
+  session_date?: string | null
+  created_at?: string | null
+}
+
+export function isProvisionalKaruteRow(row: PriorVisitRow): boolean {
+  return row.status === 'DRAFT' && !row.recording_session_id
+}
+
+// A11 (S69 fix round 4, commit 29): through the ONE jstDayOf — a short date is
+// normalised, a malformed one is null (it used to THROW: the guard answered
+// 'unknown' and the enqueue refused that customer on every retry). A null day
+// never equals the anchor, so the row COUNTS: a regular is never hidden.
+function karuteRowDayJst(row: PriorVisitRow): string | null {
+  return row.session_date ? jstDayOf(row.session_date) : jstDayOf(row.created_at)
+}
+
+export function countsAsPriorVisit(row: PriorVisitRow, anchorDayJst: string): boolean {
+  if (!isProvisionalKaruteRow(row)) return true
+  return karuteRowDayJst(row) !== anchorDayJst
 }

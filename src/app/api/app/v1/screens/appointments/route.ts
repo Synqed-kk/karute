@@ -15,6 +15,8 @@
 // booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
+import { resolveBreakMinutes } from '@/lib/capacity/capacity'
+import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
@@ -29,6 +31,7 @@ import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/
 import {
   customerLensFor,
   storeDivisorRosterForBusiness,
+  shiftRosterForBusiness,
   storeStaffIdSetForBusiness,
 } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
@@ -39,6 +42,8 @@ import {
   fetchCoreStaffByProfileId,
   getAppointmentsByDateWithClient,
 } from '@/lib/appointments/by-date'
+import { readStaffShifts } from '@/lib/appointments/staff-shifts'
+import type { ShiftCapacityInput } from '@/lib/capacity/capacity'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import {
@@ -191,9 +196,6 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       selfRow?.id ?? null,
       coreStaffByProfileId,
     )
-    // A filter naming somebody the roster cannot place gets ZERO rows, never
-    // the whole salon's week.
-    //
     // ⚖ S7 — the FETCH starts one JST day EARLY (C1's window-edge leak). A
     // booking that began at 23:00 the night before the range still occupies
     // minutes of day 1, and core filters by the row's own instant, so a window
@@ -202,14 +204,20 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // rows land in a bucket outside the range and are read only by the
     // capacity model's intersection index. JST has no DST, so one day is
     // exactly 86,400,000 ms off the JST-midnight start every caller passes.
-    const windowFor = (fromIso: string, toIso: string) =>
-      unknown || blind
+    // 件 == rows (PR-B) for EVERY window this screen counts — day, week, month
+    // and 先月同期間比: read unfiltered and kept by the day list's own predicate
+    // (isShownBooking via `shownUnder`), so a 担当未定 booking counts under
+    // every 担当 filter, as the list shows it. A filter the roster cannot place
+    // keeps only the staff-less rows, as the list does — never the whole
+    // salon's week.
+    const shownWindowFor = (fromIso: string, toIso: string) =>
+      blind
         ? Promise.resolve(emptyAppointmentWindow())
         : fetchAppointmentWindow(
             synqed,
             new Date(Date.parse(fromIso) - 86_400_000).toISOString(),
             toIso,
-            { storeId, staffId },
+            { storeId, shownUnder: unknown ? staffFilter : staffId },
           )
 
     // The one window this view actually reads — its days drive the hours facts
@@ -243,26 +251,26 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             includeCancelled: true,
           }),
       weekRange
-        ? windowFor(
+        ? shownWindowFor(
             weekRange.rangeFrom.toISOString(),
             weekRange.rangeTo.toISOString(),
           )
         : Promise.resolve(null),
       monthRange
-        ? windowFor(
+        ? shownWindowFor(
             monthRange.rangeFrom.toISOString(),
             monthRange.rangeTo.toISOString(),
           )
         : Promise.resolve(null),
       // Day view has no bigger window to read the day line's numbers out of.
       view === 'day'
-        ? windowFor(
+        ? shownWindowFor(
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
           )
         : Promise.resolve(null),
-      // The previous month's compared span — through the SAME windowFor as the
-      // month read above, so the two sides of the comparison carry one store
+      // The previous month's compared span — through the SAME shownWindowFor as
+      // the month read above, so the two sides of the comparison carry one store
       // clamp and one 担当 filter. In this wave, so it costs no waterfall.
       //
       // The ONE read in this wave that does not reach the 502. Every other one
@@ -271,7 +279,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       // exactly `null`, so a half-down core costs the phone one clause instead
       // of the whole 予約 screen.
       compareWindow
-        ? windowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
+        ? shownWindowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
             console.error('[appointments] 先月同期間比 read degraded:', err)
             return null
           })
@@ -363,6 +371,17 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 
+    let shiftCapacity: Omit<ShiftCapacityInput, 'date'> | undefined
+    if (BOOKING_SWITCHES.shiftLanes) {
+      const [read, roster] = storeId && !blind
+        ? await Promise.all([
+            readStaffShifts(synqed, businessId, storeId, span.fromYmd, span.toExclusiveYmd),
+            shiftRosterForBusiness(businessId, storeId),
+          ])
+        : [{ rows: [], readComplete: false }, null]
+      shiftCapacity = { ...read, storeId: storeId ?? '', roster, personId: staffId, readComplete: read.readComplete && roster != null && !unknown, breakMinutes: resolveBreakMinutes(policy) }
+    }
+
     const screen = buildAppointmentsScreen({
       locale,
       weekStart: facadeWeekStart(url.searchParams.get('weekStart'), locale),
@@ -373,8 +392,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       activeStaffId: selfRow?.id ?? null,
       storeStaffIds,
       divisorStaffIds,
-      // ⚖ R1-9 — the same empty window the web door reports: a filter naming
-      // somebody the roster cannot place gets no capacity, not one idle lane.
+      ...(shiftCapacity ? { shiftCapacity } : {}),
+      // ⚖ R1-9 — the same flag the web door reports: a filter naming somebody
+      // the roster cannot place (its window holds only 担当未定 rows) gets no
+      // capacity, not one idle lane.
       staffFilterUnknown: unknown,
       orgSettings,
       customers,
@@ -397,9 +418,18 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       packUsage,
     })
 
+    // 担当未定 picker: per staff-less booking, the active staff of ITS store.
+    const assignStaffIdsByBooking = ctx.identity.capabilities.has('bookings.manage')
+      ? await assignableStaffIdsByBooking(dayAppointments, staffList, synqed, (sid) =>
+          storeStaffIdSetForBusiness(staffList, sid, businessId),
+        )
+      : {}
+
     return ok(
       ctx,
       AppointmentsScreenDTO.parse({
+        canAssign: ctx.identity.capabilities.has('bookings.manage'),
+        assignStaffIdsByBooking,
         view,
         selectedDateIso: selectedDate.toISOString(),
         staffFilter,

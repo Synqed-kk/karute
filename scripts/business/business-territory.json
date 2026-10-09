@@ -10,6 +10,7 @@
   "writers": [
     { "file": "src/business/lib/practice-door/door.ts", "call": "orgSettings.upsert", "symbol": "writeReserveCardColor" },
     { "file": "src/business/lib/practice-door/door-booking-colors.ts", "call": "orgSettings.upsert", "symbol": "writeBookingColors" },
+    { "file": "src/business/lib/practice-door/door-store-capabilities.ts", "call": "orgSettings.upsert", "symbol": "writeStoreCapabilities" },
     { "file": "src/business/lib/practice-door/door-writes.ts", "call": "storePolicies.set", "symbol": "setSpecialOpenDays" },
     { "file": "src/business/lib/practice-door/door-writes.ts", "call": "storePolicies.addClosedDay", "symbol": "addClosedDay" },
     { "file": "src/business/lib/practice-door/door-writes.ts", "call": "storePolicies.removeClosedDay", "symbol": "removeClosedDay" },

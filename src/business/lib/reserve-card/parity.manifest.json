@@ -1,0 +1,64 @@
+{
+  "comment": "The Reserve pin the port in this folder is proven against, and the documentation lists PARITY.md prints. Read by scripts/business/reserve-card-parity/run.mjs (the only reader). A re-port edits THIS file + the port files, re-runs the harness, and commits the PARITY.md it emits. reserveRanges / leftOut are prose for PARITY.md (Reserve line ranges at the pin); expect = the block counts the harness must find.",
+  "reservePin": "4db48b73ba70fc5752bacbcce569e9a2dae96791",
+  "expect": {
+    "verbatim": 31,
+    "scoped": 3
+  },
+  "reserveRanges": {
+    "satin-material.ts": "`src/lib/satin-material.ts` 1–33 (whole file)",
+    "member-card-vars.ts": "`src/lib/types.ts` 170–193 (BrandTheme) · `src/lib/reserve-api/member-ia.ts` 257–272 (tenantGradientPair) · `src/components/customer/salon-surface.tsx` 36–61 (memberTenantVars)",
+    "ReserveCardPreview.tsx": "`studio-home.tsx` 434–472 (the card's measure effect) · `studio-salon.tsx` 75–121 (the cover's measure effect) · `membership-date.tsx` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 482–538, TenantCard 680–705; studio-salon.tsx StudioCover 163–237), the cover's lines 2–3 take the SHAPE of `member-ia.ts` coverLines 458–479 (never its data), with the edits listed in its header · the お店ページ body (StoreBody) takes Reserve's markup and classes @ 09841a6 = this pin for these files (`MemberSalonPage.tsx` 262–307, RankStreakChip 354–366, BookEntry 460–480, CheckinEntry 486–499; `studio-salon.tsx` IntakeBanner 401–436, SalonPosts 277–312) with the mock's words, edits listed at StoreBody · part 2 (P4b): `MemberSalonPage.tsx` UpcomingBookings 385–452, MyRecord 508–588; `studio-salon.tsx` ShopSection 327–352, RentalSection 361–390, SegTabs 448–531 (no spring); `visit-history-list.tsx` 21–72; index.css 4084–4111 (segmented control) and 4113–4176 (visit rows)"
+  },
+  "leftOut": {
+    "excludedFrom": "index.css 4650–4822",
+    "excluded": [
+      [
+        "4661–4673 .member-minicard__stripe, .tameru-ticket__stub / .member-sheet__mark, .member-rc__wm",
+        "other tenant objects that wear the card's Satin (マイページ thumbnail, 回数券 stub, store sheet mark, 受付 wordmark), not a surface element"
+      ],
+      [
+        "4728 .member-ground.salon-surface > main",
+        "the store page's main column"
+      ]
+    ],
+    "notPorted": [
+      [
+        "69–103, 302–306, 858–869 :root / .dark",
+        "app-wide tokens; every one the surfaces read is re-pointed by the ported .member-ground blocks (871–884, 905–960)"
+      ],
+      [
+        "193–195 ::selection",
+        "global text-selection tint; porting it would restyle every Business page"
+      ],
+      [
+        "322–351, 595–598, 608–611, 771–775 .member-ground (band / tray / column)",
+        "band and tab-tray geometry and the page column; nothing in the surfaces reads them"
+      ],
+      [
+        "1036–1038 .member-ground main.main--greet",
+        "the preview has no <main>; its only job (padding-top 0) is the wrapper's own default"
+      ],
+      [
+        "1534–1550 .copy-ok",
+        "no element opts back into selection"
+      ],
+      [
+        "1580–1617 button / row / deal press tiers",
+        "match no element of the three surfaces"
+      ],
+      [
+        "1618–1633 :focus-visible rings",
+        "the preview holds no focusable element (its anchors carry no href)"
+      ],
+      [
+        "146–170 .salon-surface",
+        "the store page root's tenant re-skin (ground, role tints); the cover reads none of it"
+      ],
+      [
+        "4642–4649 .member-shell-clearance",
+        "page-root clearance for the tray"
+      ]
+    ]
+  }
+}

@@ -313,11 +313,16 @@ describe('the fixture data door', () => {
       // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
       // (`readStoreAddress`); ON it is the door's own core store record.
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/store-hours', './practice-door/switch'],
+      // ⚖ PKT-S29-B1 — `./practice-door/door-writes`: the store-days writer, data.ts's sibling to
+      // `door-booking-colors` (its own allowlist key — one file per writer, R-S39-1's own law).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/actor', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-store-capabilities', './practice-door/door-writes', './practice-door/store-hours'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
       'src/business/lib/practice-door/door-booking-colors.ts': ['../booking-colors', '../clock', './actor', './core-reach', './door', './switch'],
+      // S49 P2 (DECISIONS-S49 R86) — お店ページ's switches writer, door-booking-colors.ts's twin: the same five, plus P1's
+      // pure model (its one non-local import is `import type`, erased — no fixture reaches the door) in place of the palette.
+      'src/business/lib/practice-door/door-store-capabilities.ts': ['../clock', '../store-page/model', './actor', './core-reach', './door', './switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -328,16 +333,18 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
       // ⚖ PR-3 §v3 — the plane table: the mark's labels (Business's string home), the
       // fixture operator the sample history credits (V4-3), and the mark's TYPE.
-      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', './switch', '@/business/i18n'],
-      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', '@/business/i18n'],
+      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', './switch', 'react'],
       // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
       // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
       // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
       // ⚖ §v11 V11-8 (PR-B) — `./sample-day`: the give-way, door.ts's pure sibling (a NAMED allowance, never a widening).
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
-      // ⚖ §v11 — the store's own 営業時間 · 定休日 reading: pure, the read's TYPE only.
-      'src/business/lib/practice-door/store-hours.ts': ['./core-reach'],
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './door-inbox-register', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
+      // ⚖ §v11 — the store's own 営業時間 · 定休日 reading; ⚖ S81 (Liam-applied) — through Karute's ONE hours resolver
+      // `@/lib/operating-hours` (pure: jst · calendar-range · a type-only capacity import) and `../clock` (the shown day's
+      // JST key); `./core-reach` stays the read's TYPE only.
+      'src/business/lib/practice-door/store-hours.ts': ['../clock', './core-reach', '@/lib/operating-hours'],
       // ⚖ §v11 V11-8 — the sample day gives way to the live day: pure; the clock (a row's JST day), the fixture day's
       // TYPES, and the week the plane carries. Never today-board.ts (its status list is restated and pinned equal).
       'src/business/lib/practice-door/sample-day.ts': ['../clock', '../fixtures-today', './store-hours'],
@@ -407,8 +414,6 @@ describe('the fixture data door', () => {
         './business-shell.css',
         '@/business/lib/admission',
         '@/business/lib/data',
-        // ⚖ PR-3 §v3 V3-5 — the topbar's one door-aware prop, read on the server.
-        '@/business/lib/practice-door/switch',
         'react',
       ],
       // スタッフ・シフト's staged edits, above the screen for the same reason
@@ -422,11 +427,19 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
         'react',
       ],
-      'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
+      'src/app/[locale]/(business)/BusinessSidebar.tsx': ['./BusinessSignOutButton', '@/business/i18n', 'next/link', 'next/navigation', 'react'], // ⚖ R53 — the card's strings, the BusinessTopbar way
       // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
       'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
-      'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
-      'src/business/lib/grants.ts': ['@/lib/supabase/service'],
+      // DISCLOSED PIN MOVE (S5 fix 1): admission.ts memoises per request with React cache()
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): admission.ts records through the one writer
+      // DISCLOSED PIN MOVE (S6 read round): the writer file renamed for what it records — './admission-failure-record'
+      'src/business/lib/admission.ts': ['./admission-failure-record', './grants', '@/lib/supabase/server', 'next/navigation', 'react'],
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): a failed grant/tenant read records through the one writer
+      // DISCLOSED PIN MOVE (S6 read round): the writer file renamed for what it records — './admission-failure-record'
+      'src/business/lib/grants.ts': ['./admission-failure-record', '@/lib/supabase/service'],
+      // S5 fix 2 (#1110 P1): the one admission-failure writer imports NOTHING, so any swallow point can call it
+      // DISCLOSED PIN MOVE (S6 read round): key renamed with the file (git mv); still no imports
+      'src/business/lib/admission-failure-record.ts': [],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
       // ⚖ THE ROOM-3 F1 LAW — everything between the admission gate and the
       // render moved to `customers-props.ts`, so the evidence harness imports
@@ -559,6 +572,10 @@ describe('the fixture data door', () => {
         // no module to the graph below the screen: everything it names
         // (`./reserved-mask`, `./capacity-ledger`, `@/business/lib/today-board`)
         // is already on this list.
+        './held-delta',
+        // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one store-level delta (pure, type-only back).
+        // DISCLOSED PIN MOVE (PR-B): the held-reference import — the session holder of the settled held set (DECISIONS.md R4, S4 PR-B); it names only honest-held.
+        './held-reference',
         './honest-held',
         './reserved-mask',
         './selling-engine-gate',
@@ -612,6 +629,8 @@ describe('the fixture data door', () => {
         // The book imports `allocateBed` from here as a VALUE, so this entry is
         // erased at compile time and no cycle exists at runtime either.
         './capacity-ledger',
+        // R1/R2 (DECISIONS.md today-impact-2026-09-30): TYPE-ONLY: HeldDelta / WindowRef for the day words.
+        './held-delta',
         './reserved-mask',
         '@/business/lib/canon-logic/availability',
         '@/business/lib/canon-logic/drag-rules',
@@ -768,13 +787,16 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-inbox',
         '@/business/lib/fixtures-today',
         '@/business/lib/inbox',
+        '@/business/lib/practice-door/sample-facade',
       ],
       'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [
         // ⚖ Liam 8/23 — the room's ? opens the family's guided tour, so it wires
         // its own trigger and overlay to the shared engine. Pure functions only:
         // this room reads no data on the client and that is unchanged.
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/inbox',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],
@@ -797,14 +819,17 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         // PR-2 (Greptile on #992): the operator now comes from the door (readShellIdentity).
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
         '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/register',
+        '@/business/lib/settings',
         'next/link',
         'react',
       ],
@@ -859,7 +884,9 @@ describe('the fixture data door', () => {
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
-      'src/business/lib/settings.ts': [],
+      // ⚖ R173 — ONE exception: a TYPE-ONLY import of P1's store-page model (erased at compile time, so the
+      // rules still fetch nothing); the exact form is pinned by the test after this one.
+      'src/business/lib/settings.ts': ['./store-page/model'],
       // ⚖ S17 fix round 5 · G2 — every link into 設定, built in one place. The
       // empty inventory is the PIN on what it is: a string out of three values
       // its caller already resolved. An import here would mean the link builder
@@ -879,6 +906,8 @@ describe('the fixture data door', () => {
       'src/app/api/business/card-color/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       // ⚖ PKT-S38 R4 — 予約の色分け's route, the card route's twin: admission and the data seam, nothing else.
       'src/app/api/business/booking-colors/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
+      // S49 P2 — お店ページ's switches route, the booking-colours route's twin: admission and the data seam, nothing else.
+      'src/app/api/business/store-capabilities/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
@@ -907,13 +936,15 @@ describe('the fixture data door', () => {
         '@/business/lib/practice-door/sample-facade',
         // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
         '@/business/lib/practice-door/store-hours',
-        // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
-        '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
+        // S50 P3 — お店ページ's per-store payload: P1's pure model + strings, and the one practice-count fixture (R91).
+        '@/business/lib/store-page/copy',
+        '@/business/lib/store-page/model',
+        '@/business/lib/store-page/practice-counts',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
       // own file. Both the shell room and 予約と確保 need it, and the section may
@@ -924,17 +955,55 @@ describe('the fixture data door', () => {
         '@/business/lib/spring',
         'react',
       ],
+      // ⚖ R93 (S50 P5c) — the room's shared switch and its ONE dialog primitive.
+      'src/app/[locale]/(business)/business/settings/Switch.tsx': [
+        './switch.css',
+        '@/business/lib/spring',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/settings/Dialog.tsx': [
+        './dialog.css',
+        'react',
+        'react-dom',
+      ],
+      // ⚖ S60 R207 — the room's ONE toast primitive.
+      'src/app/[locale]/(business)/business/settings/Toast.tsx': [
+        './toast.css',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
         './Collapse',
+        './Switch',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // S60 P7A-R2b — お店ページ's 業種 / 機能 blocks and the room's one toast (R207).
+        './StorePageRows',
+        './StorePageType',
+        './Toast',
         // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
         '@/business/i18n',
+        // ⚖ S37 R41 (B2 act 1c) — the ONE JST stamp formatter (`jstClock`), read at the save press only.
+        // clock.ts imports nothing but React's cache(), so no path to data or the practice door.
+        '@/business/lib/clock',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
+        // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the
+        // practice door, which is why it lives beside settings.ts rather than in practice-door/).
+        '@/business/lib/store-days-state',
+        // S59 P7A (C7) — STORE_PAGE_HEADINGS for termsFor (お店ページ's search terms); copy.ts holds only strings and REG.
+        '@/business/lib/store-page/copy',
+        // S60 P7A-R2b — the room's one お店ページ draft (pure; imports only the model) and the model's types.
+        '@/business/lib/store-page/model',
+        // S61 P7B-R1 (R224) — the saved type's sample (pure: imports copy/model types and a type-only STORES).
+        '@/business/lib/store-page/practice-counts',
+        '@/business/lib/store-page/room-draft',
+        // S61 P7B-2 (R219, R220) — お店ページ's switches' save: the client call (imports only the model) and the
+        // pure line chooser (imports only copy.ts and the client's types).
+        '@/business/lib/store-page/save-client',
+        '@/business/lib/store-page/save-lines',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second
@@ -1006,11 +1075,17 @@ describe('the fixture data door', () => {
       // ⚖ A1b — カードの見た目: the port is its ONLY card drawing (and its satin the
       // only colour math); the room's spring and the tour's ring helper; no data door.
       'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
+        // ⚖ S62 R227 — the preview's sheet at ≤ 899 is the room's ONE Dialog.
+        './CardMarkBlock',
+        './Dialog',
         '@/business/lib/guide',
         '@/business/lib/reserve-card/ReserveCardPreview',
         '@/business/lib/reserve-card/satin-material',
+        '@/business/lib/reserve-card/store-page-sample',
         '@/business/lib/settings',
         '@/business/lib/spring',
+        '@/business/lib/store-page/card-mark',
+        '@/business/lib/store-page/model',
         'react',
       ],
       'src/business/lib/reserve-card/palette.ts': ['./card-color'],
@@ -1139,6 +1214,20 @@ describe('the fixture data door', () => {
     }
   })
 
+  it("⚖ R173 — settings.ts has exactly ONE import statement, and it is `import type { … } from './store-page/model'`", () => {
+    // S57 P3 (ATK-10) — the RAW file, no comment stripping (a comment-prefixed import cannot hide), and the
+    // pattern is built from parts so no quoted specifier sits in this file (business-isolation reads one as an import).
+    const raw = readFileSync(join(process.cwd(), 'src/business/lib/settings.ts'), 'utf8')
+    const spec = ['.', 'store-page', 'model'].join('/').replace(/[./-]/g, (c) => '\\' + c)
+    expect(raw.match(/\bfrom\s*['"]/g) ?? []).toHaveLength(1)
+    expect(raw.match(/(^|[;}\s])(import|export)\s*(type\s*)?[{*]/gm)?.length ?? 0).toBe(1)
+    const q = '\\x27' // a quote, spelled so no `fr`+`om <quote>` text sits in this file (P3 B1)
+    expect(raw).toMatch(new RegExp('^' + ['import type \\{[^}]*\\}', 'fr' + 'om', q + spec + q].join(' ') + '$', 'm'))
+    expect(raw).not.toMatch(/\brequire\s*\(|\bimport\s*\(/)
+    // R198 — and no bare side-effect import (`import` then a quote, no `from`, no brace); quotes as \x escapes.
+    expect(raw).not.toMatch(/\bimport\s*[\x27\x22]/)
+  })
+
   // ⚖ Liam 9/19 — the practice-salon door's two structural pins (DESIGN-PRACTICE-DOOR.md
   // §9). Territory is walked WITHOUT src/__tests__/: practice-door.test.ts imports the
   // door on purpose. Specifiers are read with FORMS above, comment lines stripped.
@@ -1259,7 +1348,10 @@ describe('the fixture data door', () => {
         if (spec === '@/lib/synqed/client') factoryImporters.push(file)
       }
     }
-    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`])
+    // ⚖ PKT-S29-B1 — door-writes.ts imports door.ts too (canManageSettings), so it joins doorImporters;
+    // it is its OWN sibling-writer file (data.ts's one importer, business-isolation.test.ts's own pin) —
+    // siblingImporters here only tracks door-booking-colors.ts by name, unaffected.
+    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`, `${PRACTICE_DOOR}/door-store-capabilities.ts`, `${PRACTICE_DOOR}/door-writes.ts`])
     expect(siblingImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
@@ -1272,10 +1364,19 @@ describe('the fixture data door', () => {
   const WRITERS = [
     { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
     { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
+    // S49 P2 (DECISIONS-S49 R86) — お店ページ's switches: ONE key per store (`reserve_store_capabilities:<storeId>`).
+    { file: 'door-store-capabilities.ts', line: 'orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })', count: 1 },
+    // ⚖ PKT-S29-B1 — the store-days writer's lines. ⚖ PKT-S30 F13 (tightening) — `.set(` appears ONCE:
+    // since F7 the add/remove wrappers reach core only through setSpecialOpenDays' one admitted set.
+    { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 1 },
+    { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: reason === '' ? null : reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })", count: 1 },
+    { file: 'door-writes.ts', line: 'await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)', count: 1 },
+    // ⚖ PKT-S30 F6 — the closure-removal audit event, the door's fourth SDK write (`audit.log`).
+    { file: 'door-writes.ts', line: 'await auditHandle.audit.log({', count: 1 },
   ]
   const DOOR_FORBIDDEN = [
     'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
-    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(', '.log(',
     '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
   ]
   function doorHits(sources: Array<[string, string]>): string[] {
@@ -1300,7 +1401,7 @@ describe('the fixture data door', () => {
       .filter((n) => n.endsWith('.ts'))
       .map((n) => [n, readFileSync(join(ROOT, PRACTICE_DOOR, n), 'utf8')])
 
-  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the TWO writer lines', () => {
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the named writer lines', () => {
     const sources = doorSources()
     expect(sources.map(([n]) => n)).toContain('door.ts')
     for (const WRITER of WRITERS) expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
@@ -1323,16 +1424,38 @@ describe('the fixture data door', () => {
     expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
     expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
     expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    // S49 P2 — the switches writer's line: once, in its own file only, never the booking line or a nested store map.
+    const line3 = `  const saved = await writer.orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })\n`
+    expect(doorHits([['door-store-capabilities.ts', line3]])).toEqual([])
+    expect(doorHits([['door-store-capabilities.ts', line3 + line3]])).toEqual(['door-store-capabilities.ts: the writer line ×2 > 1'])
+    expect(doorHits([['door-store-capabilities.ts', line3.replace('[storeCapabilitiesKeyFor(storeId)]: next', 'reserve_store_capabilities: { [storeId]: next }')]])).toEqual(['door-store-capabilities.ts: .upsert('])
+    expect(doorHits([['door-store-capabilities.ts', line2]])).toEqual(['door-store-capabilities.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line3]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door.ts', line3]])).toEqual(['door.ts: .upsert('])
+    // ⚖ PKT-S31 R11 — door-writes.ts's four writer lines carry the same ceiling: a duplicated line goes red.
+    const storeDaysWriters = WRITERS.filter((w) => w.file === 'door-writes.ts')
+    expect(storeDaysWriters).toHaveLength(4)
+    for (const w of storeDaysWriters) {
+      expect(doorHits([['door-writes.ts', `${w.line}\n`]])).toEqual([])
+      expect(doorHits([['door-writes.ts', `${w.line}\n${w.line}\n`]])).toEqual(['door-writes.ts: the writer line ×2 > 1'])
+    }
     expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])
   })
 
-  // ⚖ PKT-S38 R8 — still ONE bind, now with two callers: door.ts writeReserveCardColor and writeBookingColors,
-  // both through orgSettingsWriterFor.
-  it('R-A2-7: the one bound mutator is core-reach.ts’s `upsert.bind(` — once, and nowhere else in practice-door/', () => {
+  // ⚖ PKT-S38 R8 — still ONE bind for orgSettings, now with two callers: door.ts writeReserveCardColor
+  // and writeBookingColors, both through orgSettingsWriterFor. ⚖ PKT-S29-B1 — storeDaysWriterFor adds
+  // three more, all in core-reach.ts, all write-only handles for door-writes.ts's own four exports.
+  it('R-A2-7/PKT-S29-B1: every bound mutator is core-reach.ts’s own write-only handle — once each, nowhere else in practice-door/', () => {
     const binds = doorSources().flatMap(([name, src]) =>
-      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
+      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|log|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
     )
-    expect(binds).toEqual(['core-reach.ts: upsert.bind('])
+    expect(binds.sort()).toEqual([
+      'core-reach.ts: addClosedDay.bind(',
+      'core-reach.ts: log.bind(',
+      'core-reach.ts: removeClosedDay.bind(',
+      'core-reach.ts: set.bind(',
+      'core-reach.ts: upsert.bind(',
+    ])
   })
 })
 

@@ -86,6 +86,8 @@
 /** The tokens THIS ROOM gates a section on. Every one is a real Karute
  *  capability (`permissions.ts:14-46`); the room simply does not gate on all
  *  eighteen, because only these six answer 「may this reader open this section」. */
+import type { BusinessTypeKey, CapKey, CapRecord, Counts, Family, NeedKey, Source, SwitchState } from './store-page/model'
+
 export type Capability =
   | 'staff.manage'
   | 'staff.invite'
@@ -184,7 +186,7 @@ export const RAIL: readonly RailEntry[] = [
   { id: 'reserve-acceptance', group: 'Reserve設定', label: 'Reserve 受付', scope: 'store', needs: 'settings.manage' },
   // ⚖ A1b (R2/R3) — the Reserve card's colour: one value per business, the same
   // capability as its two neighbours, and it renders under every lens.
-  { id: 'reserve-card-look', group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' },
+  { id: 'reserve-store-page', group: 'Reserve設定', label: 'お店ページ', scope: 'business', needs: 'settings.manage' },
   { id: 'notifications', group: 'Reserve設定', label: '通知', scope: 'store', needs: 'settings.manage' },
   // canon gates スタッフ管理 on staff.manage OR staff.invite; the room takes the
   // stricter of the two it can express, which is the one the matrix edits with.
@@ -208,11 +210,28 @@ export const RAIL: readonly RailEntry[] = [
  *  beside the entry it belongs to. */
 export const BOOKING_GUARD_ID = 'booking-guard'
 
-/** ⚖ A1b — カードの見た目 also renders itself (`ReserveCardLookSection`), and
- *  its one value rides the room's own values map under this id, so 変更 n件,
+/** ⚖ A1b — お店ページ (S48 E1: was カードの見た目) renders itself (`ReserveCardLookSection`, its
+ *  first block), and the card colour rides the room's own values map under this id, so 変更 n件,
  *  the dot and 保存する count and commit it like any other control. */
-export const CARD_LOOK_ID = 'reserve-card-look'
+export const STORE_PAGE_ID = 'reserve-store-page'
 export const CARD_COLOR_ID = 'reserve-card-look.color'
+/** S50 P3 — お店ページ's value-map ids (PACKETS-S50-WAVE3 「THE SHARED SHAPE」): the 業種 (one of the 26 type keys; the id
+ *  keeps its S50 spelling) and one boolean per CAP key, `reserve-store-page.sw.<snake_key>`. */
+export const STORE_PAGE_FAMILY_ID = 'reserve-store-page.family'
+export const storePageSwitchId = (key: string): string => `reserve-store-page.sw.${key}`
+/** S75 fix 1 — the draft's defaults_type (業種の標準に戻す sets it), so 元に戻す, dirty and the send see it. */
+export const STORE_PAGE_DEFAULTS_ID = 'reserve-store-page.defaults'
+
+// ⚖ S50 P3 / R173 — お店ページ's types are P1's own (store-page/model.ts), named here for the room. The ONE import
+// of this file is TYPE-ONLY (erased at compile time: no runtime dependency, foundation.test.ts pins it).
+export type StorePageKey = CapKey
+export type StorePageTypeKey = BusinessTypeKey
+export type StorePageFamily = Family
+export type StorePageNeed = NeedKey
+export type StorePageCounts = Counts
+export type StorePageSource = Source
+export type StorePageSwitch = SwitchState
+export type StorePageRecord = CapRecord
 
 export type SectionGate = 'open' | 'no-rights'
 
@@ -510,6 +529,9 @@ export interface SettingsBlock {
   /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
    *  designed card where the bare 「サンプル設定なし」 used to print. */
   sampleNone?: true
+  /** ⚖ S35 B2 act 1 — the sample block's own save truth (S1), set ONLY beside `sample`
+   *  by settings-props for the 店舗情報・営業時間 blocks, so it prints exactly where the chip does. */
+  markLine?: string
   /** ⚖ S17 STEP 1 — the ONE block whose rows are a WEEK rather than a list.
    *
    *  営業時間 is seven rows that all answer the same three questions (営業する ·
@@ -607,19 +629,32 @@ export interface SettingsBlock {
    *
    *  The first cut rendered this as two SEGMENTED ROWS offering 臨時休業 /
    *  特別営業 / 通常営業 per pre-existing date — which cannot express the wire at
-   *  all: there is no way to add a date, no way to remove one, and 特別営業 is a
-   *  value core has no field for (⚖ label truth: a control that names a value
-   *  the store cannot save is a lie with a picture on it). It is an add/remove
-   *  list, so it is rendered as one.
+   *  all: there is no way to add a date, no way to remove one. It is an
+   *  add/remove list, so it is rendered as one. (⚖ PKT-S29-B1, 9/29 — 特別営業日
+   *  is NOT gone: core has carried `special_open_days` since CORE-10, 9/14; it
+   *  returns under its own dial, `SettingsSpecialDays` below, on Liam's 9/28
+   *  20:0x ruling superseding the 9/6 removal this comment used to describe.)
    *
    *  `null` on every other block. */
   collection: SettingsCollection | null
+  /** ⚖ PKT-S29-B1 — 特別営業日, the collection's sibling: it returns to Business
+   *  設定 under its own dial (⚖ Liam 9/28 20:0x, superseding the 9/6 removal —
+   *  core has carried `special_open_days` since CORE-10, 9/14). Read-only where
+   *  `null` (never rendered), populated where the actor may at least SEE the
+   *  list — the write controls' own enablement is `canWrite` on the block
+   *  itself (R2), not a second null here. `null` on every other block. */
+  specialDays: SettingsSpecialDays | null
 }
 
 /** The list half of a block that adds and removes rows. */
 export interface SettingsCollection {
-  /** The store's rows, newest-first as the wire returns them. */
-  items: Array<{ id: string; title: string; note: string }>
+  /** The store's rows, newest-first as the wire returns them. `date` is
+   *  OPTIONAL and LIVE-only (⚖ PKT-S29-B1): the OFF/fixture path's `id` IS a
+   *  formatted date string by construction, but a LIVE row's `id` is core's
+   *  own uuid (`StoreClosedDay.id`) — `date` carries the raw YYYY-MM-DD
+   *  separately so a client reader (the 特別営業日 badge, R3: "computed from
+   *  the CLOSURES list") never has to parse one back out of a formatted title. */
+  items: Array<{ id: string; title: string; note: string; date?: string }>
   /** What the 追加 row's two controls are called, so the screen reads the value
    *  map rather than guessing an id shape. */
   dateControlId: string
@@ -635,6 +670,27 @@ export interface SettingsCollection {
   duplicateError: string
   /** The one field that must not be empty. */
   emptyDateError: string
+}
+
+/** ⚖ PKT-S29-B1 R8 — 特別営業日's own list shape: date + open + close, no
+ *  `reason` (core's `SpecialOpenDay` carries none). Unlike `SettingsCollection`
+ *  this list is LIVE from the moment it exists (R8: "leave the section's
+ *  draft/dirty model — the save bar never counts them"), so it carries no
+ *  `duplicateError`/`emptyDateError` fields — the door (door-writes.ts)
+ *  validates server-side and returns the ready JP refusal on every call; there
+ *  is no local pre-check to word here. Whether THIS actor may add/remove (R2)
+ *  is read off the BLOCK's own `rightsNote` (set = read-only, the existing
+ *  「録音設定の org block」 pattern) — one truth, shared with the 臨時休業
+ *  collection sitting right beside it, rather than a second flag here. */
+export interface SettingsSpecialDays {
+  /** The store's rows, ascending by date (the door's own sort — R5). */
+  items: Array<{ date: string; title: string; open: string; close: string; badge: string | null }>
+  dateControlId: string
+  openControlId: string
+  closeControlId: string
+  addLabel: string
+  removeLabel: string
+  emptyLine: string
 }
 
 export interface SettingsSection {
@@ -664,13 +720,38 @@ export interface SettingsSection {
   /** ⚖ A1b — カードの見た目 only: what its own component renders. `value` is the
    *  business's stored colour (#RRGGBB) or null; `palette` is the curated 12. */
   cardLook?: {
-    businessName: string
+    /** ⚖ R52 — the SELECTED store's name: the card's title AND Reserve's store line (branch null, as
+     *  Reserve prints a store-level tenant). The business name is never on the card. */
     storeLine: string
     address?: string
     scopeLabel: string
     value: string | null
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
+    /** ⚖ S64 R242 — true = a practice room (sample data, or the Dev Salon with the door ON): the logo can be picked
+     *  for the picture. false = a real business: the block's L7 line (MARK_REAL_LINE), until CORE-55. */
+    practice: boolean
   }
+  /** S50 P3 — お店ページ's per-store part, under a STORE lens only (PACKETS-S50-WAVE3 「THE SHARED SHAPE」, verbatim).
+   *  `saved` = the parsed saved record, or the seed of the SAVE PATH's own seed type when none / unreadable (R90; R188:
+   *  the door's readStoreSeedType when connected, else seedTypeOf of the store's own type); `startFamily` = P1's familyOf
+   *  of that seed type (R143, internal grouping); `basedOn` = the
+   *  hash of the saved record (or of null) the page loaded (R96); `counts` = the practice fixture (R91), P1's
+   *  Counts by NeedKey (R111 corrects the shape's CapKey line), a key missing = unknown (R92/R101); `disconnected` = real mode (R86's off-switch false and the door OFF). */
+  storePage?: {
+    storeId: string
+    saved: StorePageRecord
+    hasSaved: boolean
+    basedOn: string
+    counts: StorePageCounts
+    /** R189 — the sample store (store-page-sample.ts STORES key, practice-counts.ts SampleKey) `counts` were computed for. */
+    sampleKey: 'laestro' | 'force'
+    startFamily: StorePageFamily
+    disconnected: boolean
+  }
+  /** S50 P3 — under the all-stores lens: the room's noStore sentence, standing where the per-store 業種 / 機能 go. */
+  storePageNoStore?: string
+  /** S50 P3 — the tour's guide pair (data-guide-title / data-guide) for the 業種 and 機能 blocks (mock :800-801, :816-817). */
+  storePageGuides?: ReadonlyArray<{ title: string; guide: string }>
   blocks: SettingsBlock[]
   /** ⚖ PR-3 — the section-level forms of `SettingsBlock.sample` / `.sampleNone`:
    *  a block-less section whose dials are SAMPLE (予約と確保), and a
@@ -738,15 +819,6 @@ export interface SettingsProps {
    *  this render resolved nobody, and the screen then stores NOTHING — see
    *  `prefsKey`. */
   operatorId: string | null
-  /** ⚖ S17 STEP 1 — THE SAVE STAMP'S CLOCK, FORMATTED ON THE SERVER.
-   *
-   *  「保存しました」 without a time is a sentence a reader cannot check twice: it
-   *  looks identical after the second save. The stamp needs an HH:MM, and this
-   *  room's own family law is that the screen holds no clock and no formatter —
-   *  so the PAGE'S pinned render clock is formatted here and the screen prints
-   *  it. It also makes the shot deterministic, which a `new Date()` in the
-   *  browser never is. */
-  saveStampTime: string
 }
 
 // ── the value helpers the screen renders through ────────────────────────────
@@ -839,7 +911,9 @@ export function sameValue(a: RowValue | undefined, b: RowValue | undefined): boo
 /** Every control id a section holds, in render order. */
 export function controlIdsOf(section: SettingsSection): string[] {
   const ids = section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
-  return section.cardLook ? [...ids, CARD_COLOR_ID] : ids
+  // S50 P3 — お店ページ under a store lens: + the 業種 and the 16 switches (17 ids, the record's own key order).
+  const store = section.storePage ? [STORE_PAGE_FAMILY_ID, STORE_PAGE_DEFAULTS_ID, ...Object.keys(section.storePage.saved.switches).map(storePageSwitchId)] : []
+  return section.cardLook ? [...ids, CARD_COLOR_ID, ...store] : [...ids, ...store]
 }
 
 // ── ⚖ S17 STEP 1 — FIND BY TYPING, AND THE INDEX IS THE PAGE'S OWN DATA ─────
@@ -939,18 +1013,24 @@ export function controlIdsOfBlock(block: SettingsBlock): string[] {
  *  of both. Both maps are EDITS: an entry exists only where this browser has
  *  changed something, and a block with no entry falls back to the payload's own
  *  items, on both the live side and the saved side. */
-export type CollectionRows = Record<string, ReadonlyArray<{ id: string; title: string; note: string }>>
+export type CollectionRows = Record<string, ReadonlyArray<{ id: string; title: string; note: string; open?: string; close?: string }>>
 
 /** The rows a block holds right now: this browser's edit, else the payload's. */
-export function rowsOfBlock(block: SettingsBlock, rows: CollectionRows): ReadonlyArray<{ id: string; title: string; note: string }> {
-  return rows[block.id] ?? block.collection?.items ?? []
+export function rowsOfBlock(block: SettingsBlock, rows: CollectionRows): CollectionRows[string] {
+  const own = rows[block.id]
+  if (own) return own
+  if (block.collection) return block.collection.items
+  // ⚖ PKT-S30 F10 (R-A) — 特別営業日 is the same kind of list in the OFF world: its rows (date = id)
+  // live in the same map, so a draft add/remove is an unsaved change exactly like 臨時休業's.
+  if (block.specialDays) return block.specialDays.items.map((d) => ({ id: d.date, title: d.title, note: `${d.open}〜${d.close}`, open: d.open, close: d.close }))
+  return []
 }
 
 /** How many ROWS of this block differ from what was saved — an added day and a
  *  removed day are one change each, which is what a reader counts. The DATE is
  *  the row's identity (the wire's own rule), so the comparison is on ids. */
 export function rowChanges(block: SettingsBlock, rows: CollectionRows, saved: CollectionRows): number {
-  if (block.collection === null) return 0
+  if (block.collection === null && block.specialDays === null) return 0
   const now = new Set(rowsOfBlock(block, rows).map((r) => r.id))
   const was = new Set(rowsOfBlock(block, saved).map((r) => r.id))
   let n = 0
@@ -1051,16 +1131,18 @@ export function changedCount(
 }
 
 /** A section is dirty when any of its controls — or any row of one of its
- *  collections — differs from what was saved. */
+ *  collections — differs from what was saved. S60 P7A-R3 (R214): `ids` narrows the controls asked about
+ *  (the room passes the ids a 保存する commits); omitted, every control of the section, as before. */
 export function sectionDirty(
   section: SettingsSection,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
   rows: CollectionRows = {},
   savedRows: CollectionRows = {},
+  ids: readonly string[] = controlIdsOf(section),
 ): boolean {
   if (section.blocks.some((b) => rowChanges(b, rows, savedRows) > 0)) return true
-  return controlIdsOf(section).some((id) => !sameValue(values[id], saved[id]))
+  return ids.some((id) => !sameValue(values[id], saved[id]))
 }
 
 /** ⚖ MISTAKE-PROOFING AT THE MOMENT OF THE MISTAKE. A required field left empty

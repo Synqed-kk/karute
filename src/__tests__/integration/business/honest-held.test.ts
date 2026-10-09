@@ -13,12 +13,15 @@
 // than about the netting.
 
 import {
+  heldIdOf,
   heldMaskOf,
   honestHeld,
+  HONEST_FIXED_POINT_ROUNDS,
   HONEST_SEARCH_BUDGET,
   type HonestHeld,
 } from '@/app/[locale]/(business)/business/today/honest-held'
 import { storeHasBeds } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import type { BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import type { ReservedLaneMask, ReservedSpan } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import type { BoardLane } from '@/business/lib/today-board'
@@ -571,4 +574,595 @@ describe('honest-held — ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — a row whose sto
     const withZ = honestHeld(mask, lanesAll, fixtureBook(), true, needsRoom(lanesAll))
     expect(withCounting).toEqual(withZ)
   })
+})
+
+// ── ⚖ DECISIONS.md R4 (S4 PR-B) — the held preference ─────────────────────
+// SIZE → SELLABLE → KEPT from the reference (`heldIdOf`, laneKey|windowStart)
+// → the earlier held set. A board here has 2–4 staff rows, each with one or
+// more 枠 at distinct starts, 1–3 rooms keyed on (lane, start), and a random
+// online flag per row.
+type PWin = Win & { sell: boolean }
+function prefBoard(seed: number, len = 90) {
+  const r = rng(seed * 7919 + 13)
+  const rooms = ['bed-01', 'bed-02', 'bed-03'].slice(0, 1 + Math.floor(r() * 3))
+  const laneKeys = ['l-0', 'l-1', 'l-2', 'l-3'].slice(0, 2 + Math.floor(r() * 3))
+  const sellKeys = new Set(laneKeys.filter(() => r() < 0.5))
+  const n = 1 + Math.floor(r() * 8)
+  const wins: PWin[] = []
+  for (let i = 0; i < n; i += 1) {
+    const laneKey = laneKeys[Math.floor(r() * laneKeys.length)]
+    const start = 600 + Math.floor(r() * 12) * 15
+    const mine = rooms.filter(() => r() < 0.6)
+    if (wins.some((w) => w.laneKey === laneKey && w.start === start)) continue
+    wins.push({ laneKey, start, end: start + len, rooms: mine.length ? mine : [rooms[0]], sell: sellKeys.has(laneKey) })
+  }
+  const candidates = laneKeys
+    .map((k) => maskOf(k, wins.filter((w) => w.laneKey === k).sort((a, b) => a.start - b.start).map((w) => span(w.start, len))))
+    .filter((m) => m.spans.length > 0)
+  const lanes = laneKeys.map((k) => lane(k, [k]))
+  const book = stubBook((start, _end, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+  return { r, wins, candidates, lanes, book, sellKeys }
+}
+const byOrder = (a: Win, b: Win) => (a.start === b.start ? (a.laneKey < b.laneKey ? -1 : a.laneKey > b.laneKey ? 1 : 0) : a.start - b.start)
+
+/** Every legal subset, the lexicographic best under the SAME comparator. */
+function bruteBest(wins: PWin[], sellable: boolean, ref: ReadonlySet<string> | undefined): string[] {
+  const order = [...wins].sort(byOrder)
+  let best: { t: number[]; v: boolean[] } | null = null
+  for (let mask = 0; mask < 1 << order.length; mask += 1) {
+    const v = order.map((_, i) => (mask & (1 << i)) !== 0)
+    const set = order.filter((_, i) => v[i])
+    if (!feasible(set)) continue
+    const t = [set.length, sellable ? set.filter((w) => w.sell).length : 0, ref ? set.filter((w) => ref.has(heldIdOf(w.laneKey, w.start))).length : 0]
+    let better = best === null
+    if (best !== null) {
+      const d = t[0] - best.t[0] || t[1] - best.t[1] || t[2] - best.t[2]
+      if (d > 0) better = true
+      else if (d === 0) {
+        const k = v.findIndex((x, i) => x !== best!.v[i])
+        better = k >= 0 && v[k]
+      }
+    }
+    if (better) best = { t, v }
+  }
+  return order.filter((_, i) => best!.v[i]).map((w) => heldIdOf(w.laneKey, w.start)).sort()
+}
+const idsOf = (h: HonestHeld) => new Set(h.byLane.flatMap((l) => l.held.map((s) => heldIdOf(l.laneKey, s.windowStart))))
+const sortedIds = (h: HonestHeld) => [...idsOf(h)].sort()
+/** A random subset of the board, trimmed from the end until the rooms can honour it. */
+function legalSubset(r: () => number, wins: PWin[]): PWin[] {
+  const pick = [...wins].sort(byOrder).filter(() => r() < 0.5)
+  while (!feasible(pick)) pick.pop()
+  return pick
+}
+const refOf = (ws: Win[]) => new Set(ws.map((w) => heldIdOf(w.laneKey, w.start)))
+/** Hand-built DayWindows (pure composition, no board lanes needed). */
+const daysOf = (h: HonestHeld, sell: ReadonlySet<string>) => ({
+  total: h.total,
+  exact: h.exact,
+  byLane: h.byLane.map((l) => ({ laneKey: l.laneKey, label: l.laneKey, starts: l.held.map((s) => s.windowStart), listPrice: 5000, sellable: sell.has(l.laneKey) })),
+})
+
+describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () => {
+  it('heldIdOf is exactly laneKey|windowStart', () => {
+    expect(heldIdOf('p-05', 870)).toBe('p-05|870')
+  })
+
+  it('the pruned search equals a brute force over every legal subset — 4 modes × 2,000 small boards', () => {
+    const modes = ['none', 'sellable', 'reference', 'both'] as const
+    const fails: string[] = []
+    let prev: ReadonlySet<string> = new Set()
+    const counted = { boards: 0, withRef: 0 }
+    for (let seed = 0; seed < 2000; seed += 1) {
+      const { r, wins, candidates, lanes, book, sellKeys } = prefBoard(seed)
+      const ref = seed % 2 === 0 ? refOf(legalSubset(r, wins)) : prev
+      const sellable = (l: BoardLane) => sellKeys.has(l.key)
+      for (const mode of modes) {
+        const prefer = mode === 'none' ? undefined
+          : mode === 'sellable' ? { sellable }
+            : mode === 'reference' ? { reference: ref }
+              : { sellable, reference: ref }
+        const h = honestHeld(candidates, lanes, book, true, undefined, prefer)
+        const want = bruteBest(wins, mode === 'sellable' || mode === 'both', mode === 'reference' || mode === 'both' ? ref : undefined)
+        const got = sortedIds(h)
+        if (!h.exact || JSON.stringify(got) !== JSON.stringify(want)) fails.push(`seed ${seed} ${mode}: got ${JSON.stringify(got)} exact=${h.exact} want ${JSON.stringify(want)}`)
+        if (mode === 'both') prev = idsOf(h)
+      }
+      counted.boards += 1
+      if (ref.size > 0) counted.withRef += 1
+    }
+    expect(fails.slice(0, 3)).toEqual([])
+    expect(counted.boards).toBe(2000)
+    expect(counted.withRef).toBeGreaterThan(1000)
+  })
+
+  it('absent preference — or one naming neither tier — is today’s answer, byte for byte', () => {
+    for (let seed = 0; seed < 500; seed += 1) {
+      const { candidates, lanes, book } = prefBoard(seed)
+      const today = honestHeld(candidates, lanes, book, true)
+      expect(honestHeld(candidates, lanes, book, true, undefined, undefined)).toEqual(today)
+      expect(honestHeld(candidates, lanes, book, true, undefined, {})).toEqual(today)
+      expect(honestHeld(candidates, lanes, book, true, undefined, { budget: HONEST_SEARCH_BUDGET })).toEqual(today)
+    }
+  })
+
+  it('the seed: a legal reference under budget 1 STANDS — result == reference, exact:false, no phantom loss', () => {
+    // ⚖ TASK 4 (seed accounting): re-seating nodes are charged to the one
+    // budget, so under budget 1 the reference stands WHOLE exactly when every
+    // window takes a room first-fit in the search's order (no re-seat needed);
+    // otherwise the seed stops where the budget did — a subset of it, never more.
+    let tried = 0
+    let tripped = 0
+    let whole = 0
+    for (let seed = 0; seed < 2000; seed += 1) {
+      const { r, wins, candidates, lanes, book, sellKeys } = prefBoard(seed)
+      const refWins = legalSubset(r, wins)
+      const ref = refOf(refWins)
+      if (ref.size === 0) continue
+      tried += 1
+      const firstFit = (() => {
+        const end = new Map<string, number>()
+        for (const w of [...refWins].sort(byOrder)) {
+          const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+          if (room === undefined) return false
+          end.set(room, w.end)
+        }
+        return true
+      })()
+      const prefer = { sellable: (l: BoardLane) => sellKeys.has(l.key), reference: ref }
+      const h = honestHeld(candidates, lanes, book, true, undefined, { ...prefer, budget: 1 })
+      const got = sortedIds(h)
+      expect({ seed, subset: got.every((id) => ref.has(id)) }).toEqual({ seed, subset: true })
+      if (firstFit) {
+        whole += 1
+        expect({ seed, ids: got }).toEqual({ seed, ids: [...ref].sort() })
+      }
+      // exact:true under budget 1 only when the root bound already PROVES the
+      // seed optimal (every component pruned at its first node) — never a lie.
+      if (h.exact) expect({ seed, h }).toEqual({ seed, h: honestHeld(candidates, lanes, book, true, undefined, prefer) })
+      else tripped += 1
+    }
+    expect(tried).toBeGreaterThan(1000)
+    expect(whole).toBeGreaterThan(tried / 2)
+    expect(tripped).toBeGreaterThan(tried / 2)
+  })
+
+  it('the seed: a reference partly booked over keeps the legal rest, and the search never ends below it', () => {
+    let tried = 0
+    for (let seed = 0; seed < 2000; seed += 1) {
+      const { r, wins, candidates, lanes } = prefBoard(seed)
+      const kept = legalSubset(r, wins)
+      if (kept.length < 2) continue
+      tried += 1
+      const gone = kept[Math.floor(r() * kept.length)]
+      // the booking lands on EVERY room that 枠 could use
+      const book = stubBook((start, _end, stores) =>
+        start === gone.start && stores?.[0] === gone.laneKey ? [] : wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+      const ref = refOf(kept)
+      const rest = [...ref].filter((id) => id !== heldIdOf(gone.laneKey, gone.start)).sort()
+      const seeded = honestHeld(candidates, lanes, book, true, undefined, { reference: ref, budget: 1 })
+      // ⚖ TASK 4 (seed accounting): under budget 1 the rest stands WHOLE when it
+      // seats first-fit (no re-seat charged to the budget); otherwise a subset.
+      const end = new Map<string, number>()
+      const firstFit = kept.filter((w) => w !== gone).sort(byOrder).every((w) => {
+        const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+        if (room !== undefined) end.set(room, w.end)
+        return room !== undefined
+      })
+      if (firstFit) expect({ seed, ids: sortedIds(seeded) }).toEqual({ seed, ids: rest })
+      else expect({ seed, subset: sortedIds(seeded).every((id) => rest.includes(id)) }).toEqual({ seed, subset: true })
+      const full = honestHeld(candidates, lanes, book, true, undefined, { reference: ref })
+      expect(full.exact).toBe(true)
+      expect(full.total).toBeGreaterThanOrEqual(rest.length)
+    }
+    expect(tried).toBeGreaterThan(500)
+  })
+
+  it('FIXED POINT — re-feeding the answer as the reference returns the same answer (2,000 boards, both tiers and reference only)', () => {
+    let prev: ReadonlySet<string> = new Set()
+    for (let seed = 0; seed < 2000; seed += 1) {
+      const { r, wins, candidates, lanes, book, sellKeys } = prefBoard(seed)
+      const ref0 = seed % 2 === 0 ? refOf(legalSubset(r, wins)) : prev
+      const sellable = (l: BoardLane) => sellKeys.has(l.key)
+      for (const withSell of [true, false]) {
+        const s1 = honestHeld(candidates, lanes, book, true, undefined, withSell ? { sellable, reference: ref0 } : { reference: ref0 })
+        const s2 = honestHeld(candidates, lanes, book, true, undefined, withSell ? { sellable, reference: idsOf(s1) } : { reference: idsOf(s1) })
+        expect({ seed, withSell, exact: s1.exact }).toEqual({ seed, withSell, exact: true })
+        expect({ seed, withSell, s2 }).toEqual({ seed, withSell, s2: s1 })
+        if (withSell) prev = idsOf(s1)
+      }
+    }
+  })
+
+  it('KEPT beats EARLIER START — the しろう shape: the reference keeps あずさ 15:05, the store still holds 3', () => {
+    const today = honestHeld(fixtureCandidates(), fixtureLanes(), fixtureBook(), true)
+    const ref = new Set(['c-03|1050', 'p-04|945', 'p-06|905'])
+    const kept = honestHeld(fixtureCandidates(), fixtureLanes(), fixtureBook(), true, undefined, { reference: ref })
+    expect({ today: sortedIds(today), kept: sortedIds(kept), total: kept.total, exact: kept.exact }).toEqual({
+      today: ['c-03|1050', 'p-04|945', 'p-05|870'],
+      kept: ['c-03|1050', 'p-04|945', 'p-06|905'],
+      total: 3,
+      exact: true,
+    })
+    expect(kept.byLane.find((l) => l.laneKey === 'p-05')!.shared.map((s) => `${s.sharedRoom} with ${s.withLaneKey}`)).toEqual(['bed-02 with p-06'])
+  })
+
+  it('SELLABLE beats KEPT — keeping the reference would cost an online 枠, so the allocator moves and the delta names it', () => {
+    // one room; b (not sold online, the reference, earlier) against a (online)
+    const wins: PWin[] = [
+      { laneKey: 'a', start: 615, end: 705, rooms: ['bed-01'], sell: true },
+      { laneKey: 'b', start: 600, end: 690, rooms: ['bed-01'], sell: false },
+    ]
+    const cands = [maskOf('a', [span(615, 90)]), maskOf('b', [span(600, 90)])]
+    const lanes = [lane('a', ['a']), lane('b', ['b'])]
+    const book = stubBook((start, _e, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+    const sell = new Set(['a'])
+    const ref = new Set([heldIdOf('b', 600)])
+    const before = honestHeld(cands, lanes, book, true, undefined, { reference: ref })
+    const after = honestHeld(cands, lanes, book, true, undefined, { sellable: (l) => sell.has(l.key), reference: ref })
+    expect({ before: sortedIds(before), after: sortedIds(after) }).toEqual({ before: ['b|600'], after: ['a|615'] })
+    const d = heldDelta(daysOf(before, sell), daysOf(after, sell), () => 0)
+    expect({ lost: d.lost.map((w) => w.laneKey), gained: d.gained.map((w) => w.laneKey), shifted: d.shifted, sellable: [d.sellableBefore, d.sellableAfter] }).toEqual({
+      lost: ['b'], gained: ['a'], shifted: [], sellable: [0, 1],
+    })
+  })
+
+  it('a SAME-LANE start move is not kept (different identity) — and heldDelta calls it shifted', () => {
+    // a's 10:00 became 10:15 (lengthen); b 10:00 wants the same one room.
+    const wins: PWin[] = [
+      { laneKey: 'a', start: 615, end: 705, rooms: ['bed-01'], sell: true },
+      { laneKey: 'b', start: 600, end: 690, rooms: ['bed-01'], sell: true },
+    ]
+    const cands = [maskOf('a', [span(615, 90)]), maskOf('b', [span(600, 90)])]
+    const lanes = [lane('a', ['a']), lane('b', ['b'])]
+    const book = stubBook((start, _e, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+    const h = honestHeld(cands, lanes, book, true, undefined, { reference: new Set([heldIdOf('a', 600)]) })
+    // a|615 earns no KEPT credit, so the earlier start decides: b holds.
+    expect(sortedIds(h)).toEqual(['b|600'])
+    const alone = honestHeld([cands[0]], [lanes[0]], book, true, undefined, { reference: new Set([heldIdOf('a', 600)]) })
+    const sell = new Set(['a', 'b'])
+    const was = { total: 1, exact: true, byLane: [{ laneKey: 'a', label: 'a', starts: [600], listPrice: 5000, sellable: true }] }
+    const d = heldDelta(was, daysOf(alone, sell), () => 0)
+    expect({ shifted: d.shifted.map((s) => [s.laneKey, s.from, s.to]), lost: d.lost, gained: d.gained }).toEqual({ shifted: [['a', 600, 615]], lost: [], gained: [] })
+  })
+
+  it('STRESS pinned-window example (STRESS-STRUCTURE-OPUS-2026-09-30 §2): SIZE still comes first — a larger set drops the referenced A', () => {
+    // A 14:00–15:30 published on R; an edit makes B 12:45–14:15 and C 15:15–16:45 feasible, both on R.
+    const wins: PWin[] = [
+      { laneKey: 'a', start: 840, end: 930, rooms: ['R'], sell: true },
+      { laneKey: 'b', start: 765, end: 855, rooms: ['R'], sell: true },
+      { laneKey: 'c', start: 915, end: 1005, rooms: ['R'], sell: true },
+    ]
+    const cands = wins.map((w) => maskOf(w.laneKey, [span(w.start, 90)]))
+    const lanes = wins.map((w) => lane(w.laneKey, [w.laneKey]))
+    const book = stubBook((start, _e, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+    const h = honestHeld(cands, lanes, book, true, undefined, { sellable: () => true, reference: new Set([heldIdOf('a', 840)]) })
+    // the ruling is size-first (R4); reference-first for PUBLISHED inventory is the persisted-record ticket, not PR-B.
+    expect({ ids: sortedIds(h), total: h.total }).toEqual({ ids: ['b|765', 'c|915'], total: 2 })
+  })
+
+  // ⚖ TASK 4 — BAR-1: the preference never protects FEWER windows than the
+  // size-only search (main's path, proven byte-identical above), on boards
+  // shaped like the four SF6 rows: staff × rooms 30×10 and 60×20, dense (1–3
+  // windows per staff) and sparse (0–1), 1–3 free rooms per window, 70% sold.
+  function sf6Board(seed: number, staff: number, roomsN: number, perLane: [number, number]) {
+    const r = rng(seed * 2654435761 + 7)
+    const roomKeys = Array.from({ length: roomsN }, (_, i) => `bed-${String(i).padStart(2, '0')}`)
+    const wins: PWin[] = []
+    const sell = new Set<string>()
+    for (let st = 0; st < staff; st += 1) {
+      const k = `p-${String(st).padStart(3, '0')}`
+      if (r() < 0.7) sell.add(k)
+      const n = perLane[0] + Math.floor(r() * (perLane[1] - perLane[0] + 1))
+      for (let i = 0; i < n; i += 1) {
+        const start = 600 + Math.floor(r() * 31) * 15
+        if (wins.some((w) => w.laneKey === k && w.start === start)) continue
+        const own = new Set<string>()
+        const nr = Math.min(roomsN, 1 + Math.floor(r() * 3))
+        while (own.size < nr) own.add(roomKeys[Math.floor(r() * roomsN)])
+        wins.push({ laneKey: k, start, end: start + 90, rooms: [...own], sell: sell.has(k) })
+      }
+    }
+    const keys = [...new Set(wins.map((w) => w.laneKey))].sort()
+    const candidates = keys.map((k) => maskOf(k, wins.filter((w) => w.laneKey === k).sort((a, b) => a.start - b.start).map((w) => span(w.start, 90))))
+    const lanes = keys.map((k) => lane(k, [k]))
+    const idx = new Map(wins.map((w) => [heldIdOf(w.laneKey, w.start), w.rooms]))
+    const book = stubBook((start, _e, stores) => idx.get(heldIdOf(stores?.[0] ?? '', start)) ?? [])
+    return { r, wins, candidates, lanes, book, sell }
+  }
+
+  it('BAR-1 total ≥ main — sellable+reference never holds fewer than the size-only search (4 SF6 rows × 100 boards)', () => {
+    const below: string[] = []
+    let floored = 0
+    for (const [staff, roomsN] of [[30, 10], [60, 20]] as const) {
+      for (const perLane of [[1, 3], [0, 1]] as Array<[number, number]>) {
+        for (let seed = 0; seed < 100; seed += 1) {
+          const { r, wins, candidates, lanes, book, sell } = sf6Board(seed + staff * 1000 + perLane[1] * 100000, staff, roomsN, perLane)
+          if (wins.length === 0) continue
+          const sellable = (l: BoardLane) => sell.has(l.key)
+          const main = honestHeld(candidates, lanes, book, true)
+          const c = honestHeld(candidates, lanes, book, true, undefined, { sellable })
+          // a random LEGAL reference, cheaply: first-fit in the search's order (an exact feasibility check is exponential at this size)
+          const end = new Map<string, number>()
+          const pick = [...wins].sort(byOrder).filter((w) => {
+            if (r() >= 0.5) return false
+            const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+            if (room === undefined) return false
+            end.set(room, w.end)
+            return true
+          })
+          const refs = [idsOf(c), refOf(pick)]
+          for (const reference of refs) {
+            const d = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+            if (d.total < main.total) below.push(`${staff}x${roomsN} ${perLane} seed ${seed}: ${d.total} < ${main.total}`)
+            if (!d.exact && d.total === main.total) floored += 1
+          }
+          if (c.total < main.total) below.push(`${staff}x${roomsN} ${perLane} seed ${seed} (sellable only): ${c.total} < ${main.total}`)
+        }
+      }
+    }
+    expect(below).toEqual([])
+    expect(floored).toBeGreaterThan(0)
+  })
+
+  it('a reference large enough to trip the budget WHILE SEEDING: exact:false, no throw, total ≥ main', () => {
+    // 180 windows on three rooms, heavily overlapping: the reference (every
+    // candidate) is illegal as a whole, so seeding re-seats and runs out of
+    // budget first.
+    const { candidates, lanes, book, wins } = sf6Board(7, 60, 3, [3, 3])
+    const reference = refOf(wins)
+    const main = honestHeld(candidates, lanes, book, true)
+    let h: HonestHeld | undefined
+    expect(() => { h = honestHeld(candidates, lanes, book, true, undefined, { reference, budget: 64 }) }).not.toThrow()
+    expect({ exact: h!.exact, atLeastMain: h!.total >= honestHeld(candidates, lanes, book, true, undefined, { budget: 64 }).total }).toEqual({ exact: false, atLeastMain: true })
+    const full = honestHeld(candidates, lanes, book, true, undefined, { reference })
+    expect({ exact: full.exact, atLeastMain: full.total >= main.total }).toEqual({ exact: false, atLeastMain: true })
+  })
+
+  // ⚖ BAR-4 (S5 PR-B fix round 1, ruling F2) — EVERY SHOWN FRAME IS A FIXED
+  // POINT. The rail's answer fed back as its own reference returns the same
+  // held set (by heldIdOf), on the SF6 rows and the attacker's shapes
+  // (ATTACK-OPUS-PR-B.md § B: 200 lanes × 3, one component, small mixed,
+  // identical candidates), each with NO reference (the screen's first frame)
+  // and two CHANGED-BOARD references (the answer on the board before an edit;
+  // a random 40 % of every candidate, stale ids included). Before this round
+  // the inexact boards moved once here (49/60 at 200 lanes).
+  const pickN = (r: () => number, rooms: string[], lo: number, hi: number) => {
+    const n = Math.min(rooms.length, lo + Math.floor(r() * (hi - lo + 1)))
+    const s = new Set<string>()
+    while (s.size < n) s.add(rooms[Math.floor(r() * rooms.length)])
+    return [...s]
+  }
+  const rkN = (n: number) => Array.from({ length: n }, (_, i) => `r-${String(i).padStart(4, '0')}`)
+  const ATTACK_SHAPES: Record<string, (seed: number) => Win[]> = {
+    lanes200x3: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(20); const ws: Win[] = []
+      for (let l = 0; l < 200; l += 1) for (let i = 0; i < 3; i += 1) {
+        const st = 600 + Math.floor(r() * 31) * 15
+        if (!ws.some((w) => w.laneKey === `p-${l}` && w.start === st)) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 1, 3) })
+      }
+      return ws
+    },
+    oneComponent: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 5)); const ws: Win[] = []
+      const nl = 10 + Math.floor(r() * 31)
+      for (let l = 0; l < nl; l += 1) { const st = 600 + Math.floor(r() * 6) * 15; ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 1, 3) }) }
+      return ws
+    },
+    smallMixed: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 4)); const ws: Win[] = []
+      const nl = 2 + Math.floor(r() * 12)
+      for (let l = 0; l < nl; l += 1) for (let i = 0; i < 1 + Math.floor(r() * 3); i += 1) {
+        const st = 600 + Math.floor(r() * 16) * 15
+        if (!ws.some((w) => w.laneKey === `p-${l}` && w.start === st)) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 0, 3) })
+      }
+      return ws
+    },
+    identical: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 4))
+      const starts = [600, 690, 780].slice(0, 1 + Math.floor(r() * 3)); const nl = 3 + Math.floor(r() * 10)
+      const rooms = pickN(r, R, 1, R.length); const ws: Win[] = []
+      for (let l = 0; l < nl; l += 1) for (const st of starts) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms })
+      return ws
+    },
+  }
+  const inputsOf = (wins: readonly Win[]) => {
+    const keys = [...new Set(wins.map((w) => w.laneKey))].sort()
+    const candidates = keys.map((k) => maskOf(k, wins.filter((w) => w.laneKey === k).sort((a, b) => a.start - b.start).map((w) => span(w.start, 90))))
+    const lanes = keys.map((k) => lane(k, [k]))
+    const idx = new Map(wins.map((w) => [heldIdOf(w.laneKey, w.start), w.rooms]))
+    const book = stubBook((start, _e, stores) => idx.get(heldIdOf(stores?.[0] ?? '', start)) ?? [])
+    return { candidates, lanes, book }
+  }
+  type Row = { name: string; boards: number; gen: (seed: number) => { wins: Win[]; sell: ReadonlySet<string> } }
+  const BAR4_ROWS: Row[] = [
+    ...([[30, 10], [60, 20]] as const).flatMap(([staff, roomsN]) => ([[1, 3], [0, 1]] as Array<[number, number]>).map((perLane) => ({
+      name: `sf6 ${staff}x${roomsN} ${perLane[1] === 3 ? 'dense' : 'sparse'}`,
+      boards: 100,
+      gen: (seed: number) => { const b = sf6Board(seed + staff * 1000 + perLane[1] * 100000, staff, roomsN, perLane); return { wins: b.wins, sell: b.sell } },
+    }))),
+    ...Object.entries(ATTACK_SHAPES).map(([name, g]) => ({
+      name, boards: 100,
+      gen: (seed: number) => { const wins = g(seed); const r = rng(seed * 16807 + 3); return { wins, sell: new Set([...new Set(wins.map((w) => w.laneKey))].filter(() => r() < 0.5)) } },
+    })),
+  ]
+
+  it('BAR-4 FIXED POINT — the rail’s answer fed back as its reference returns the same held set; total never shrinks; total ≥ main (SF6 rows + attacker shapes, 100 boards each, no reference and two changed-board references)', () => {
+    const moved: string[] = []
+    const shrank: string[] = []
+    const below: string[] = []
+    const inexact: Record<string, number> = {}
+    const checked: Record<string, number> = {}
+    for (const row of BAR4_ROWS) {
+      inexact[row.name] = 0
+      checked[row.name] = 0
+      for (let seed = 0; seed < row.boards; seed += 1) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const r = rng(seed * 104729 + 17)
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const main = honestHeld(candidates, lanes, book, true)
+        // the board BEFORE an edit: one window in five gone — its answer is a stale reference here
+        const before = inputsOf(wins.filter(() => r() >= 0.2))
+        const prior = idsOf(honestHeld(before.candidates, before.lanes, before.book, true, undefined, { sellable }))
+        const random = new Set([...wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)), 'ghost|600'])
+        for (const [mode, reference] of [['none', undefined], ['prior', prior], ['random', random]] as const) {
+          const r1 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+          const r2 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(r1) })
+          checked[row.name] += 1
+          if (!r1.exact) inexact[row.name] += 1
+          if (sortedIds(r2).join(',') !== sortedIds(r1).join(',')) moved.push(`${row.name} seed ${seed} ${mode}`)
+          if (r2.total < r1.total) shrank.push(`${row.name} seed ${seed} ${mode}: ${r2.total} < ${r1.total}`)
+          if (r1.total < main.total || r2.total < main.total) below.push(`${row.name} seed ${seed} ${mode}`)
+        }
+      }
+    }
+    expect({ moved, shrank, below }).toEqual({ moved: [], shrank: [], below: [] })
+    // the fuzz reaches the inexact boards the extra search exists for
+    expect(inexact['lanes200x3']).toBeGreaterThan(0)
+    expect(inexact['oneComponent']).toBeGreaterThan(0)
+    // ≥ 100 boards per row, each under three references
+    for (const row of BAR4_ROWS) expect({ row: row.name, checked: checked[row.name] }).toEqual({ row: row.name, checked: 300 })
+  }, 120000)
+
+  it('BAR-4 under a tripped budget: no throw, and never below the size-only search at the SAME budget (F3)', () => {
+    const below: string[] = []
+    for (const name of ['oneComponent', 'smallMixed', 'lanes200x3']) {
+      for (let seed = 0; seed < (name === 'lanes200x3' ? 20 : 100); seed += 1) {
+        const wins = ATTACK_SHAPES[name](seed)
+        if (wins.length === 0) continue
+        const { candidates, lanes, book } = inputsOf(wins)
+        const all = new Set(wins.map((w) => heldIdOf(w.laneKey, w.start)))
+        const plain = honestHeld(candidates, lanes, book, true, undefined, { budget: 30 })
+        for (const reference of [undefined, all]) {
+          let h: HonestHeld | undefined
+          expect(() => { h = honestHeld(candidates, lanes, book, true, undefined, { sellable: () => true, reference, budget: 30 }) }).not.toThrow()
+          if (h!.total < plain.total) below.push(`${name} seed ${seed}`)
+        }
+      }
+    }
+    expect(below).toEqual([])
+  }, 120000)
+
+  // ⚖ F2 (S6 read round, lead ruling 1) — THE CAP VERIFIES ITS LAST ROUND OR
+  // DISCLOSES THE EXIT. The rail reports `rounds` (loop searches run) and
+  // `fixedPoint` (proven to return itself as its own reference). The boards
+  // below are FOUND, deterministically, by walking the BAR-4 rows under tiny
+  // synthetic budgets — the only place a chain gets long enough to reach the
+  // cap — and each finding is then checked from the outside with a fresh call.
+  type Found = { name: string; seed: number; budget: number; mode: string; h: HonestHeld; again: HonestHeld; plain: HonestHeld }
+  let catalog: Found[] | undefined
+  const catalogOf = (): Found[] => {
+    if (catalog) return catalog
+    catalog = []
+    for (const row of BAR4_ROWS) {
+      // + one pinned board past the BAR-4 seeds: the only disclosed cap exit a
+      // 1,500-seed walk of the non-200-lane rows found (build-s6 log, seed 225)
+      for (const seed of [...Array.from({ length: row.boards }, (_, i) => i), ...(row.name === 'sf6 60x20 sparse' ? [225] : [])]) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const r = rng(seed * 7919 + 5)
+        const random = new Set(wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)))
+        for (const budget of [8, 32, 96, 128, 256, 512, 1024, 2048, 3072]) {
+          for (const [mode, reference] of [['none', undefined], ['random', random]] as const) {
+            const h = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference, budget })
+            if ((h.rounds ?? 0) === 0) continue
+            const again = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(h), budget })
+            const plain = honestHeld(candidates, lanes, book, true, undefined, { budget })
+            catalog.push({ name: row.name, seed, budget, mode, h, again, plain })
+          }
+        }
+      }
+    }
+    return catalog
+  }
+  const tag = (f: Found) => `${f.name} seed ${f.seed} budget ${f.budget} ${f.mode}`
+
+  it('the cap is FOUR loop searches, the last verify-only', () => {
+    expect(HONEST_FIXED_POINT_ROUNDS).toBe(4)
+  })
+
+  it('(a) three taken rounds and a MOVING fourth: rounds 4, fixedPoint false (NOT proven), exact false, total ≥ the size-only search at the same budget — and, as a fact of the seed-225 board only, a fresh call there moves', () => {
+    const hits = catalogOf().filter((f) => f.h.rounds === 4 && f.h.fixedPoint === false)
+    console.log(`S6LOG (a) disclosed at the cap: ${hits.length} — ${hits.slice(0, 5).map(tag).join(' · ')}`)
+    expect(hits.length).toBeGreaterThan(0)
+    for (const f of hits) {
+      expect({ at: tag(f), exact: f.h.exact, atLeastPlain: f.h.total >= f.plain.total }).toEqual({ at: tag(f), exact: false, atLeastPlain: true })
+      // a fact of THIS board (seed 225), not a general claim: fixedPoint:false means NOT proven, never proven to move
+      if (f.seed === 225) expect({ at: tag(f), moves: f.again.rounds !== 0 || sortedIds(f.again).join() !== sortedIds(f.h).join() }).toEqual({ at: tag(f), moves: true })
+    }
+  }, 300000)
+
+  it('(b) three taken rounds and a CONVERGING fourth: rounds 4, fixedPoint true — a fresh call returns the same set', () => {
+    const hits = catalogOf().filter((f) => f.h.rounds === 4 && f.h.fixedPoint === true)
+    console.log(`S6LOG (b) verified at the cap: ${hits.length} — ${hits.slice(0, 5).map(tag).join(' · ')}`)
+    expect(hits.length).toBeGreaterThan(0)
+    for (const f of hits) expect({ at: tag(f), same: sortedIds(f.again), rounds: f.again.rounds, fp: f.again.fixedPoint }).toEqual({ at: tag(f), same: sortedIds(f.h), rounds: 0, fp: true })
+  }, 300000)
+
+  it('(c) steady state: the answer fed back as its reference runs 0 rounds and is a fixed point; an exact answer is one at once', () => {
+    const f = catalogOf().find((x) => x.h.fixedPoint === true)!
+    expect({ rounds: f.again.rounds, fixedPoint: f.again.fixedPoint, same: sortedIds(f.again).join() === sortedIds(f.h).join() }).toEqual({ rounds: 0, fixedPoint: true, same: true })
+    const { candidates, lanes, book } = inputsOf([{ laneKey: 'p-0', start: 600, end: 690, rooms: ['r-0'] }])
+    const x = honestHeld(candidates, lanes, book, true, undefined, { sellable: () => true })
+    expect({ exact: x.exact, rounds: x.rounds, fixedPoint: x.fixedPoint }).toEqual({ exact: true, rounds: 0, fixedPoint: true })
+  }, 300000)
+
+  it('(d) convergence at round k < 4: rounds k, fixedPoint true, and a fresh call returns the same set (k = 1, 2, 3)', () => {
+    const byK: Record<number, number> = {}
+    for (const k of [1, 2, 3]) {
+      const hits = catalogOf().filter((f) => f.h.rounds === k && f.h.fixedPoint === true)
+      byK[k] = hits.length
+      expect({ k, found: hits.length > 0 }).toEqual({ k, found: true })
+      for (const f of hits) expect({ at: tag(f), same: sortedIds(f.again), rounds: f.again.rounds }).toEqual({ at: tag(f), same: sortedIds(f.h), rounds: 0 })
+    }
+    console.log(`S6LOG (d) converged below the cap: k=1 ${byK[1]} · k=2 ${byK[2]} · k=3 ${byK[3]}; refused shrinks (fixedPoint false below the cap): ${catalogOf().filter((f) => f.h.fixedPoint === false && (f.h.rounds ?? 0) < 4).length}`)
+  }, 300000)
+
+  it('(e) BAR-4 at the REAL budget, S6 — rounds distribution, every cap exit verified or disclosed by seed, 0 fixedPoint:false, 0 hops / shrank / below-main / throws (2,400 checks)', () => {
+    const dist = [0, 0, 0, 0, 0]
+    const capExits: string[] = []
+    const unproven: string[] = []
+    const moved: string[] = []
+    const shrank: string[] = []
+    const below: string[] = []
+    const throws: string[] = []
+    let checks = 0
+    for (const row of BAR4_ROWS) {
+      for (let seed = 0; seed < row.boards; seed += 1) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const r = rng(seed * 104729 + 17)
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const main = honestHeld(candidates, lanes, book, true)
+        const before = inputsOf(wins.filter(() => r() >= 0.2))
+        const prior = idsOf(honestHeld(before.candidates, before.lanes, before.book, true, undefined, { sellable }))
+        const random = new Set([...wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)), 'ghost|600'])
+        for (const [mode, reference] of [['none', undefined], ['prior', prior], ['random', random]] as const) {
+          const at = `${row.name} seed ${seed} ${mode}`
+          try {
+            const r1 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+            const r2 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(r1) })
+            checks += 1
+            dist[r1.rounds ?? 0] += 1
+            if (r1.rounds === HONEST_FIXED_POINT_ROUNDS) capExits.push(`${at}: ${r1.fixedPoint ? 'verified' : 'disclosed (exact:false)'}`)
+            if (r1.fixedPoint !== true) unproven.push(at)
+            if (sortedIds(r2).join(',') !== sortedIds(r1).join(',')) moved.push(at)
+            if (r2.total < r1.total) shrank.push(at)
+            if (r1.total < main.total || r2.total < main.total) below.push(at)
+          } catch (e) {
+            throws.push(`${at}: ${String(e)}`)
+          }
+        }
+      }
+    }
+    console.log(`S6LOG (e) checks ${checks} · rounds 0/1/2/3/4 = ${dist.join('/')} · cap exits ${capExits.length}: ${capExits.join(' | ') || 'none'} · fixedPoint false ${unproven.length} · hops ${moved.length} · shrank ${shrank.length} · below-main ${below.length} · throws ${throws.length}`)
+    expect(checks).toBe(2400)
+    expect(capExits.filter((c) => !c.endsWith('verified') && !c.endsWith('disclosed (exact:false)'))).toEqual([])
+    expect({ unproven, moved, shrank, below, throws }).toEqual({ unproven: [], moved: [], shrank: [], below: [], throws: [] })
+  }, 300000)
 })

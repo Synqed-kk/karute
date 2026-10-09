@@ -22,6 +22,7 @@ export type AppApiErrorCode =
   | 'no_audio' // 404 — the server holds no audio for this recording (distinct from not_found so the phone can say which; a detail.reason never crosses the thin port)
   | 'conflict' // 409 — If-Match / optimistic-concurrency mismatch
   | 'not_returning' // 422 — the revisit label cannot be true for this customer (a fact about the customer, not the request's shape)
+  | 'audio_unreadable' // 422 — the audio opens with no container the recorders make; refused before any spend (S60 A3, transcribe.ts#AudioUnreadableError)
   | 'rate_limited' // 429 — throttled (e.g. PIN attempts)
   | 'not_implemented' // 501 — a valid-but-unwired param combo (export scope/format)
   | 'jwks_unavailable' // 503 — the verifier could not CHECK the token (upstream down)
@@ -42,6 +43,7 @@ const STATUS: Record<AppApiErrorCode, number> = {
   no_audio: 404,
   conflict: 409,
   not_returning: 422,
+  audio_unreadable: 422,
   rate_limited: 429,
   not_implemented: 501,
   jwks_unavailable: 503,

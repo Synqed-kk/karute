@@ -123,6 +123,91 @@ const FORBIDDEN_SPECIFIER = [
   },
 ]
 
+/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) + R125 + S52 FENCES-R3 (Greptile P2 on the generic form) — one
+ *  write verb's call. A head regex finds the member; `writeTail` then confirms a call follows it. The
+ *  hit index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
+ *  CAUGHT:
+ *   - dot with whitespace or a newline on either side (`x.\n  verb (`); whitespace of any length up to
+ *     4000 chars (GENERIC_LIMIT) after the member, after the `!`, and after the generic list
+ *   - `?.` before the member (`x?.verb(`) or on the call (`x.verb?.(`)
+ *   - bracket access with any quote (`x['verb'](`, `x?.["verb"](`, `` x[`verb`]( ``)
+ *   - the indirect calls `.call(` / `.apply(` on the member, each optionally chained on either side
+ *     (`?.call(`, `.call?.(`, `?.apply(`, `.apply?.(`)
+ *   - a generic argument list of any nesting, incl. braces, semicolons, arrows and quoted `>`
+ *     (`x.verb<{ id: string; s: string }>(`, `x.verb<Map<K, { f: () => void }>>(`, `x.verb<Row[]>(`)
+ *   - the TS non-null `!` before and/or after the generic list (`x.verb!(`, `x.verb!<R>(`, `x.verb<R>!(`)
+ *   - a generic list whose top level spans a newline, as Prettier breaks a long type argument
+ *     (`x.verb<\n  Database['public']['Tables']['x']['Row']\n>(`, `x.verb<\n Row\n>(`)
+ *  GIVE-UP RULE of the generic walker (`walkGeneric`): from the `<` it tracks a stack of `<` `{` `(` `[`
+ *  (skipping '…' "…" `…` literals; a `>` that ends `=>` is an arrow, not a closer); it stops with NO hit
+ *  when, while no `{` `(` `[` is open, it meets `;`, `&&`, `||`, or an `=` that is not `=>` (a newline
+ *  does NOT stop it — S52 FENCES-R3c);
+ *  or on a mismatched closer, an unterminated literal, end of text, or 4000 chars without closing.
+ *  So `x.verb < 3 && y > (z)` is a comparison, not a call.
+ *  NOT CAUGHT (R125 ceiling, stated honestly):
+ *   - an alias (`const u = x.verb; u()`), destructuring (`const { verb } = x`), `Reflect.apply(x.verb, …)`,
+ *     a parenthesised member `(x.verb)(`
+ *   - a computed member `x[name](` or `x['verb' as const](`, escapes (`x.\\u0075psert`, `x['\\x75psert']`)
+ *   - the comment-blanker's two per-line weaknesses: a line beginning with `*` inside non-comment code is
+ *     blanked as a doc-comment line, and a multi-line template string containing `/*` flips the comment
+ *     state (a carried fences item, not fixed here)
+ *   - `.bind(` forms beyond `x.verb.bind(` / `x['verb'].bind(` (no `?.`, `!` or generic there)
+ *   - `.call<T>(` / `.apply<T>(` (a generic on the indirect call)
+ *   - tagged templates (`` x.verb`…` ``) and a doubled non-null `x.verb!!(`
+ *  Known safe-side false positives: a string literal containing `.verb(` is flagged; so is a comparison
+ *  `x.verb < a` whose next line (ASI) starts `b > (…)` with no `;` `&&` `||` `=` between them. */
+const writeHead = (verb) => new RegExp(`(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])`, 'g')
+const CALL_TAIL = /^\s*(?:(?:\?\.\s*)?\(|(?:\?\.|\.)\s*(?:call|apply)\s*(?:\?\.\s*)?\()/
+const GENERIC_LIMIT = 4000
+const CLOSER = { '>': '<', '}': '{', ')': '(', ']': '[' }
+
+/** From the `<` at `start`, return the index just past its closing `>`, or -1 (the give-up rule above). */
+function walkGeneric(code, start) {
+  const stack = []
+  let open = 0 // count of `{` `(` `[` on the stack; 0 = angle-only depth (O(1), not stack.every per char)
+  const end = Math.min(code.length, start + GENERIC_LIMIT)
+  for (let i = start; i < end; i++) {
+    const ch = code[i]
+    if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1
+      while (j < end && code[j] !== ch && !(ch !== '`' && code[j] === '\n')) j += code[j] === '\\' ? 2 : 1
+      if (j >= end || code[j] !== ch) return -1
+      i = j
+    } else if (ch === '<' || ch === '{' || ch === '(' || ch === '[') {
+      stack.push(ch)
+      if (ch !== '<') open++
+    } else if (ch === '>' && code[i - 1] === '=') continue // arrow `=>`
+    else if (ch in CLOSER) {
+      if (stack.pop() !== CLOSER[ch]) return -1
+      if (ch !== '>') open--
+      if (stack.length === 0) return i + 1
+    } else if (open === 0) {
+      if (ch === ';') return -1
+      if ((ch === '&' || ch === '|') && code[i + 1] === ch) return -1
+      if (ch === '=' && code[i + 1] !== '>') return -1
+    }
+  }
+  return -1
+}
+
+/** After the member (index `at`): optional `!`, optional generic list, optional `!`, then a call. */
+function writeTail(code, at) {
+  let i = at
+  const skip = (re) => {
+    const m = re.exec(code.slice(i, i + GENERIC_LIMIT))
+    if (m) i += m[0].length
+  }
+  skip(/^\s*(?:!\s*)?/)
+  if (code[i] === '<') {
+    i = walkGeneric(code, i)
+    if (i === -1) return false
+    skip(/^\s*(?:!\s*)?/)
+  }
+  return CALL_TAIL.test(code.slice(i, i + GENERIC_LIMIT))
+}
+const writeCall = (verb) => ({ re: writeHead(verb), confirm: writeTail })
+const BIND_VERBS = 'insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay'
+
 const CALL_PATTERNS = [
   { re: /\bnew\s+SynqedClient\s*\(/g, label: 'new SynqedClient(', scope: EVERYWHERE },
   { re: /\bgetSynqedClient\s*\(/g, label: 'getSynqedClient(', scope: EVERYWHERE },
@@ -130,14 +215,15 @@ const CALL_PATTERNS = [
   { re: /\bcreateClient\s*\(/g, label: 'createClient(', scope: OUTSIDE_LOCK_FILES },
   // Writes: banned territory-wide, lock files included. Nothing in Business
   // edits anything during the play phase.
-  { re: /\.insert\s*\(/g, label: 'write call .insert(', scope: EVERYWHERE },
-  { re: /\.update\s*\(/g, label: 'write call .update(', scope: EVERYWHERE },
-  { re: /\.upsert\s*\(/g, label: 'write call .upsert(', scope: EVERYWHERE },
-  { re: /\.delete\s*\(/g, label: 'write call .delete(', scope: EVERYWHERE },
-  { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
+  { ...writeCall('insert'), label: 'write call .insert(', scope: EVERYWHERE },
+  { ...writeCall('update'), label: 'write call .update(', scope: EVERYWHERE },
+  { ...writeCall('upsert'), label: 'write call .upsert(', scope: EVERYWHERE },
+  { ...writeCall('delete'), label: 'write call .delete(', scope: EVERYWHERE },
+  { ...writeCall('rpc'), label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
-    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay)\s*\.\s*bind\s*\(/g,
+    // ⚖ S51 R116 — and its bracket spelling (`x['upsert'].bind(`), any quote.
+    re: new RegExp(`(?:\\.\\s*(?:${BIND_VERBS})|\\[\\s*(['"\`])(?:${BIND_VERBS})\\1\\s*\\])\\s*\\.\\s*bind\\s*\\(`, 'g'),
     label: 'bound write method .X.bind(',
     scope: EVERYWHERE,
   },
@@ -186,6 +272,15 @@ const ALLOW = [
     match: ['orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })'],
     count: 1,
     reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): the second Business writer, 予約の色分け — one key PER STORE (`booking_colors:<storeId>`, core merges top-level keys → no cross-store race), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
+  },
+  {
+    path: 'src/business/lib/practice-door/door-store-capabilities.ts',
+    // ⚖ S49 R86 — the third writer, in its own file (one allowlist key per file::call), tolerated until it lands.
+    // Double-quoted, same reason as the entries above.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })'],
+    count: 1,
+    reason: "⚖ S49 R86 (Liam 10/1 「If there's no harm in doing it now, use it now.」): the third Business writer, お店ページ's switches — one key PER STORE (`reserve_store_capabilities:<storeId>`, the CORE-47 wire record; core merges top-level keys), settings.manage + a store the operator may see, admitted tenant only (Dev Salon until CORE-47), read-before-write, one PUT",
   },
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
@@ -319,10 +414,12 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
         if (rule) hit(m.index, rule.label)
       }
     }
-    for (const { re, label, scope } of CALL_PATTERNS) {
+    for (const { re, confirm, label, scope } of CALL_PATTERNS) {
       if (!scope(rel)) continue
       re.lastIndex = 0
-      for (let m = re.exec(code); m; m = re.exec(code)) hit(m.index, label)
+      for (let m = re.exec(code); m; m = re.exec(code)) {
+        if (!confirm || confirm(code, m.index + m[0].length)) hit(m.index, label)
+      }
     }
 
     for (const { line, col, label } of hits) {

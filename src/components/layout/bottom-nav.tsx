@@ -26,6 +26,62 @@ import { tapActivation } from '@/lib/tap-activation'
 
 type Route = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
+// ── The bar has no dead space (S105 round 5) ──
+// Every point of the bar — its 1px top border, its px-2 side margins (out to
+// the screen edge when the row is capped at max-w-screen-sm) and its
+// safe-area strip — belongs to one of the five controls, except while the
+// STOP button shows (recording on /sessions): its column keeps the dead space
+// it always had, so a stray thumb cannot end a recording (see RecordHit).
+// The growth is a
+// transparent, aria-hidden `data-bar-hit` span INSIDE each control, so a touch
+// on it is the control's own touch (tapActivation on the control) and nothing
+// drawn changes: the spans paint nothing, the press scale still sizes off the
+// control's own box. Touch screens only (⚖ 44 px is a hit area, sizing fires
+// on pointer: coarse) — under a mouse the spans are display:none, so desktop
+// hover/click is exactly as before. z-[1]: a tab's span
+// sits over the record column's wide span (below), which is what keeps the
+// record column exactly the gap between カルテ and 顧客 at any bar width.
+// The edge spans read the row's own cap, var(--breakpoint-sm) (= the
+// max-w-screen-sm on the row), so the two cannot drift (S106 R4).
+const TAB_HIT: Record<'first' | 'middle' | 'last', string> = {
+  first:
+    'left-[calc(-8px_-_max(0px,(100vw_-_var(--breakpoint-sm))/2))] right-0',
+  middle: 'left-0 right-0',
+  last: 'left-0 right-[calc(-8px_-_max(0px,(100vw_-_var(--breakpoint-sm))/2))]',
+}
+function TabHit({ edge }: { edge: keyof typeof TAB_HIT }) {
+  return (
+    <span
+      aria-hidden
+      data-bar-hit
+      className={`absolute -top-px bottom-[calc(-1*env(safe-area-inset-bottom))] z-[1] hidden pointer-coarse:block ${TAB_HIT[edge]}`}
+    />
+  )
+}
+/** The record control's hit area, in the circle's own coordinates (the circle
+ *  is 44px, top 7px above the bar's top edge, bottom 28px above the bar's
+ *  content bottom): the proud part plus a 12px slop above and each side, and
+ *  under the bar's top edge the whole column down through the safe-area
+ *  strip (±64px is wider than any column; the tabs' spans cover the excess).
+ *  Idle and recording-elsewhere only: the stop button has none (S106 R2).
+ *  The column's bottom overshoots the bar's bottom edge by a fixed 16px
+ *  (-44px = -28px - 16px; S106 R3): flex-shrink can make the circle ~43px
+ *  and active:scale-95 pulls the span ~5px up, so an exact -28px left a thin
+ *  dead strip. The bar sits at the viewport bottom, so the excess is
+ *  off-screen; nothing drawn changes. */
+function RecordHit() {
+  return (
+    <>
+      <span aria-hidden data-bar-hit className="absolute -left-3 -right-3 -top-3 hidden h-[19px] pointer-coarse:block" />
+      <span
+        aria-hidden
+        data-bar-hit
+        className="absolute -left-16 -right-16 top-[7px] bottom-[calc(-44px_-_env(safe-area-inset-bottom))] hidden pointer-coarse:block"
+      />
+    </>
+  )
+}
+
 const PRIMARY: Route[] = [
   { href: '/appointments', label: 'appointments', icon: Calendar },
   { href: '/karute', label: 'karute', icon: ClipboardList },
@@ -194,6 +250,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         }`}
         aria-current={active ? 'page' : undefined}
       >
+        <TabHit edge={index === 0 ? 'first' : 'middle'} />
         {/* NO transition on this Link, and a CONSTANT icon stroke weight.
          *
          *  History, restated rather than deleted. #809 (TABCALM, 2026-09-01)
@@ -406,10 +463,11 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
             // Instant colour, same as the tabs beside it (⚖ 9/2): this cell
             // sits in the same row and flips the same way, so an eased メニュー
             // next to three instant tabs would be the mismatch all over again.
-            className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 ${
+            className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2 ${
               menuOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
+            <TabHit edge="last" />
             <MenuIcon className="h-5 w-5" />
             <span className="text-[10px] font-medium leading-none">{label('menu')}</span>
           </button>
@@ -575,6 +633,10 @@ function CenterRecordButton({
           aria-label="録音を停止"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
+          {/* No RecordHit here (S106 R2): the STOP button keeps its own 44px
+           *  circle as its only touch area, so a stray thumb in the column
+           *  cannot end a recording. The column around it is dead space, as
+           *  before round 5; the tab spans stay inside their own cells. */}
           <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
         </button>
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
@@ -615,6 +677,7 @@ function CenterRecordButton({
           aria-label="録音画面に戻る"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
+          <RecordHit />
           <Mic className="relative h-5 w-5" strokeWidth={2.25} />
         </button>
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
@@ -657,6 +720,7 @@ function CenterRecordButton({
         }
         aria-current={isOnSessionsPage ? 'page' : undefined}
       >
+        <RecordHit />
         <Mic className="h-5 w-5" />
         {/* 要対応 (Build F1) — recordings that still owe the staffer something,
             from wherever they are in the app. A soft amber count, not a fill:

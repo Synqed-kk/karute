@@ -1821,7 +1821,8 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       // anchor moves with the list; what this pin is about — `{ pack: false }` in
       // and `{ pack: true }` out of this memo — is untouched.
       const end = SCREEN.indexOf(
-        '}, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])',
+        // R1/R2 (DECISIONS.md today-impact-2026-09-30): the memo prices the delta, so the tail gains the price levers.
+        '}, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])',
       )
       expect(start).toBeGreaterThan(-1)
       expect(end).toBeGreaterThan(start)
@@ -2260,7 +2261,11 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     const ceiling = Number(/const PACK_MAX_MOVES = (\d+)/.exec(INTERACTIONS)![1])
     expect(ceiling).toBeLessThanOrEqual(4)
     // No fold left in the helper, and no line that opens with a 読点.
-    expect(INTERACTIONS.slice(INTERACTIONS.indexOf('export function companionLines('))).not.toContain('ほか')
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the slice ran to end of file, and the day words (key A's 「、ほかN枠」)
+    // now live below; the pin is about THIS helper, so it reads the helper's own body.
+    const companionAt = INTERACTIONS.indexOf('export function companionLines(')
+    expect(companionAt).toBeGreaterThan(-1)
+    expect(INTERACTIONS.slice(companionAt, INTERACTIONS.indexOf('\n}\n', companionAt))).not.toContain('ほか')
 
     const board = boardOf([
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: ['a', 'b', 'c', 'd'].map((id) => booking({ key: id, caseId: id, title: id.toUpperCase() }, 780, 790)) }),

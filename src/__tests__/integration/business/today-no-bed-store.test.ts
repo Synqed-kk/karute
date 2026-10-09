@@ -436,7 +436,8 @@ describe('G7 — the chip number equals the mask sum', () => {
     const book = bookOf()
     const mask = maskOf(book)
     const identity = honestHeld(mask, GYM.lanes, book, false)
-    const chipTotal = windowsOf(identity, GYM.lanes).total
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): windowsOf reads `locked` for the one sellable predicate; nothing is locked here.
+    const chipTotal = windowsOf(identity, GYM.lanes, []).total
     const maskSum = mask.reduce((n, m) => n + m.protectedCount, 0)
     console.log('G7', { chipTotal, maskSum })
     expect(chipTotal).toBe(maskSum)
@@ -732,7 +733,8 @@ describe("G11 — the mixed board through the screen's own composition (⚖ ROUN
       ? honestHeld(mask, lanes, book, true, (l) => storeHasBeds(lanes, l.stores))
       : undefined
     expect(honest).toBeDefined()
-    const total = windowsOf(honest!, lanes).total
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): windowsOf reads `locked` for the one sellable predicate; nothing is locked here.
+    const total = windowsOf(honest!, lanes, []).total
     const maskSum = mask.reduce((n, m) => n + m.protectedCount, 0)
     console.log('G11', { total, maskSum })
     expect(total).toBe(maskSum)

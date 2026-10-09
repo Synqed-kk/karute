@@ -122,7 +122,8 @@ export interface FixtureAppointment {
   ends_at: string
   /** 受付価格 (D11) — the price agreed when the booking was taken. */
   booked_price: number | null
-  status: 'booked' | 'done' | 'cancelled'
+  /** 'in_progress' = core's IN_PROGRESS carried as data (S81); the board paints it as 'booked'. */
+  status: 'booked' | 'in_progress' | 'done' | 'cancelled'
   /** 予約番号 — human-shaped on purpose (⚖ L-6). Canon's own board reproduced
    *  raw UUIDs and wrecked every row; that defect must not port. */
   display_no: string

@@ -41,6 +41,7 @@ describe('facade error contract', () => {
       ['validation', 400], ['unauthenticated', 401], ['revoked', 401], ['forbidden', 403],
       ['tenant_forbidden', 403], ['store_forbidden', 403], ['membership_inactive', 403],
       ['not_found', 404], ['no_audio', 404], ['conflict', 409], ['not_returning', 422],
+      ['audio_unreadable', 422],
       ['rate_limited', 429], ['not_implemented', 501], ['jwks_unavailable', 503],
       ['upstream_unavailable', 502], ['config', 500], ['internal', 500],
     ]

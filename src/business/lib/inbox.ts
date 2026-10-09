@@ -33,6 +33,9 @@ export type { ThreadCategory }
 import { deadlineOf, lifecycleOf } from './reservations'
 import { customerStoreAffiliation, hhmm, yen } from './today-board'
 
+/** The inbox covers the same days as 予約一覧 (today..+6): one reach constant. */
+export const INBOX_WINDOW_DAYS = 7
+
 export type ThreadStatus = 'new' | 'attention' | 'waiting' | 'resolved'
 
 /** ONE label per status — canon spells its 空き待ち row 未提案 and every other
@@ -256,9 +259,14 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
     const decision = t.appointment_id ? (decisionBy.get(t.appointment_id) ?? null) : null
 
     // ── 期限 — the 予約一覧's own function, on the 予約一覧's own row ──────
-    const dueMinute = booking
-      ? deadlineOf(lifecycleOf(booking, record), record, input.closeMinute)
-      : t.due
+    const dueMinute = !booking
+      ? t.due
+      : record
+        ? deadlineOf(lifecycleOf(booking, record), record, input.closeMinute)
+        : (deadlineOf(lifecycleOf(booking, null), null, input.closeMinute) ?? t.due)
+    // A booking WITH a 予約一覧 row borrows that row's deadline (even a null
+    // one); a booking with NO row gets 閉店 while awaiting settlement, else the
+    // thread's own `due` — so a seated thread on any store still has a deadline.
     // 期限 is the REPLY deadline — a same-day minute-of-day from 予約一覧's own
     // deadlineOf (one home; ReservationsScreen's decorate() computes the
     // identical verdict off the same function, and the suite pins the two

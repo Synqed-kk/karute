@@ -3,7 +3,7 @@
 //   node scripts/business/reserve-card-parity/run.mjs
 //
 // Proves src/business/lib/reserve-card/ (the port) draws the member card's three surfaces exactly as
-// Reserve @ c2a9f95 draws them, pixel for pixel, in the same headless Chromium:
+// Reserve @ the manifest's pin (src/business/lib/reserve-card/parity.manifest.json) draws them, pixel for pixel, in the same headless Chromium:
 //   1. exports Reserve at the pin (git archive, never a checkout), proves the copy's tree IS the pin's
 //      tree, `npm ci`; the ONLY file it ever rewrites there is the mock seed src/lib/mock.ts (a case's
 //      card colour / display name) — `git diff --stat` in the copy is printed at the end as the fence;
@@ -14,14 +14,15 @@
 //      .tcard, .salon-cover on both sides per case and compares RGB pixel by pixel;
 //   4. emits src/__tests__/integration/business/reserve-card.expected-satin.json (Reserve's own satinVars
 //      output, read by the unit test beside it), the module's PARITY.md, and
-//      <PARITY_DIR>/parity/parity-report.md with every PNG + a diff PNG.
+//      <run scratch>/parity/parity-report.md with every PNG + a diff PNG (kept only with PARITY_KEEP=1).
 // PASS = 0 differing pixels on every surface of every case, and every verbatim block identical (any DIFFER
 // fails the run). Exit code 1 otherwise.
 //
 // env: PARITY_REPO (the karute checkout holding src/business/lib/reserve-card/ — its module, globals.css,
 //      node_modules and emitted files; default = the checkout this script sits in, so from a checkout
-//      of the harness alone point it at the port's checkout) · PARITY_DIR (work dir; default
-//      <tmpdir>/reserve-card-parity) · RESERVE_REPO (default <PARITY_REPO>/../reserve)
+//      of the harness alone point it at the port's checkout) · PARITY_DIR (the PARENT of this run's
+//      own scratch dir <PARITY_DIR>/reserve-card-parity-XXXXXX; default <tmpdir>) · PARITY_KEEP=1 (keep that
+//      scratch dir at exit and print its path; otherwise it is removed) · RESERVE_REPO (default <PARITY_REPO>/../reserve)
 //      PARITY_W (the lane folder; when given, its satin fixtures are cross-checked) · PARITY_DIAG=1
 //      (also dumps computed-style differences per surface — the first tool to reach for on a diff) ·
 //      PARITY_ONLY=p01,long (a subset of cases, while investigating: a PARTIAL run is diagnostic, not a proof —
@@ -29,32 +30,70 @@
 //      exit code cover only the rows that ran).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tsconfigAliases } from './tsconfig-aliases.mjs'
+import { countWord, scopedClasses } from './scoped-classes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+// The manifest is checked whole at load: every key the harness reads, each failure a named error, so a
+// drifted or half-edited manifest stops the run before anything is exported or emitted.
+function loadManifest(file) {
+  const bad = (key, why) => { throw new Error(`parity.manifest.json: ${key} ${why}`) }
+  let m
+  try { m = JSON.parse(readFileSync(file, 'utf8')) } catch (e) { throw new Error(`parity.manifest.json: cannot be read as JSON (${file}): ${e.message}`) }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) bad('(root)', 'must be a JSON object')
+  if (typeof m.reservePin !== 'string' || !/^[0-9a-f]{40}$/.test(m.reservePin)) bad('reservePin', `must be a full 40-hex sha, got ${JSON.stringify(m.reservePin)}`)
+  if (!m.expect || typeof m.expect !== 'object') bad('expect', 'must be an object { verbatim, scoped }')
+  for (const k of ['verbatim', 'scoped']) if (!Number.isInteger(m.expect[k]) || m.expect[k] < 1) bad(`expect.${k}`, `must be a positive integer, got ${JSON.stringify(m.expect[k])}`)
+  const RANGE_KEYS = ['satin-material.ts', 'member-card-vars.ts', 'ReserveCardPreview.tsx']
+  if (!m.reserveRanges || typeof m.reserveRanges !== 'object' || Array.isArray(m.reserveRanges)) bad('reserveRanges', 'must be an object')
+  const got = Object.keys(m.reserveRanges)
+  if (got.length !== RANGE_KEYS.length || !RANGE_KEYS.every((k) => got.includes(k))) bad('reserveRanges', `must have exactly the keys ${RANGE_KEYS.join(', ')}, got ${got.join(', ') || '(none)'}`)
+  for (const k of RANGE_KEYS) if (typeof m.reserveRanges[k] !== 'string' || !m.reserveRanges[k].trim()) bad(`reserveRanges["${k}"]`, 'must be a non-empty string')
+  if (!m.leftOut || typeof m.leftOut !== 'object') bad('leftOut', 'must be an object')
+  if (typeof m.leftOut.excludedFrom !== 'string' || !m.leftOut.excludedFrom.trim()) bad('leftOut.excludedFrom', 'must be a non-empty string')
+  for (const k of ['excluded', 'notPorted']) {
+    const list = m.leftOut[k]
+    if (!Array.isArray(list)) bad(`leftOut.${k}`, 'must be an array of [range, why] pairs')
+    list.forEach((e, i) => { if (!Array.isArray(e) || e.length !== 2 || e.some((s) => typeof s !== 'string' || !s.trim())) bad(`leftOut.${k}[${i}]`, 'must be a [string, string] pair') })
+  }
+  return m
+}
 // real paths only: Vite's fs.allow compares realpaths, so a symlinked root (macOS /var → /private/var under
 // os.tmpdir()) would be refused and the port app would render nothing
 const ROOT = realpathSync(resolve(process.env.PARITY_REPO ?? resolve(HERE, '../../..')))
 const require = createRequire(join(ROOT, 'package.json'))
-const PIN = 'c2a9f9543187bff689307e22a6fcfa29f02a5215'
+// ONE truth for the pin and the prose lists PARITY.md prints: the in-territory manifest beside the port (R62),
+// so a Business re-port edits the manifest + the port files only, never this script.
+const MANIFEST = loadManifest(join(ROOT, 'src/business/lib/reserve-card/parity.manifest.json'))
+const PIN = MANIFEST.reservePin
+const SHORT = PIN.slice(0, 7)
+const RANGES = MANIFEST.reserveRanges
 const RESERVE = resolve(process.env.RESERVE_REPO ?? join(ROOT, '../reserve'))
-const WORK_GIVEN = resolve(process.env.PARITY_DIR ?? join(tmpdir(), 'reserve-card-parity'))
-mkdirSync(WORK_GIVEN, { recursive: true })
-const WORK = realpathSync(WORK_GIVEN)
+// ONE scratch dir per run, never shared: PARITY_DIR (when given) only chooses its parent. Nothing another run
+// made is ever found, reused or removed here, so concurrent runs cannot collide; this run's dir is removed at
+// exit (pass, fail or throw) unless PARITY_KEEP=1, which keeps it and prints its path.
+const WORK_PARENT = resolve(process.env.PARITY_DIR ?? tmpdir())
+mkdirSync(WORK_PARENT, { recursive: true })
+const WORK = mkdtempSync(join(realpathSync(WORK_PARENT), 'reserve-card-parity-'))
+process.on('exit', () => {
+  if (process.env.PARITY_KEEP === '1') return console.log(`scratch kept: ${WORK}`)
+  try { rmSync(WORK, { recursive: true, force: true }) } catch (e) { console.error(`scratch not removed: ${WORK} (${e.message})`) }
+})
 const W = process.env.PARITY_W // the lane folder, optional: its satin fixtures are cross-checked when given
-const COPY = join(WORK, 'reserve-c2a9f95')
+const COPY = join(WORK, `reserve-${SHORT}`)
 const APP = join(WORK, 'port-app')
 const OUT = join(WORK, 'parity')
 const MOD = join(ROOT, 'src/business/lib/reserve-card')
 const EXPECTED = join(ROOT, 'src/__tests__/integration/business/reserve-card.expected-satin.json')
 // a re-port that adds or removes a block updates these on purpose
-const EXPECT_VERBATIM = 23
-const EXPECT_SCOPED = 2
+const EXPECT_VERBATIM = MANIFEST.expect.verbatim
+const EXPECT_SCOPED = MANIFEST.expect.scoped
 const NOW = '2026-09-14T10:00:00+09:00' // the port's sample date (9/14（月）14:30) is Reserve's mock at this instant
 
 // The 12 curated values (W/CARD-LOOK-HANDOVER.json) and the six extra satin fixtures
@@ -78,6 +117,9 @@ const CASES = [
   { id: 'long', label: `long name (${[...LONG].length} chars), seed colour`, name: LONG, card: null, gymCard: null },
   { id: 'seed', label: 'seed #285643 (legacy, off-palette)', name: SEED.la.name, card: null, gymCard: null },
 ]
+// each case's written mock.ts carries its id as a marker (seedMock), so ids must be unique by construction
+for (const [i, c] of CASES.entries()) if (CASES.findIndex((x) => x.id === c.id) !== i) throw new Error(`CASES: duplicate case id ${JSON.stringify(c.id)}`)
+const caseMarker = (id) => JSON.stringify(`parity-case:${id}`) // a string literal: survives Vite's esbuild transform verbatim
 const ONLY = process.env.PARITY_ONLY ? process.env.PARITY_ONLY.split(',') : null
 const RUN = CASES.filter((x) => !ONLY || ONLY.includes(x.id))
 const PARTIAL = RUN.length < CASES.length // a subset never certifies: nothing is emitted into the port checkout
@@ -117,10 +159,9 @@ function stopStarted() {
 
 // ---- 1. Reserve at the pin ----
 function exportReserve() {
-  rmSync(COPY, { recursive: true, force: true })
-  mkdirSync(COPY, { recursive: true })
+  mkdirSync(COPY, { recursive: true }) // WORK is this run's own fresh dir: nothing to clear first
   // argument arrays only, never shell source: a path holding $, a backtick or a quote stays a path
-  const tarball = join(WORK, 'reserve-c2a9f95.tar')
+  const tarball = join(WORK, `reserve-${SHORT}.tar`)
   sh('git', ['-C', RESERVE, 'archive', '--format=tar', '-o', tarball, PIN])
   sh('tar', ['-x', '-f', tarball, '-C', COPY])
   rmSync(tarball)
@@ -143,6 +184,7 @@ function seedMock(pristine, c) {
   if (c.name !== SEED.la.name) swap(SEED.orgName, `name: ${JSON.stringify(c.name)},`)
   if (c.card) swap(SEED.laCard, `  cardColor: "${c.card}",`)
   if (c.gymCard) swap(SEED.gymCard, `  cardColor: "${c.gymCard}",`)
+  t += `${t.endsWith('\n') ? '' : '\n'}export const PARITY_CASE = ${caseMarker(c.id)}\n` // unused; only the served-case check reads it
   writeFileSync(join(COPY, 'src/lib/mock.ts'), t)
   return t
 }
@@ -172,7 +214,6 @@ function emitExpectedSatin() {
 
 // ---- 3. the port app (Business's globals.css + the module) ----
 function writePortApp() {
-  rmSync(APP, { recursive: true, force: true })
   mkdirSync(APP, { recursive: true })
   symlinkSync(join(ROOT, 'node_modules'), join(APP, 'node_modules')) // scratch only: resolve react from Business
   writeFileSync(join(APP, 'index.html'), `<!doctype html>
@@ -200,6 +241,7 @@ export default {
   server: { fs: { allow: [${JSON.stringify(APP)}, ${JSON.stringify(ROOT)}] } },
   css: { postcss: { plugins: [tailwind({ base: ${JSON.stringify(ROOT)} })] } },
   esbuild: { jsx: 'automatic' },
+  resolve: { alias: ${JSON.stringify(tsconfigAliases(ROOT))} },
 }
 `)
 }
@@ -302,26 +344,38 @@ function writeParityMd(verbatim, scopedCheck) {
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
   const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
+  // the Declared-edits line names each SCOPED block's classes from the block itself (the lines under its marker,
+  // prefix stripped as checkScoped() strips it) — no selector name is written here, so the line cannot drift
+  const cssLines = css.split('\n')
+  const scopedBlocks = []
+  cssLines.forEach((l, i) => {
+    const m = l.match(/^\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/)
+    if (m) scopedBlocks.push(cssLines.slice(i + 1, i + 2 + +m[2] - +m[1]).map((x) => x.replace(/(^\s*|, )\.member-ground (?=\.)/g, '$1')).join('\n'))
+  })
+  // zero SCOPED blocks → no scoped line at all (nothing to declare)
+  const scopedLine = scoped.length
+    ? `- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (${scopedClasses(scopedBlocks).join(', ')}) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps these ${countWord(scoped.length)} idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).\n`
+    : ''
+  const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--no-show-signature', '--format=%ci', PIN]).trim()
   const md = `# Reserve member-card port — parity record
 
-Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (2026-09-23 20:52:19 +0900).
+Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (${PIN_DATE}).
 Emitted by \`node scripts/business/reserve-card-parity/run.mjs\` — do not edit by hand.
 
 ## What is ported (file → Reserve range, byte-identical below each marker)
-- \`satin-material.ts\` ← \`src/lib/satin-material.ts\` 1–30 (whole file)
-- \`member-card-vars.ts\` ← \`src/lib/types.ts\` 162–185 (BrandTheme) · \`src/lib/reserve-api/member-ia.ts\` 238–253 (tenantGradientPair) · \`src/components/customer/salon-surface.tsx\` 36–61 (memberTenantVars)
-- \`ReserveCardPreview.tsx\` ← \`studio-home.tsx\` 417–455 (the card's measure effect) · \`studio-salon.tsx\` 56–102 (the cover's measure effect) · \`membership-date.tsx\` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 460–516, TenantCard 656–681; studio-salon.tsx StudioCover 145–230) with the edits listed in its header
+- \`satin-material.ts\` ← ${RANGES["satin-material.ts"]}
+- \`member-card-vars.ts\` ← ${RANGES["member-card-vars.ts"]}
+- \`ReserveCardPreview.tsx\` ← ${RANGES["ReserveCardPreview.tsx"]}
 - \`reserve-card.css\` ← \`src/index.css\` ${ranges.join(' · ')}, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
 Verbatim check (last run): ${verbatim}
 Scoped blocks (declarations after prefix strip): ${scopedCheck}
 
 ## Declared edits (not verbatim)
-- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
-- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
+${scopedLine}- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - \`ReserveCardPreview.tsx\` + \`card-color.ts\` — Colour inputs are normalised at the boundary (card-color.ts): only \`#RRGGBB\` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
-## Left out of index.css 4520–4685, and why
+## Left out of ${MANIFEST.leftOut.excludedFrom}, and why
 ${EXCLUDED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
 
 ## Other rules the surfaces match that are NOT ported
@@ -330,43 +384,26 @@ ${NOT_PORTED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
 ## Proof
 The harness ships in its own non-Business PR (branch \`feat/business-reserve-card-parity-harness\`): a shared file never rides in a Business PR (scripts/business/check-business-isolation.mjs). From a checkout of that branch, point it at this one with \`PARITY_REPO=<this checkout>\`; once both are on main, no env is needed.
 
-\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface and every verbatim block identical (any DIFFER fails the run). Report + PNGs: \`$PARITY_DIR/parity/\`.
+\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface and every verbatim block identical (any DIFFER fails the run). Report + PNGs: this run's own scratch dir \`<PARITY_DIR or tmpdir>/reserve-card-parity-XXXXXX/parity/\` — removed at exit; run with \`PARITY_KEEP=1\` to keep it (the path is printed as \`scratch kept: …\`).
 The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads \`reserve-card.expected-satin.json\` beside it, emitted by the harness from Reserve's own satin-material.ts.
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides \`.salon-rankfloat\` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
 
 ## Shipping
-\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: \`.tap44\` and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
+\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: the scoped tap-box rule and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
 
 ## Keeping it in step
 When Reserve changes any of these ranges, re-run the harness against the new pin; a diff = re-port, never patch.
 `
   writeFileSync(join(MOD, 'PARITY.md'), md)
 }
-const EXCLUDED = [
-  ['4521–4525 .member-shell-clearance--fab', 'the Home page root\'s bottom clearance for the tab tray + 受付 pill; the preview has neither'],
-  ['4546 .salon-rankfloat', 'the rank chip under the cover (store page body), not a surface element'],
-  ['4547–4549 .salon-next / __label / __date', 'the store page\'s 次回 block, not a surface element'],
-  ['4591 .member-ground.salon-surface > main', 'the store page\'s main column'],
-  ['4592–4630 .salon-rankfloat, .salon-next*, .salon-acts*, .salon-posts*', 'store page body (rank chip, next visit, points row, action buttons, posts) — the switchboard, LATER'],
-]
-const NOT_PORTED = [
-  ['69–103, 302–306, 727–738 :root / .dark', 'app-wide tokens; every one the surfaces read is re-pointed by the ported .member-ground blocks (740–753, 774–825)'],
-  ['193–195 ::selection', 'global text-selection tint; porting it would restyle every Business page'],
-  ['322–337, 523–529, 539–542, 644–648 .member-ground (tray / column)', 'tab-tray geometry and the page column; nothing in the surfaces reads them'],
-  ['930–932 .member-ground main.main--greet', 'the preview has no <main>; its only job (padding-top 0) is the wrapper\'s own default'],
-  ['1427–1443 .copy-ok', 'no element opts back into selection'],
-  ['1473–1512 button / row / deal press tiers', 'match no element of the three surfaces'],
-  ['1513–1527 :focus-visible rings', 'the preview holds no focusable element (its anchors carry no href)'],
-  ['146–170 .salon-surface', 'the store page root\'s tenant re-skin (ground, role tints); the cover reads none of it'],
-  ['4509–4512 .member-shell-clearance', 'page-root clearance for the tray'],
-]
+const EXCLUDED = MANIFEST.leftOut.excluded
+const NOT_PORTED = MANIFEST.leftOut.notPorted
 
 // ---- main ----
 async function main() {
   if (!existsSync(join(MOD, 'ReserveCardPreview.tsx'))) throw new Error(`no port module at ${MOD} — set PARITY_REPO to the checkout that holds it`)
   log(`module: ${MOD}`)
-  rmSync(OUT, { recursive: true, force: true }) // no stale PNG can sit beside this run's
-  mkdirSync(OUT, { recursive: true })
+  mkdirSync(OUT, { recursive: true }) // inside this run's own WORK: no stale PNG can sit beside this run's
   const verbatim = checkVerbatim()
   log(`verbatim blocks: ${verbatim}`)
   const scopedCheck = checkScoped()
@@ -394,11 +431,12 @@ async function main() {
       for (const f of sh('git', ['-C', COPY, 'diff', '--name-only']).split('\n').filter(Boolean)) touched.add(f)
       if (c.card) fenceStat = sh('git', ['-C', COPY, 'diff', '--stat']).trim().split('\n').join(' / ')
       const laCard = c.card ?? SEED.la.card, gymCard = c.gymCard ?? SEED.gym.card
-      // wait until Reserve's dev server serves the rewritten seed (never screenshot a stale module)
+      // wait until Reserve's dev server serves THIS case's file, proven by its unique marker (fields alone cannot
+      // tell: long and seed share both colours, so a colour probe passed on the stale long file at that hand-over)
       for (let i = 0; ; i++) {
         const served = await (await fetch(`${reserve.url}/src/lib/mock.ts`)).text()
-        if (served.includes(`cardColor: "${laCard}"`) && served.includes(`cardColor: "${gymCard}"`)) break
-        if (i > 100) throw new Error(`reserve never served the ${c.id} seed`)
+        if (served.includes(caseMarker(c.id))) { if (process.env.PARITY_DIAG) log(`served ${c.id} after ${i} waits`); break }
+        if (i > 100) throw new Error(`reserve never served the ${c.id} case (still serving ${served.match(/"parity-case:([^"]*)"/)?.[1] ?? 'no case marker'})`)
         await new Promise((r) => setTimeout(r, 100))
       }
       // …and the page must show it: the name, and the satin Reserve's own module emits for each colour
@@ -556,8 +594,8 @@ function checkVerbatim() {
   const show = (p) => sh('git', ['-C', RESERVE, 'show', `${PIN}:${p}`]).split('\n')
   const checks = [
     ['reserve-card.css', /^\/\* reserve index\.css:(\d+)–(\d+) \*\/$/, () => 'src/index.css'],
-    ['member-card-vars.ts', /^\/\/ reserve (\S+):(\d+)–(\d+) @ c2a9f95, verbatim$/, null],
-    ['ReserveCardPreview.tsx', /^\s*\/\/ (?:reserve src\/components\/customer\/)?(\S+?\.tsx):(\d+)–(\d+) @ c2a9f95, verbatim$/, null],
+    ['member-card-vars.ts', new RegExp(`^// reserve (\\S+):(\\d+)–(\\d+) @ ${SHORT}, verbatim$`), null],
+    ['ReserveCardPreview.tsx', new RegExp(`^\\s*// (?:reserve src/components/customer/)?(\\S+?\\.tsx):(\\d+)–(\\d+) @ ${SHORT}, verbatim$`), null],
   ]
   const where = { 'studio-home.tsx': 'src/components/customer/studio-home.tsx', 'studio-salon.tsx': 'src/components/customer/studio-salon.tsx', 'membership-date.tsx': 'src/components/customer/membership-date.tsx' }
   let ok = 0, all = 0
@@ -568,7 +606,12 @@ function checkVerbatim() {
       const m = l.match(re)
       if (!m) return
       const [path, a, b] = fixed ? [fixed(), +m[1], +m[2]] : [where[m[1]] ?? m[1], +m[2], +m[3]]
-      const want = show(path).slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      // an empty or inverted range would compare [] with [] and pass: it is a broken marker, never a proof
+      if (a < 1 || b < a) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — empty range)`); return }
+      const src = show(path), want = src.slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      // a range past the end of the pinned file slices short (or empty) and would match a short block: never a proof
+      const n = src.at(-1) === '' ? src.length - 1 : src.length // git show ends with a newline: the last split element is not a line
+      if (b > n || want.length !== b - a + 1) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — past EOF: file has ${n} lines)`); return }
       all++
       if (JSON.stringify(want) === JSON.stringify(got)) ok++
       else bad.push(`${file}:${i + 1} (${path}:${a}–${b})`)

@@ -11,6 +11,7 @@
 // for the network hop core itself would answer.
 import { createHmac } from 'node:crypto'
 import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
+import { rangedHeadFetch, WEBM_HEAD } from './helpers/container-head-fetch' // reason: S60 A2 probe stub
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 // Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
@@ -73,8 +74,14 @@ const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
   error: null as { message: string; status?: number; statusCode?: string } | null,
 }))
+// reason: S60 A2 — the finalize head probe signs a read URL (answered here) and
+// fetches 64 bytes through it (the ranged stub in beforeEach, a real webm head).
+const createSignedUrl = jest.fn(async (key: string, _ttl: number) => ({
+  data: { signedUrl: `https://proj.supabase.co/sign/${key}` } as { signedUrl: string } | null,
+  error: null as { message: string } | null,
+}))
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
+  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info, createSignedUrl }) } }),
 }))
 
 // The SDK's transport double. Self-contained inside the factory (jest.mock
@@ -242,6 +249,8 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
+  // reason: S60 A2 — the head probe reads a real webm head, so every take here stays readable.
+  global.fetch = jest.fn(rangedHeadFetch(206, WEBM_HEAD)) as unknown as typeof fetch
   held.clear()
   setRow({ ...ROW, audio_storage_path: KEY })
   fetchCalls.length = 0

@@ -33,10 +33,27 @@
 // (next.config staleTimes.dynamic = 300) before it re-renders and 404s.
 
 import { notFound } from 'next/navigation'
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
+import { recordBusinessAdmissionFailure } from './admission-failure-record'
 
-export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
+// ⚖ 9/30 black box lane — a READ FAILURE on the admission path (an auth error
+// other than a plain "no session", a failed read, a throw) leaves one server-side
+// record per failed read, through the one writer in ./admission-failure-record.
+// An admitted person whose management read failed gets one too. The answer (the
+// bare 404, or the admission another leg grants) is the caller's own; the record
+// is never user text, and the writer never throws.
+
+export interface BusinessAdmission {
+  userId: string
+  email: string | null
+  /** ⚖ R53 — the person's own name for the shell card: auth user_metadata.full_name,
+   *  which the invite-accept flow writes (src/actions/invites.ts createUser). Off the
+   *  SAME getUser() read; null when absent or blank (the card then shows the e-mail). */
+  displayName: string | null
+  businessId: string
+}
 
 /** null = denied, for any reason. Kept apart from the notFound() call below so
  *  the catch-all can never swallow Next's own control-flow throw. */
@@ -48,7 +65,19 @@ async function admit(): Promise<BusinessAdmission | null> {
 
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
-  if (!user || error) return null
+  // Missing = no user and either no error or the SDK's own AuthSessionMissingError
+  // (@supabase/auth-js 2.99.1 src/lib/errors.ts:120 — what getUser returns for a
+  // signed-out request, GoTrueClient.ts _getUser) → null, no record, as today.
+  // Any OTHER auth error (an invalid token, an outage, a rate limit) → null as
+  // today, but with a record first, so an outage is no longer silent.
+  if (error) {
+    const e = error as { name?: unknown; status?: unknown; message?: unknown }
+    if (e.name !== 'AuthSessionMissingError') {
+      recordBusinessAdmissionFailure('auth-error', { where: 'getUser', status: e.status, message: e.message })
+    }
+    return null
+  }
+  if (!user) return null
   const businessId = await businessIdForUser(user.id)
   if (!businessId) return null
   const [grant, management] = await Promise.all([
@@ -58,11 +87,35 @@ async function admit(): Promise<BusinessAdmission | null> {
   if (!grant.granted) return null
   const isGrantee = grant.grantedBy != null && grant.grantedBy === user.id
   if (!isGrantee && !management) return null
-  return { userId: user.id, email: user.email ?? null, businessId }
+  const fullName: unknown = user.user_metadata?.full_name
+  const displayName = typeof fullName === 'string' && fullName.trim() !== '' ? fullName.trim() : null
+  return { userId: user.id, email: user.email ?? null, displayName, businessId }
 }
 
-export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
-  const admitted = await admit().catch(() => null)
+// ONE admission per request (⚖ S5 fix round, F2 + C4): React cache() memoises
+// it for the render, so generateMetadata, the layout and the page share one
+// auth round-trip. Outside a render (route handlers, jest) there is no cache
+// dispatcher and cache() calls the function directly — uncached, as before.
+export const requireBusinessAdmission = cache(async (): Promise<BusinessAdmission> => {
+  const admitted = await admit().catch((e: unknown) => {
+    recordBusinessAdmissionFailure('threw', { where: 'admit', message: e })
+    return null
+  })
   if (!admitted) notFound()
   return admitted
+})
+
+/** ⚖ R53 — ends this browser's session (the Business shell's ログアウト). Here because this
+ *  file is one of the two the play-phase fence lets hold a supabase client; the route
+ *  (api/business/sign-out) only calls it. Scope 'local': this device only, never the phone's session (S41 X2).
+ *  No admission read — signing out needs none. false = the sign-out did not complete. */
+export async function endSession(): Promise<boolean> {
+  try {
+    const supabase = await createClient()
+    // ⚖ S41 X2 (lead) — THIS device only. The default (global) scope also revoked the phone's session.
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
+    return !error
+  } catch {
+    return false
+  }
 }

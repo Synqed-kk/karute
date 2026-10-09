@@ -74,6 +74,7 @@ export async function loadUnprocessedVisits(
       id: string
       customer_id: string
       starts_at: string
+      staff_id: string | null
       status?: string
       notes?: string | null
     }> = []
@@ -111,6 +112,7 @@ export async function loadUnprocessedVisits(
       isCancelled: isTerminalStatus(a.status ?? ''),
       isImport: (a.notes ?? '').includes('sheet-import'),
       hasKarute: karuteByAppointment.has(a.id),
+      staffId: a.staff_id ?? null,
     }))
 
     const dismissals = new Set(
@@ -176,6 +178,7 @@ export async function loadUnprocessedVisitsWithClient(
     id: string
     customer_id: string
     starts_at: string
+    staff_id: string | null
     status?: string
     notes?: string | null
   }> = []
@@ -211,6 +214,7 @@ export async function loadUnprocessedVisitsWithClient(
     isCancelled: isTerminalStatus(a.status ?? ''),
     isImport: (a.notes ?? '').includes('sheet-import'),
     hasKarute: karuteByAppointment.has(a.id),
+    staffId: a.staff_id ?? null,
   }))
 
   const dismissals = new Set(

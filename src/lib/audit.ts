@@ -245,6 +245,7 @@ export type FacadeEndpointKey =
   | 'appointment.create'
   | 'appointment.noShow'
   | 'appointment.restore'
+  | 'appointment.assignStaff'
   | 'askAi.read'
   | 'audit.list'
   | 'customer.ai.bodyPrediction'
@@ -429,6 +430,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'appointment.cancel': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#cancelAppointmentCore' },
   'appointment.noShow': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#markNoShowAppointmentCore' },
   'appointment.restore': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#restoreAppointmentCore' },
+  'appointment.assignStaff': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#updateAppointmentCore' },
   // dashboard pack mutations (design-parity Gap B-1 PR 2): the trail lives
   // in the rows themselves (dismissed_by / contacted_by stamps on the
   // packs tables), and the web actions emit no app-side audit for these
@@ -1020,6 +1022,15 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       coveredBy: 'src/app/api/sync/quickreserve/config/route.ts#POST',
     },
   },
+  // S53 PR-C (2026-10-06): the 予約同期 all-stores list, stores.viewAll only.
+  'sync/quickreserve/configs': {
+    GET: {
+      kind: 'skip',
+      justification:
+        'sync-settings metadata read (state, Quick Reserve store, schedule per store); no password or login id leaves the route — same posture as the sibling config GET.',
+      dated: '2026-10-06',
+    },
+  },
   'sync/quickreserve-deep': {
     kind: 'skip',
     justification: 'retired stub, always 501, no action performed.',
@@ -1117,6 +1128,15 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "Business booking colours (org settings' booking_colors, the per-store map, closed palette, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
     dated: '2026-09-25',
   },
+  // ⚖ S49 R86 (Liam 10/1 「If there's no harm in doing it now, use it now.」) — SYNQED Business's お店ページ switches
+  // save, the booking-colours route's twin: one org-settings key per store through the practice door (Dev Salon
+  // only until CORE-47), one structured server log line per real write. Core audit row = R5 (later).
+  'business/store-capabilities': {
+    kind: 'skip',
+    justification:
+      "Business store capabilities (org settings' reserve_store_capabilities:<storeId>, one key per store, the CORE-47 wire record, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
+    dated: '2026-10-01',
+  },
   // ⚖ S24 (PLAN-BUSINESS-LIVE v2.2 §3 W0, batched ahead in W0 PR (1)) — SYNQED Business's first door route, the
   // booking move. Unlike the two settings rows above it IS audited, and not by Business: the route calls the
   // phone's own reschedule core through the ONE shared-cores door file (business-territory.json "sharedCores"),
@@ -1159,5 +1179,14 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
         "Business store-days special open days (特別営業日) (DELETE) — one storePolicies.set of the full array; core writes the store_policy.edit audit row itself; the route emits nothing of its own. Covered by core's own store_policy.edit row; no coveredBy symbol exists for these SDK-emitted writes.",
       dated: '2026-09-29',
     },
+  },
+  // ⚖ R53/R55 (PR #1107) — SYNQED Business's ログアウト: server-side sign-out inside Business territory. Auth only:
+  // supabase auth.signOut({ scope: 'local' }) through admission.ts, no facade, no core, no row written. Rows before
+  // sites, as #1030 did for card-color: the route file lands with #1107.
+  'business/sign-out': {
+    kind: 'skip',
+    justification:
+      "Business sign-out (POST, R55) — server-side auth.signOut({ scope: 'local' }) inside Business territory; auth only, no facade, no core read or write, nothing to audit (a session ending is not a business mutation). Same-origin guarded as the card-color route.",
+    dated: '2026-09-30',
   },
 }

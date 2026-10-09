@@ -49,6 +49,7 @@ import { createHmac } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+import { WEBM_HEAD } from './helpers/container-head-fetch'
 
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
@@ -174,7 +175,9 @@ const headBytes: { current: number | null } = { current: 32_400_000 }
 // the wrapper away.
 const deepgramHttp: { next: (() => Response) | null } = { next: null }
 const originalFetch = global.fetch
-const fetchMock = jest.fn(async (url: unknown, init?: { method?: string }) => {
+const fetchMock = jest.fn(async (url: unknown, init?: { method?: string; headers?: Record<string, string> }) => {
+  // S60 A3: the meter's head probe (Range: bytes=0-63) gets a real webm head, never the queued Deepgram answer.
+  if (init?.headers?.Range === 'bytes=0-63') return new Response(WEBM_HEAD.slice(), { status: 206 })
   if (init?.method === 'HEAD') {
     if (headBytes.current == null) throw new Error('storage unreachable')
     return { headers: new Headers({ 'content-length': String(headBytes.current) }) }
@@ -1722,9 +1725,10 @@ describe('the reserve on the buffer door (the web FormData path)', () => {
   it('bytes come from the buffer itself — no HEAD, same rules', async () => {
     const form = new FormData()
     // 3,000,000 B ÷ 6,000 B/s = 500 s → 5 ¢ reserved; the provider says 5,400.
+    // S60 A3: the buffer opens with a real webm head (the meter sniffs it); still exactly 3,000,000 B.
     form.append(
       'audio',
-      new File([new Uint8Array(3_000_000)], 'take.webm', { type: 'audio/webm' }),
+      new File([WEBM_HEAD, new Uint8Array(3_000_000 - WEBM_HEAD.length)], 'take.webm', { type: 'audio/webm' }),
     )
     form.append('locale', 'ja')
 
@@ -2106,7 +2110,8 @@ describe('charge once — the durable transcript memo', () => {
 
   it('t6 the web multipart arm carries no key → no memo read or write, and it pays', async () => {
     const form = new FormData()
-    form.append('audio', new File([new Uint8Array(3_000_000)], 'take.webm', { type: 'audio/webm' }))
+    // S60 A3: the buffer opens with a real webm head (the meter sniffs it); still exactly 3,000,000 B.
+    form.append('audio', new File([WEBM_HEAD, new Uint8Array(3_000_000 - WEBM_HEAD.length)], 'take.webm', { type: 'audio/webm' }))
     form.append('locale', 'ja')
 
     const res = await webTranscribePOST(

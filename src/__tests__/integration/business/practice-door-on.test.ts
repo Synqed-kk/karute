@@ -11,13 +11,14 @@ jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   const actual = jest.requireActual('@/business/lib/practice-door/core-reach')
-  const { practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
+  const { doorFor, practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
   return {
     ...actual,
     clientFor: (admitted: { businessId: string }) => {
+      mockBuilt.n += 1 // R50 P1/P2 — how many times a core client was asked for
       const tenant = practiceTenant()
       if (tenant === null) throw new Error('practice door called with the switch unset')
-      if (admitted.businessId !== tenant) throw new actual.PracticeTenantMismatch(admitted.businessId)
+      if (!doorFor(admitted.businessId)) throw new actual.PracticeTenantMismatch(admitted.businessId) // R50 F2 — the real guard's one match
       return mockCore.reads
     },
   }
@@ -32,16 +33,27 @@ jest.mock('@/business/lib/data', () => {
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as data from '@/business/lib/data'
+import * as door from '@/business/lib/practice-door/door'
+import { hash } from '@/business/lib/practice-door/door-inbox-register'
+import { INBOX_WINDOW_DAYS } from '@/business/lib/inbox'
+import { WINDOW_DAYS as RESERVATIONS_WINDOW_DAYS } from '@/app/[locale]/(business)/business/reservations/reservations-props'
+import { threads as fixtureThreads } from '@/business/lib/fixtures-inbox'
+import { reservations as fixtureReservations } from '@/business/lib/fixtures-reservations'
+import { transactions as fixtureTransactions, closing as fixtureClosing, cashTolerance, type FixtureTransaction } from '@/business/lib/fixtures-register'
+import { buildLedger, ledgerTotals, expectedCash, denominationTotal } from '@/business/lib/register'
+import { inboxProps } from '@/app/[locale]/(business)/business/inbox/inbox-props'
+import { registerProps } from '@/app/[locale]/(business)/business/register/register-props'
+
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
+import { doorFor } from '@/business/lib/practice-door/switch'
 import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
   sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
-import { customers, operator, staff as fxStaff, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
+import { customers, operator, staff as fxStaff, stores as fxStores, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
@@ -66,6 +78,7 @@ import {
 
 // Hoisted-mock handle (jest allows `mock`-prefixed names in a factory).
 const mockCore: { reads: CoreReads } = { reads: recordedReads() }
+const mockBuilt = { n: 0 }
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 
 // 13:24 JST on 2026-09-14 — the recorded bookings' day. Date only; timers stay real.
@@ -85,7 +98,7 @@ function withReads(o: RecordedOptions = {}): Spied {
 /** ⚖ §v11 PR-B — the floating path (no assignments row = every store), with むすび's recorded row taken out. */
 const floatingMusubi = () => withReads().staffStoresList.mockResolvedValue({ assignments: Object.fromEntries(Object.entries(ASSIGNMENTS).filter(([id]) => id !== CARD.musubi)) })
 function as(userId: string, email: string | null = null, businessId: string = TENANT) {
-  admission.mockResolvedValue({ userId, email, businessId })
+  admission.mockResolvedValue({ userId, email, displayName: null, businessId })
 }
 
 const saved = process.env.BUSINESS_PRACTICE_TENANT
@@ -126,6 +139,16 @@ describe('(1) OWNER — viewAll', () => {
     expect(typeof shell.reserveSyncedAt).toBe('string')
     withReads({ orgName: null })
     expect((await data.readShellIdentity()).business.name).toBe('')
+  })
+
+  it('R53 P2 readShellViewer door ON: the core card + the admission e-mail + the role label, the operator untouched', async () => {
+    as(LOGIN.owner, 'dev@karute.test')
+    const admitted = await requireBusinessAdmission()
+    const viewer = await data.readShellViewer(admitted)
+    const shell = await data.readShellIdentity()
+    expect(viewer).toEqual({ name: shell.operator.name, mark: shell.operator.mark, email: admitted.email, roleLabel: 'オーナー' })
+    expect(viewer.name).toBe('Dev Salon')
+    expect(viewer.email).toBe('dev@karute.test')
   })
 
   it('listStaff(東京): the 東京-assigned + floating cards; the inactive card never', async () => {
@@ -200,7 +223,7 @@ describe('(1) OWNER — viewAll', () => {
     expect([by(APT.a03).status, by(APT.a03).board_state]).toEqual(['booked', 'confirmed']) // SCHEDULED
     expect([by(APT.a05).status, by(APT.a05).board_state]).toEqual(['cancelled', null]) // CANCELLED
     expect([by(APT.a09).status, by(APT.a09).board_state]).toEqual(['booked', 'noshow']) // NO_SHOW
-    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['booked', 'confirmed']) // IN_PROGRESS
+    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['in_progress', 'confirmed']) // IN_PROGRESS — ⚖ S81 R1 carried, board_state as SCHEDULED
     expect(by(APT.a14).display_no).toBe('R-4814')
     expect(by(APT.a14).updated_minute).toBe(15 * 60 + 30)
     expect(by(APT.a01).updated_minute).toBeNull()
@@ -379,7 +402,7 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
     for (const s of closed) expect(s.boundaryLine).toContain('スタッフの権限では開けません')
     // ⚖ A1b — every GATED section, store or business: `!== 'self'` is what `scope === 'store'` meant here.
     const needsManage = RAIL.filter((e) => e.scope !== 'self' && e.needs === 'settings.manage').map((e) => e.id)
-    expect(needsManage).toContain('reserve-card-look')
+    expect(needsManage).toContain('reserve-store-page')
     expect(needsManage.length).toBeGreaterThan(0)
     for (const id of needsManage) expect(props.sections.find((x) => x.id === id)?.gate).toBe('no-rights')
   })
@@ -424,18 +447,18 @@ describe("(2c) a live actor's SAMPLE rows are their fixture twin's", () => {
   })
   it('sampleSelfId: OFF identity; ON the twin, an unknown uuid → null', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    expect(sampleSelfId(false, 'staff', 'p-06')).toBe('p-06')
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(sampleSelfId('staff', CARD.azusa)).toBe('p-06')
-    expect(sampleSelfId('staff', CARD.owner)).toBeNull()
-    expect(sampleSelfId('staff', null)).toBeNull()
+    expect(sampleSelfId(true, 'staff', CARD.azusa)).toBe('p-06')
+    expect(sampleSelfId(true, 'staff', CARD.owner)).toBeNull()
+    expect(sampleSelfId(true, 'staff', null)).toBeNull()
   })
   it('attachSample: OFF the same plane (same reference); ON the ids rewritten', () => {
     const plane = [{ appointment_id: 'apt-14', store_id: STORE_A, by_staff_card_id: 'c-03' }]
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(attachSample(plane, null)).toBe(plane)
+    expect(attachSample(false, plane, null)).toBe(plane)
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(attachSample(plane, null)).toEqual([{ appointment_id: APT.a14, store_id: STORE.tokyo, by_staff_card_id: 'c-03' }])
+    expect(attachSample(true, plane, null)).toEqual([{ appointment_id: APT.a14, store_id: STORE.tokyo, by_staff_card_id: 'c-03' }])
   })
 })
 
@@ -449,7 +472,7 @@ describe('(3) UNASSIGNED — null without viewAll is EMPTY (fold F-2)', () => {
 })
 
 describe('(4)–(8) walls, identity, paging, errors', () => {
-  it('(4) tenant mismatch: every reader rejects before any read', async () => {
+  it('(4) R50 — another admitted business takes the OFF path: every reader answers the sample world, no core client', async () => {
     const spy = withReads()
     as(LOGIN.owner, null, 'other')
     const calls: Array<() => Promise<unknown>> = [
@@ -460,7 +483,13 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
       () => data.readDayPlanes(STORE.tokyo, TODAY), () => data.readReservationPlanes(STORE.tokyo), () => data.readAnalyticsPlanes(STORE.tokyo),
       () => data.listStaff(STORE.tokyo), () => data.readStaffStores(STORE.tokyo),
     ]
-    for (const call of calls) await expect(call()).rejects.toBeInstanceOf(PracticeTenantMismatch)
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const off: unknown[] = []
+    for (const call of calls) off.push(await call())
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    mockBuilt.n = 0
+    for (const [i, call] of calls.entries()) expect(await call()).toEqual(off[i])
+    expect(mockBuilt.n).toBe(0)
     expect(spy.storesList).not.toHaveBeenCalled()
     expect(spy.staffList).not.toHaveBeenCalled()
   })
@@ -507,25 +536,25 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   it('OFF: exactly defaultKindOf + storeDials, including the throw', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     const allLive = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
-    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
-    expect(() => storeSample('nope')).toThrow('Missing default kind for store nope')
+    expect(storeSample(false, STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
+    expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
     // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
     const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
-    expect(storeSample(STORE.laEstro)).toEqual(onA)
-    expect(storeSample(STORE.devSalon)).toEqual(onA)
-    expect(storeSample('nope')).toEqual(onA)
+    expect(storeSample(true, STORE.laEstro)).toEqual(onA)
+    expect(storeSample(true, STORE.devSalon)).toEqual(onA)
+    expect(storeSample(true, 'nope')).toEqual(onA)
   })
   // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
   // (which is also every OFF answer).
   it('PR-3 marked: OFF false on every fixture store; ON true on a twin and on a borrower (V4-2)', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
+    for (const id of [STORE_A, STORE_B]) expect(storeSample(false, id)).toMatchObject({ state: 'sample', marked: false })
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
-    expect(storeSample(STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(true, STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
   })
   // ⚖ PR-3 §v4 V4-2 — ⚠1/⚠2: no practice store is empty, no id answers `none`.
   const SEVEN = {
@@ -536,7 +565,7 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   }
   it('(a) every practice store + the fallback: dials non-null, words = its plane\'s own (the fixture kinds carry null words)', () => {
     for (const id of [...Object.values(SEVEN), 'not-in-the-table']) {
-      const s = storeSample(id)
+      const s = storeSample(true, id)
       expect({ id, state: s.state, dials: s.dials !== null }).toEqual({ id, state: 'sample', dials: true })
       const fixture = samplePolicyFor(id)
       expect(fixture.kind).toBe('twin')
@@ -547,15 +576,15 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     }
   })
   it('(b) an unknown uuid under ON: sample, dials non-null, marked', () => {
-    expect(storeSample('11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
+    expect(storeSample(true, '11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
   })
   it('(c) no-sample-policy is unreachable under ON — the seven + three random uuids', () => {
     const random = ['0f0f0f0f-1e1e-4d2d-8c3c-4b4b4b4b4b4b', 'ffffffff-ffff-4fff-bfff-ffffffffffff', '12345678-9abc-4def-8123-456789abcdef']
-    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(id).state }).toEqual({ id, state: 'sample' })
+    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(true, id).state }).toEqual({ id, state: 'sample' })
   })
   it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
     expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
-    expect(storeSample(SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
+    expect(storeSample(true, SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
   })
 })
 
@@ -569,44 +598,46 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
   // `bookingColors` is LIVE in the practice table; every other plane stays SAMPLE.
   it('every plane is SAMPLE for the practice business but bookingColors (LIVE, §v6 V6-2), and `marked` IS 「some plane is sample」', () => {
     expect(Object.entries(PRACTICE_PLANES).filter(([, s]) => s !== 'sample')).toEqual([['bookingColors', 'live']])
-    expect(sampleWhole(STORE.tokyo, 'bookingColors')).toBeUndefined()
-    expect(sampleWhole(STORE.tokyo, 'language')).toEqual({ form: 'whole' })
-    const s = storeSample(STORE.tokyo)
+    expect(sampleWhole(true, STORE.tokyo, 'bookingColors')).toBeUndefined()
+    expect(sampleWhole(true, STORE.tokyo, 'language')).toEqual({ form: 'whole' })
+    const s = storeSample(true, STORE.tokyo)
     expect(s.state === 'sample' && s.marked === Object.values(s.planes).some((p) => p === 'sample')).toBe(true)
   })
   it('OFF: no mark from either reader, on any store; the planes read all live', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     for (const id of [STORE_A, STORE_B]) {
-      expect(sampleWhole(id, 'auditLog')).toBeUndefined()
-      expect(samplePart(id, ...BOARD)).toBeUndefined()
-      const s = storeSample(id)
+      expect(sampleWhole(false, id, 'auditLog')).toBeUndefined()
+      expect(samplePart(false, id, ...BOARD)).toBeUndefined()
+      const s = storeSample(false, id)
       expect(s.state === 'sample' && Object.values(s.planes).every((p) => p === 'live')).toBe(true)
     }
   })
   it('F-6 — no store in view (a storeless 設定 / an empty list): no mark, never a storeSample call', () => {
-    expect(sampleWhole(null, 'auditLog')).toBeUndefined()
-    expect(samplePart(null, 'staffActive')).toBeUndefined()
-    expect(sampleWhole([], 'decisions')).toBeUndefined()
+    expect(sampleWhole(true, null, 'auditLog')).toBeUndefined()
+    expect(samplePart(true, null, 'staffActive')).toBeUndefined()
+    expect(sampleWhole(true, [], 'decisions')).toBeUndefined()
   })
   it('ON: whole form; part form names its planes by the native-pass labels, deduped (shifts + absence = ONE label), in order', () => {
-    expect(sampleWhole(STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
-    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
-    expect(samplePart(STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
+    expect(sampleWhole(true, STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(samplePart(true, STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
   })
   it('flipping ONE plane live for ONE store removes that plane and nothing else; a plane still sample elsewhere in view keeps it', () => {
     STORE_PLANE_OVERRIDES[STORE.tokyo] = { operatingHours: 'live' }
-    expect(sampleWhole(STORE.tokyo, 'operatingHours')).toBeUndefined()
-    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
-    expect(sampleWhole(STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
-    expect(sampleWhole(STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
-    expect(sampleWhole([STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(sampleWhole(true, STORE.tokyo, 'operatingHours')).toBeUndefined()
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
+    expect(sampleWhole(true, STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
+    expect(sampleWhole(true, STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
+    expect(sampleWhole(true, [STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
     STORE_PLANE_OVERRIDES[STORE.tokyo] = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
-    expect(samplePart(STORE.tokyo, ...BOARD)).toBeUndefined()
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toBeUndefined()
     expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
   })
   it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
+    expect(PLANE_ROW).toMatchObject({ inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id' })
+    expect(PRACTICE_PLANES).toMatchObject({ inboxThreads: 'sample', registerLedger: 'sample' })
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
     expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
@@ -820,6 +851,10 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
 })
 
 describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
+  it('S84 settlements preserve the full M-A/FE-1 aggregate', async () => {
+    await data.readRegisterPlanes(STORE.tokyo, undefined, { transactions: [], closing: null, cashTolerance: 0 })
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY)).register).toEqual({ cash_difference: 0, refunds: 0, terminal_held: [] })
+  })
   it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
     expect(register.refunds).toBeGreaterThan(0) // the fixture refund the door used to spread onto a live 純売上
     const day = await data.readDayPlanes(STORE.tokyo, TODAY)
@@ -831,7 +866,7 @@ describe('(12) PR-2b — the register plane under ON is neutral, never fixture m
 
 describe('⚖ A1b — カードの見た目 under ON: the colour comes from org settings through the door, one per business', () => {
   const orgWith = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'x' })
-  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-card-look')!
+  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-store-page')!
 
   it.each([
     ['#1c2247', '#1C2247'],
@@ -865,7 +900,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     spy.storesList.mockResolvedValue({ stores: [] }) // the owner sees no store: the all-stores view
     const { props } = await settingsProps({ locale: 'ja' })
     expect(props.dateline.endsWith('/ すべての店舗')).toBe(true)
-    const all = props.sections.find((s) => s.id === 'reserve-card-look')!
+    const all = props.sections.find((s) => s.id === 'reserve-store-page')!
     expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
       .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
   })
@@ -876,7 +911,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     expect(await data.readStoreAddress(STORE.tokyo)).toBe('東京都港区実在1-2-3')
     expect((await look(STORE.tokyo)).cardLook!.address).toBe('東京都港区実在1-2-3')
     // 横浜 is a fixture TWIN with a sample address in its dials; core holds none → omitted, never the fixture's
-    expect(storeSample(STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
+    expect(storeSample(true, STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
     expect(await data.readStoreAddress(STORE.yokohama)).toBeNull()
     expect('address' in (await look(STORE.yokohama)).cardLook!).toBe(false)
   })
@@ -886,7 +921,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     const colour = data.readReserveCardColor as jest.Mock
     colour.mockClear()
     const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
-    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('open')
+    expect(props.sections.find((s) => s.id === 'reserve-store-page')!.gate).toBe('open')
     expect(colour).toHaveBeenCalledTimes(1)
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
   })
@@ -898,27 +933,35 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     colour.mockClear()
     address.mockClear()
     const { props } = await settingsProps({ locale: 'ja' })
-    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('no-rights')
+    expect(props.sections.find((s) => s.id === 'reserve-store-page')!.gate).toBe('no-rights')
     expect(colour).not.toHaveBeenCalled()
     expect(address).not.toHaveBeenCalled()
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1) // the shell's own (the business name)
   })
 
-  it('another business is refused before any read — nothing of it can reach the payload', async () => {
+  it('R50 — another admitted business gets the OFF props, byte for byte — nothing of core can reach the payload', async () => {
     const spy = withReads()
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const off = await settingsProps({ locale: 'ja' })
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
     as(LOGIN.owner, null, '00000000-0000-4000-8000-00000000dead')
-    await expect(settingsProps({ locale: 'ja' })).rejects.toThrow(PracticeTenantMismatch)
+    expect(await settingsProps({ locale: 'ja' })).toEqual(off)
+    expect(off.props.dateline.startsWith('サンプルデータ ')).toBe(true)
     expect(spy.orgSettingsGet).not.toHaveBeenCalled()
   })
 })
 
 describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door', () => {
-  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (borrows 東京)', STORE.devSalon]])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
+  // ⚖ S81 F5 — 営業時間 is named only when the hours painted ARE the sample set: 東京's come from its own core week.
+  it.each([
+    ['twin 東京 (hours from core)', STORE.tokyo, ['シフトと休み', '販売可能枠']],
+    ['Dev Salon (borrows 東京; hours sample)', STORE.devSalon, ['シフトと休み', '販売可能枠', '営業時間']],
+  ])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store, labels) => {
     const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
     const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
     const props = (el as unknown as { props: Record<string, unknown> }).props
     // ⚖ §v3 — the grid head names its planes (D2 order); the decisions + 勤務不可 marks are whole.
-    expect(props.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(props.boardMark).toEqual({ form: 'part', labels })
     expect(props.decisionsMark).toEqual({ form: 'whole' })
     expect(props.absenceMark).toEqual({ form: 'whole' })
     expect(props).not.toHaveProperty('marked')
@@ -1356,7 +1399,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
   })
 
-  it('§v11 V11-2a (final 17:5x) — a malformed weekday never takes the week with it and never borrows another world\'s day: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and is drawn with the store\'s OWN usual window, logged', async () => {
+  // ⚖ S81 R8 — V11-2a's own difference is RETIRED: the ONE resolver sends a malformed weekday on to the business hours /
+  // default; with no business hours set, R6 serves that default day the store's usual pair — the same window as before.
+  it('§v11 V11-2a → S81 R8 — a malformed weekday never takes the week with it: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and goes on through the resolver (no business hours here → the usual pair, R6), logged', async () => {
     const spy = withReads()
     // ⚖ §v11 V11-14 P9 (PR-B) — RE-PINNED at a usual pair (Tue + Fri 09:00–20:00) that is NOT the sample default 10:00–19:00:
     // the old pin's usual pair equalled the sample one, so it could not tell the usual-pair path from the sample path.
@@ -1370,10 +1415,257 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
       expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, W, W, null, T, W, null]) // Monday = the usual pair (Tue + Fri)
       expect(day.closedWeekdays).toEqual([3, 6]) // core's own closures only — never a closure the store did not set
-      expect(quiet).toHaveBeenCalledWith("[practice hours] malformed weekday served as the store's usual window:", STORE.yokohama, '1')
+      expect(quiet).toHaveBeenCalledWith('[practice hours] malformed weekday sent on to the business hours / default:', STORE.yokohama, '1')
     } finally {
       quiet.mockRestore()
     }
+  })
+
+  // ⚖ S81 R4/R7 — 臨時休業 and 臨時営業日 through Karute's ONE resolver: the shown day answers for itself, painted exactly as a
+  // closed (or open) weekday is painted today; the 定休日 legend and every other day keep the weekday's answer.
+  const boardOn = async (store: string, day: number) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, day: String(day) }) })
+    return (el as unknown as { props: { calendar: Array<{ m: number; d: number; closed?: boolean }>; closedWeekdayLabel: string | null } }).props
+  }
+  const cell = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => b.calendar.find((c) => c.m === 9 && c.d === d)!.closed
+  it('S81 R7 — a 臨時休業 date closes the shown day alone (shifts none, the cell 休), never a 定休日; a failed 臨時休業 read is never 「no closed days」', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY)
+    expect([day.shownDayClosed, day.closedWeekdays, day.operatingHours, hoursSource(day)]).toEqual(['closed_date', [2], { open: 600, close: 1140 }, 'core'])
+    // as a closed weekday: nobody is seated off the sample roster — only a person with a live row that day keeps a lane
+    const live = new Set((await data.listAppointments(STORE.tokyo, {})).filter((a) => jstDayKey(a.starts_at) === TODAY).map((a) => a.staff_id))
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY, to: TODAY + 7 })).get(TODAY)!
+    expect(seated.filter((x) => !live.has(x.staff_id))).toEqual([])
+    expect((await data.listAbsenceByDay(STORE.tokyo, { from: TODAY, to: TODAY })).get(TODAY)).toBeNull()
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cell(b, 14), cell(b, 21), cell(b, 15), b.closedWeekdayLabel]).toEqual([true, false, true, '火曜'])
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockRejectedValue(new Error('closed days down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const failed = await data.readDayPlanes(STORE.tokyo, TODAY)
+      expect([hoursSource(failed), failed.operatingHours]).toEqual(['sample', operatingHours])
+      expect(quiet).toHaveBeenCalledWith('[practice hours] core did not answer:', 'closed days down')
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  it('S81 R7 — a 臨時営業日 on a 定休日 opens that day with its own window; the next Tuesday stays 定休日', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours, day.closedWeekdays]).toEqual([null, { open: 660, close: 900 }, [2]])
+    const b = await boardOn(STORE.tokyo, 1)
+    expect([cell(b, 15), cell(b, 22), b.closedWeekdayLabel]).toEqual([false, true, '火曜'])
+  })
+
+  // ⚖ S81 F1/F2/F4 — the fold of the cold read + attack: every calendar day resolves through ITS OWN layers.
+  type Cell = { m: number; d: number; closed?: boolean; fits?: number }
+  const cellOf = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => (b.calendar as Cell[]).find((c) => c.m === 9 && c.d === d)!
+  const notLive = async (store: string, dayKey: number, shifts: Array<{ staff_id: string }>) => {
+    const live = new Set((await data.listAppointments(store, {})).filter((a) => jstDayKey(a.starts_at) === dayKey).map((a) => a.staff_id))
+    return shifts.filter((x) => !live.has(x.staff_id))
+  }
+  it('S81 F1 (ATTACK B1) — a 臨時営業日 on a 定休日, shown ≠ today: the window is its own AND the calendar day seats staff (fits > 0, never 満)', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours]).toEqual([null, { open: 660, close: 900 }])
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 7, to: TODAY + 7 })).get(TODAY + 1)!
+    expect(seated.length).toBeGreaterThan(0)
+    expect(seated.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY, to: TODAY + 8 })).get(TODAY + 1)).toEqual({ closed: null, window: { open: 660, close: 900 } })
+    for (const shownDay of [1, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 15) // shown, and seen from today
+      expect([c.closed, c.fits! > 0]).toEqual([false, true])
+    }
+  })
+  it('S81 F1 (ATTACK S1) — a 臨時休業 TODAY seen from another day: today\'s cell is closed, nobody seated, the same answer as when shown', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.listHoursByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)?.closed).toBe('closed_date')
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)!
+    expect(await notLive(STORE.tokyo, TODAY, seated)).toEqual([])
+    for (const shownDay of [2, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 14)
+      expect([c.closed, c.fits]).toEqual([true, 0])
+    }
+  })
+  it('S81 F2 (ATTACK S2) — a no-week store (sample hours): the day\'s REAL 臨時休業 seats nobody; its REAL 臨時営業日 clips the sample shifts to its window', async () => {
+    const row = { id: 'c2', store_id: STORE.yokohama, date: '2026-09-16', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.yokohama]: [row] } })
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-17', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const closed = await data.readDayPlanes(STORE.yokohama, TODAY + 2)
+    expect([hoursSource(closed), closed.shownDayClosed]).toEqual(['sample', 'closed_date'])
+    expect(await notLive(STORE.yokohama, TODAY + 2, closed.shifts)).toEqual([])
+    const special = await data.readDayPlanes(STORE.yokohama, TODAY + 3)
+    expect([hoursSource(special), special.shownDayClosed, special.operatingHours]).toEqual(['sample', null, { open: 660, close: 900 }])
+    expect(special.shifts.length).toBeGreaterThan(0)
+    expect(special.shifts.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    // a plain sample day keeps the sample fiction, unclipped (as before)
+    const plain = await data.readDayPlanes(STORE.yokohama, TODAY + 4)
+    expect(plain.shifts.some((x) => x.start < 660 || x.end > 900)).toBe(true)
+  })
+  it('S81 F4 (M21) → S82 G2 — the door asks core for the 臨時休業 rows of the board\'s whole reach (to exclusive), never today\'s alone; the shown day\'s own row closes it', async () => {
+    const row = { id: 'c3', store_id: STORE.tokyo, date: '2026-09-17', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY + 3)).shownDayClosed).toBe('closed_date')
+    expect(spy.storePolicyListClosedDays.mock.calls).toEqual([[STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }]])
+  })
+  it('S81 F4 (M12) — a 臨時営業日 on an OPEN weekday, shown: the cell counts in ITS window, not the weekday\'s', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '11:00' }] } : POLICIES[id]))
+    const shown = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const plain = cellOf(await boardOn(STORE.tokyo, 7), 28)
+    expect(shown.closed).toBe(false)
+    expect(shown.fits!).toBeLessThan(plain.fits!)
+  })
+  it('S81 F4 (M12) — the shown day\'s OWN window is the wall an unassigned booking is clipped to: one outside the 臨時営業日\'s window (inside the weekday\'s) eats nothing', async () => {
+    const special = (spy: Spied) =>
+      spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '13:00' }] } : POLICIES[id]))
+    special(withReads())
+    const without = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const spy = withReads()
+    special(spy)
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 15:00–16:00 JST on 9/21, nobody's lane: inside the weekday's 10–19, outside the special 10–13
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'm12-unassigned', staff_id: null, starts_at: '2026-09-21T06:00:00Z', ends_at: '2026-09-21T07:00:00Z' }] } : r
+    })
+    const withIt = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    expect(without.fits!).toBeGreaterThan(0)
+    expect([withIt.closed, withIt.fits]).toEqual([false, without.fits])
+  })
+  // ⚖ S82 G1/G2/G6 — ONE hours read per store per request over the board's reach, ONE outcome shared by every caller.
+  const cellAt = (b: Awaited<ReturnType<typeof boardOn>>, m: number, d: number) => (b.calendar as Cell[]).find((c) => c.m === m && c.d === d)!
+  const closedRow = (store: string, date: string) => ({ id: `c-${date}`, store_id: store, date, reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' })
+  // total: shown ≠ today adds ONE appointments read (the shown day's rows beside today's, a different day) — not an hours read.
+  it.each([[0, 62], [3, 63], [45, 63]])('S82 G6(a) — one board render, shown = today + %i: policy 1 · 臨時休業 1 · org 1 (total %i)', async (shownDay, expectedTotal) => {
+    const spy = withReads()
+    await boardOn(STORE.tokyo, shownDay)
+    const n = (k: keyof Spied) => spy[k].mock.calls.length
+    const total = (Object.keys(spy) as Array<keyof Spied>).reduce((a, k) => a + n(k), 0)
+    // BEFORE S81: 60 (policy 3 · org 1 · 56 others); S81: 63 (policy 1 · 臨時休業 2 · org 1 · 59). The others include the
+    // per-reader practiceActor() admission reads React's cache() dedupes in a real request and this harness does not.
+    expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 1, org: 1, total: expectedTotal })
+    expect(spy.storePolicyListClosedDays.mock.calls[0]).toEqual([STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }])
+  })
+  it('S82 G6(a) — a 臨時休業 at either end of the reach (today − 45, today + 45) paints its cell closed', async () => {
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-07-31'), closedRow(STORE.tokyo, '2026-10-29')] } })
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed, cellAt(b, 8, 1).closed, cellAt(b, 10, 28).closed]).toEqual([true, true, false, false])
+  })
+  it('S82 G6(c) (M14) — core filters by the range it is asked: the last calendar day\'s row is read; a row one day past `to` (exclusive) is not; a range past the reach gets its own read', async () => {
+    const spy = withReads()
+    const rows = ['2026-07-30', '2026-10-29', '2026-10-30'].map((d) => closedRow(STORE.tokyo, d))
+    spy.storePolicyListClosedDays.mockImplementation(async (_id: string, r?: { from?: string; to?: string }) => ({ closed_days: rows.filter((x) => x.date >= r!.from! && x.date < r!.to!) }))
+    const b = await boardOn(STORE.tokyo, 0)
+    expect([cellAt(b, 7, 31).closed, cellAt(b, 10, 29).closed]).toEqual([false, true])
+    expect(spy.storePolicyListClosedDays).toHaveBeenCalledTimes(1)
+    const past = await data.listHoursByDay(STORE.tokyo, { from: TODAY + 45, to: TODAY + 46 })
+    expect([past.get(TODAY + 45)?.closed, past.get(TODAY + 46)?.closed]).toEqual(['closed_date', 'closed_date'])
+    expect(spy.storePolicyListClosedDays.mock.calls[1]).toEqual([STORE.tokyo, { from: '2026-10-29', to: '2026-10-31' }])
+  })
+  it.each([
+    ['rejects', () => Promise.reject(new Error('closed days down'))],
+    ['answers after the bound', () => new Promise((r) => setTimeout(() => r({ closed_days: [] }), 5100))],
+  ])('S82 G6(b) — the 臨時休業 read %s, policy answers: EVERY caller serves the sample set, the mark names 営業時間, one log line', async (_label, closedDays) => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(closedDays)
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const b = (await boardOn(STORE.tokyo, 1)) as unknown as { calendar: Array<Cell & { wd: number; covered?: boolean }>; boardMark: unknown }
+      const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+      const settings = await data.readStoreHours(STORE.tokyo, TODAY)
+      expect([hoursSource(day), hoursSource(settings)]).toEqual(['sample', 'sample'])
+      expect(b.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+      const closedWds = [...new Set(b.calendar.filter((c) => c.covered !== false && c.closed).map((c) => c.wd))]
+      expect(closedWds).toEqual(day.closedWeekdays)
+      expect(quiet.mock.calls.filter((c) => c[0] === '[practice hours] core did not answer:')).toHaveLength(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  }, 15000)
+  it('S82 G6(b) (M6/M6b/M9) — the bound under fake timers: pending at 4,999 ms, the sample set at 5,000 ms; every timer set is cleared', async () => {
+    const spy = withReads()
+    spy.storePolicyListClosedDays.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    jest.useFakeTimers({ now: new Date('2026-09-14T04:24:00Z'), doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+    try {
+      let done = false
+      const pending = data.readDayPlanes(STORE.tokyo, TODAY).then((d) => ((done = true), d))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(hoursSource(await pending)).toBe('sample')
+      expect(jest.getTimerCount()).toBe(0)
+      withReads()
+      expect(hoursSource(await data.readDayPlanes(STORE.tokyo, TODAY))).toBe('core')
+      expect(jest.getTimerCount()).toBe(0) // the answered race cleared its timer
+    } finally {
+      jest.useFakeTimers({
+        now: new Date('2026-09-14T04:24:00Z'),
+        doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+      })
+      quiet.mockRestore()
+    }
+  })
+  it('S82 G6(d) (M7) — two stores in one request, each with its own malformed weekday: two log lines, each naming its store', async () => {
+    const spy = withReads()
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama || id === STORE.tokyo ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (const store of [STORE.tokyo, STORE.yokohama, STORE.tokyo, STORE.yokohama]) await data.readDayPlanes(store, TODAY + 1)
+      const msg = '[practice hours] malformed weekday sent on to the business hours / default:'
+      expect(quiet.mock.calls.filter((c) => c[0] === msg)).toEqual([[msg, STORE.tokyo, '1'], [msg, STORE.yokohama, '1']])
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+  const specials = (spy: Spied, days: Array<{ date: string; open: string; close: string }>) =>
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: days } : POLICIES[id]))
+  it('S82 G6(e) (COLD 7(iv)) — a 臨時営業日 on a 定休日 counts in ITS window whatever day is shown: 9/21\'s narrow window never clamps 9/15', async () => {
+    specials(withReads(), [{ date: '2026-09-15', open: '11:00', close: '15:00' }, { date: '2026-09-21', open: '10:00', close: '11:00' }])
+    const fromShown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from21 = cellAt(await boardOn(STORE.tokyo, 7), 9, 15)
+    expect(from21.fits!).toBeGreaterThan(0)
+    expect([from21.closed, from21.fits]).toEqual([false, fromShown.fits])
+  })
+  it('S82 G6(e) (ATTACK SF4(iii)) — an unassigned booking outside a non-shown 臨時営業日\'s window eats nothing: the same count as when shown', async () => {
+    const spy = withReads()
+    specials(spy, [{ date: '2026-09-15', open: '11:00', close: '15:00' }])
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 16:00–17:00 JST on 9/15, nobody's lane: outside the special 11–15
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'sf4-unassigned', staff_id: null, starts_at: '2026-09-15T07:00:00Z', ends_at: '2026-09-15T08:00:00Z' }] } : r
+    })
+    const shown = cellAt(await boardOn(STORE.tokyo, 1), 9, 15)
+    const from14 = cellAt(await boardOn(STORE.tokyo, 0), 9, 15)
+    expect(shown.fits!).toBeGreaterThan(0)
+    expect([from14.closed, from14.fits]).toEqual([false, shown.fits])
+  })
+  it('S82 G6(f) (G4) — today\'s 勤務不可 sits on TODAY\'s own hours: a 臨時休業 today → null; one on another day leaves it; a 臨時営業日 on a 定休日 today keeps it', async () => {
+    const reach = { from: TODAY - 45, to: TODAY + 45 }
+    withReads()
+    const plain = (await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)
+    expect(plain).not.toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-14')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toBeNull()
+    withReads({ closedDays: { [STORE.tokyo]: [closedRow(STORE.tokyo, '2026-09-16')] } })
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) =>
+      id === STORE.tokyo ? { ...POLICIES[id], weekly_hours: { ...POLICIES[id].weekly_hours, mon: null }, special_open_days: [{ date: '2026-09-14', open: '10:00', close: '19:00' }] } : POLICIES[id],
+    )
+    expect((await data.listAbsenceByDay(STORE.tokyo, reach)).get(TODAY)).toEqual(plain)
   })
 
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
@@ -1630,6 +1922,73 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(props.rows.filter((r) => r.id === row.id).map((r) => ({ dayKey: r.dayKey, shiftWarning: r.shiftWarning }))).toEqual([{ dayKey: last, shiftWarning: null }])
   })
 
+  // ⚖ S81 R3 — IN_PROGRESS is DATA, never a look: the same live row read as SCHEDULED and as IN_PROGRESS builds the
+  // SAME board (every card field, every total) — only the row's own `status` differs.
+  it('S81 R3 — identity: one live row as SCHEDULED and as IN_PROGRESS → the board is deep-equal except the row\'s status', async () => {
+    const boardWith = async (status: 'SCHEDULED' | 'IN_PROGRESS') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const appointments = await data.listAppointments(STORE.tokyo, {})
+      const input = {
+        appointments, customers: await data.listCustomers(STORE.tokyo), menus: await data.listMenus(STORE.tokyo), staff: await data.listStaff(STORE.tokyo),
+        resources: await data.listResources(STORE.tokyo), absence: null, blocks: [], sellSlots: [], decisions: [], dayKey: TODAY,
+      } as unknown as BuildInput
+      return { appointments, cards: dayBookings(input), totals: dayTotals(appointments.filter((a) => jstDayKey(a.starts_at) === TODAY), 0) }
+    }
+    const scheduled = await boardWith('SCHEDULED')
+    const live = await boardWith('IN_PROGRESS')
+    const row = (b: typeof live) => b.appointments.find((a) => a.id === APT.a14)!
+    expect([row(scheduled).status, row(live).status]).toEqual(['booked', 'in_progress'])
+    expect(live.cards.some((c) => c.id === APT.a14)).toBe(true) // the row IS on the board
+    const sansStatus = (b: typeof live) => b.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'X' } : a))
+    expect(sansStatus(live)).toEqual(sansStatus(scheduled))
+    expect(live.cards).toEqual(scheduled.cards)
+    expect(live.totals).toEqual(scheduled.totals)
+  })
+
+  // ⚖ S82 G6(g) — the same identity on three more screens' prop builders: 予約一覧 · レジ · シフト.
+  it('S82 G6(g) — an IN_PROGRESS row reaches the reservations, register and shifts props exactly as SCHEDULED, but for its status', async () => {
+    const propsWith = async (status: 'SCHEDULED' | 'IN_PROGRESS' | 'CANCELLED') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+      const { registerProps } = await import('@/app/[locale]/(business)/business/register/register-props')
+      const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+      return {
+        reservations: JSON.stringify((await reservationsProps({ locale: 'ja', store: STORE.tokyo })).props),
+        register: JSON.stringify((await registerProps({ locale: 'ja', store: STORE.tokyo })).props),
+        shifts: JSON.stringify(((await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo }) })) as unknown as { props: unknown }).props),
+      }
+    }
+    const booked = await propsWith('SCHEDULED')
+    const live = await propsWith('IN_PROGRESS')
+    expect(booked.reservations).toContain(APT.a14)
+    const asBooked = (json: string) => json.replace(/"in_progress"/g, '"booked"')
+    // the row REACHES 予約一覧 and シフト (taken away as CANCELLED, their props change); レジ reads `done` rows only
+    // (register-props.ts:199-200), so a booked row and an in_progress row alike never reach it — same props all three ways.
+    const gone = await propsWith('CANCELLED')
+    expect([gone.reservations !== booked.reservations, gone.register !== booked.register, gone.shifts !== booked.shifts]).toEqual([true, false, true])
+    expect({ reservations: asBooked(live.reservations), register: asBooked(live.register), shifts: asBooked(live.shifts) }).toEqual(booked)
+  })
+  it('S81 R3 — an IN_PROGRESS row with no staff, through the door: carried as in_progress, staff_id null (the 担当未定 read-only sheet decides on staff alone)', async () => {
+    const spy = withReads()
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'IN_PROGRESS' as const, staff_id: null } : a)) }
+    })
+    const a = (await data.listAppointments(STORE.tokyo, {})).find((x) => x.id === APT.a14)!
+    expect([a.status, a.staff_id, a.board_state]).toEqual(['in_progress', null, 'confirmed'])
+  })
+
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
     const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
     const all = await data.listAppointments(VIEW_ALL, {})
@@ -1682,5 +2041,547 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     } finally {
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
     }
+  })
+})
+
+// ⚖ R50 (Business S39) — the practice door is decided PER BUSINESS, never per deployment.
+describe('R50 — the door per business (P1–P7)', () => {
+  const OTHER = '7bb76aac-2947-47fb-b883-d85fe849ccec' // an admitted business that is NOT the tenant
+  const shape = (x: unknown) => JSON.stringify(x, (_k, v: unknown) => (typeof v === 'function' ? `fn:${(v as { name: string }).name}` : v))
+  const layoutOf = async () => {
+    const BusinessLayout = (await import('@/app/[locale]/(business)/layout')).default
+    return shape(await BusinessLayout({ children: null, params: Promise.resolve({ locale: 'ja' }) }))
+  }
+  const todayOf = async () => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    return shape(await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) }))
+  }
+  const settingsPageOf = async () => {
+    const SettingsPage = (await import('@/app/[locale]/(business)/business/settings/page')).default
+    return (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) })).props as Record<string, unknown>
+  }
+  // Every READ site of the per-site table, reached through its own caller.
+  const everyRead = async () => ({
+    layout: await layoutOf(),
+    today: await todayOf(),
+    settingsPage: await settingsPageOf(),
+    settings: await settingsProps({ locale: 'ja' }),
+    settingsStore: await settingsProps({ locale: 'ja', store: STORE_A }),
+    recording: shape(await recordingProps({ locale: 'ja' })),
+    karute: shape(await karuteProps({ locale: 'ja' })),
+    doorOn: await data.practiceDoorOn(),
+    canWriteStoreDays: await data.readCanWriteStoreDays(STORE_A),
+    reads: await Promise.all([
+      data.listStoreOptions(), data.listCustomers(STORE_A), data.listAppointments(STORE_A), data.listVisits(STORE_A), data.readShellIdentity(),
+      data.readReserveCardColor(), data.readBookingColors(), data.readStoreAddress(STORE_A), data.listMenus(STORE_A), data.readUnresolvedCounts(),
+      data.listResources(STORE_A), data.listShiftsByDay(STORE_A, { from: TODAY, to: TODAY }), data.listAbsenceByDay(STORE_A, { from: TODAY, to: TODAY }),
+      data.listBlocksByDay(STORE_A, { from: TODAY, to: TODAY }), data.readDayPlanes(STORE_A, TODAY), data.readStoreHours(STORE_A, TODAY),
+      data.readReservationPlanes(STORE_A), data.readAnalyticsPlanes(STORE_A), data.listStaff(STORE_A), data.readStaffStores(STORE_A),
+    ]),
+  })
+  const offWorld = async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    try { return await everyRead() } finally { process.env.BUSINESS_PRACTICE_TENANT = TENANT }
+  }
+
+  it('P1 — door-ON build, another admitted business: every read site answers the OFF world, no core client, no throw', async () => {
+    as(LOGIN.owner, null, OTHER)
+    const off = await offWorld()
+    mockBuilt.n = 0
+    const got = await everyRead()
+    expect(got).toEqual(off)
+    expect(mockBuilt.n).toBe(0)
+    expect(got.doorOn).toBe(false)
+    expect(got.layout).not.toContain('"practice":true')
+    expect(got.settingsPage.saveCardColor).toBeUndefined()
+    expect(got.settingsPage.saveStoreDays).toBeUndefined()
+    expect(got.settings.props.dateline.startsWith('サンプルデータ ')).toBe(true)
+    expect(got.settings.props.demoSaveLine).toBe('保存はこの画面の中だけに反映されます（実データ接続後に本保存）。')
+  })
+
+  it('P2 — the same build, the tenant itself: the ON path (a core client, live rows, the practice badge)', async () => {
+    as(LOGIN.owner)
+    mockBuilt.n = 0
+    expect(await data.practiceDoorOn()).toBe(true)
+    expect((await data.listStoreOptions()).map((s) => s.id)).toContain(STORE.tokyo)
+    expect(await layoutOf()).toContain('"practice":true')
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.dateline.startsWith('サンプルデータ ')).toBe(false)
+    expect((await settingsPageOf()).saveCardColor).toBeDefined()
+    expect(mockBuilt.n).toBeGreaterThan(0)
+  })
+
+  it('P3 — switch unset or "": both businesses take the OFF path; a non-UUID value still throws', async () => {
+    for (const env of [undefined, '']) {
+      for (const who of [TENANT, OTHER]) {
+        if (env === undefined) delete process.env.BUSINESS_PRACTICE_TENANT
+        else process.env.BUSINESS_PRACTICE_TENANT = env
+        as(LOGIN.owner, null, who)
+        mockBuilt.n = 0
+        expect(await data.practiceDoorOn()).toBe(false)
+        expect(await data.listStoreOptions()).toEqual(fxStores)
+        expect(mockBuilt.n).toBe(0)
+      }
+    }
+    process.env.BUSINESS_PRACTICE_TENANT = ' '
+    expect(() => doorFor(TENANT)).toThrow('BUSINESS_PRACTICE_TENANT is set but is not a UUID')
+  })
+
+  it('P4 — doorFor: the tenant, exactly (case-blind UUID), and nothing else', () => {
+    expect(doorFor(TENANT)).toBe(true)
+    expect(doorFor(TENANT.toUpperCase())).toBe(true)
+    expect(doorFor(OTHER)).toBe(false)
+    expect(doorFor(null)).toBe(false)
+    expect(doorFor(undefined)).toBe(false)
+    expect(doorFor('')).toBe(false)
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [TENANT, OTHER, null, undefined, '']) expect(doorFor(id)).toBe(false)
+  })
+
+  it('P5 — the write guard is unchanged: another business under door ON still answers tenant', async () => {
+    as(LOGIN.owner, null, OTHER)
+    expect(await data.writeReserveCardColor(null)).toEqual({ ok: false, reason: 'tenant' })
+  })
+
+  it('F1 — storeSample obeys its PARAMETER, never the env (the two disagree on purpose)', () => {
+    expect(storeSample(false, STORE_A)).toMatchObject({ state: 'sample', marked: false })
+    expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+  })
+
+  it('F2 — the tenant, upper-cased, is still the tenant: the layout and 設定 take the ON path and a core client IS built', async () => {
+    as(LOGIN.owner, null, TENANT.toUpperCase())
+    mockBuilt.n = 0
+    expect(await layoutOf()).toContain('"practice":true')
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.dateline.startsWith('サンプルデータ ')).toBe(false)
+    expect(mockBuilt.n).toBeGreaterThan(0)
+  })
+
+  it('F3 — readCanManageCardColor + readStoreDays: another business gets the OFF answer, no core client', async () => {
+    as(LOGIN.owner, null, OTHER)
+    mockBuilt.n = 0
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(await data.readStoreDays(STORE.tokyo)).toMatchObject({ ok: false, reason: 'tenant' })
+    expect(mockBuilt.n).toBe(0)
+  })
+
+  it('P6 — no memo of the decision across requests in one process, either order', async () => {
+    for (const order of [[TENANT, OTHER], [OTHER, TENANT]]) {
+      for (const who of order) {
+        as(LOGIN.owner, null, who)
+        expect({ who, on: await data.practiceDoorOn() }).toEqual({ who, on: who === TENANT })
+        expect(await layoutOf()).toContain(who === TENANT ? '"practice":true' : 'サンプル')
+        if (who !== TENANT) expect(await layoutOf()).not.toContain('"practice":true')
+      }
+    }
+  })
+})
+
+// ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read (orgSettingsOf): no reader of the business settings can
+// hold the page past CORE_READ_BOUND_MS. A timeout rejects that one promise exactly as a failed read does; the org read
+// logs ONE line per request; the board's readers (the shell, the colours, the hours) take their absent-org answer.
+describe('(S82 R2) the shared org read is bounded — the board finishes whatever the business settings read does', () => {
+  const ORG_LINE = '[practice org settings] core did not answer:'
+  const NOW = new Date('2026-09-14T04:24:00Z')
+  const page = async (store: string) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
+    return (el as unknown as { props: Record<string, unknown> }).props
+  }
+  const fakeAll = () => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+  const dateOnly = () => jest.useFakeTimers({
+    now: NOW,
+    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+  })
+  const orgLines = (quiet: jest.SpyInstance) => quiet.mock.calls.filter((c) => c[0] === ORG_LINE).length
+  const SAMPLE_MARK = { form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] }
+  const absentOrgColours = async () => {
+    withReads().orgSettingsGet.mockResolvedValue(null)
+    return (await page(STORE.tokyo)).bookingColors
+  }
+
+  it('H3(a) page-level — the org read NEVER answers: pending at 4,999 ms, resolved at 5,000 ms; hours sample, colours = the absent-org colours, one org log line, no timer left', async () => {
+    const absent = await absentOrgColours()
+    const spy = withReads()
+    spy.orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = page(STORE.tokyo).then((p) => ((done = true), p))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      const props = await pending
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H3(b) page-level — the org read REJECTS: the page resolves; hours sample, colours = the absent-org colours, one org log line', async () => {
+    const absent = await absentOrgColours()
+    withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const props = await page(STORE.tokyo)
+      expect(props.boardMark).toEqual(SAMPLE_MARK)
+      expect(props.bookingColors).toEqual(absent)
+      expect(orgLines(quiet)).toBe(1)
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
+  it.each([
+    ['readShellIdentity', async () => (await data.readShellIdentity()).business, { name: '', storeCount: 7 }],
+    ['readBookingColors', () => data.readBookingColors(), null],
+  ])('H3(c) %s alone — the org read never answers: pending at 4,999 ms, its absent-org answer at 5,000 ms, no timer left', async (_name, read, expected) => {
+    withReads().orgSettingsGet.mockImplementation(() => new Promise(() => {}))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+    try {
+      let done = false
+      const pending = (read as () => Promise<unknown>)().then((v) => ((done = true), v))
+      await jest.advanceTimersByTimeAsync(4999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      expect(await pending).toEqual(expected)
+      expect(orgLines(quiet)).toBe(1)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      dateOnly()
+      quiet.mockRestore()
+    }
+  })
+
+  it('H2 census — every reader of the org settings on a REJECTED org read (the board\'s readers degrade; the settings-page readers and the writers keep their failure path)', async () => {
+    const outcome = async (f: () => Promise<unknown>) => {
+      withReads().orgSettingsGet.mockRejectedValue(new Error('core down'))
+      try {
+        return { ok: await f() }
+      } catch (e) {
+        return { throws: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const census = {
+        readShellIdentity: await outcome(async () => (await data.readShellIdentity()).business.name),
+        readBookingColors: await outcome(() => data.readBookingColors()),
+        readHours: await outcome(async () => (await data.readDayPlanes(STORE.tokyo, TODAY) as { hoursSource?: string }).hoursSource),
+        readReserveCardColor: await outcome(() => data.readReserveCardColor()),
+        readStoreCapabilities: await outcome(() => data.readStoreCapabilities(STORE.tokyo)),
+        readStoreSeedType: await outcome(() => data.readStoreSeedType(STORE.tokyo)),
+        writeReserveCardColor: await outcome(() => data.writeReserveCardColor(null)),
+      }
+      console.log('H2 census', JSON.stringify(census))
+      expect(census).toEqual({
+        readShellIdentity: { ok: '' },
+        readBookingColors: { ok: null },
+        readHours: { ok: 'sample' },
+        readReserveCardColor: { throws: 'core down' },
+        readStoreCapabilities: { throws: 'core down' },
+        readStoreSeedType: { throws: 'core down' },
+        writeReserveCardColor: { ok: { ok: false, reason: 'core' } },
+      })
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+})
+
+
+describe('S84 — live-keyed inbox and register planes', () => {
+  const seed = APPOINTMENTS.find((a) => a.kind === 'BOOKING' && a.store_id === STORE.tokyo)!
+  const row = (id: string, extra: Partial<typeof seed> = {}) => ({ ...seed, id, customer_id: `customer-${id}`,
+    starts_at: '2026-09-14T01:00:00Z', ends_at: '2026-09-14T02:00:00Z', status: 'COMPLETED' as const,
+    booked_price_amount: 1234, booked_price_currency: 'JPY', ...extra })
+  const serve = (rows: typeof APPOINTMENTS) => {
+    const spy = withReads()
+    spy.appointmentsList.mockResolvedValue({ appointments: rows, total: rows.length, page: 1, page_size: 500 })
+    return spy
+  }
+  const carries = (id: string) => hash(id) % 23 < 5
+  const pick = (prefix: string, thread: boolean, n = 1) => {
+    const out: string[] = []
+    for (let i = 0; out.length < n; i++) if (carries(`${prefix}-${i}`) === thread) out.push(`${prefix}-${i}`)
+    return out
+  }
+  it('T-a one booking\'s thread is a function of its own id: inserting a booking relabels nobody', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => row(`s85-${i}`))
+    serve(rows)
+    const first = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(first.map((t) => t.appointment_id)).toEqual(rows.filter((r) => carries(r.id)).map((r) => r.id))
+    for (const t of first) {
+      expect(t.id).toBe(`smp-thr-${t.appointment_id}`)
+      expect(t.customer_id).toBe(rows.find((a) => a.id === t.appointment_id)!.customer_id)
+    }
+    for (const inserted of [...pick('s85-new', true), ...pick('s85-new', false)]) {
+      serve([...rows.slice(0, 10), row(inserted), ...rows.slice(10)])
+      const second = (await door.readInboxPlanes(STORE.tokyo)).threads
+      for (const t of first) expect(second.find((u) => u.id === t.id)).toEqual(t)
+      expect(second.some((t) => t.appointment_id === inserted)).toBe(carries(inserted))
+      expect(second).toHaveLength(first.length + (carries(inserted) ? 1 : 0))
+    }
+  })
+  it('T-b at 200 bookings the thread rate is the fixture 5/23 and change : delivery is 3 : 1', async () => {
+    serve(Array.from({ length: 200 }, (_, i) => row(`s85-n-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(Math.abs(threads.length - 200 * 5 / 23)).toBeLessThanOrEqual(12)
+    const change = threads.filter((t) => t.category === 'change').length
+    const delivery = threads.filter((t) => t.category === 'delivery').length
+    expect(change + delivery).toBe(threads.length)
+    expect(Math.abs(change / threads.length - 3 / 4)).toBeLessThanOrEqual(0.25 * 3 / 4)
+  })
+  it('T-c cancelled → no thread; 無断 → the noshow template; a future booking never gets it', async () => {
+    const [cancelled, absent] = pick('s85-c', true, 2)
+    const future = Array.from({ length: 60 }, (_, i) => row(`s85-f-${i}`, { status: 'SCHEDULED', starts_at: '2026-09-16T01:00:00Z', ends_at: '2026-09-16T02:00:00Z' }))
+    serve([row(cancelled, { status: 'CANCELLED' }), row(absent, { status: 'NO_SHOW' }), ...future])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.some((t) => t.appointment_id === cancelled)).toBe(false)
+    const noshow = fixtureThreads.find((t) => t.category === 'noshow')!
+    expect(threads.find((t) => t.appointment_id === absent)).toMatchObject({ category: 'noshow', subject: noshow.subject })
+    expect(threads.filter((t) => t.category === 'noshow').map((t) => t.appointment_id)).toEqual([absent])
+    expect(threads.some((t) => t.category === 'waitlist')).toBe(false)
+    serve([row(cancelled, { status: 'CANCELLED' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([])
+  })
+  it('T-d the floor: one eligible booking that its hash leaves out still gets one change thread', async () => {
+    const [quiet] = pick('s85-q', false)
+    serve([row(quiet), row(pick('s85-x', true)[0], { status: 'CANCELLED' })])
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.map((t) => [t.appointment_id, t.category])).toEqual([[quiet, 'change']])
+  })
+  it('T-e a templated seat never carries the fixture\'s source proof', async () => {
+    serve(Array.from({ length: 60 }, (_, i) => row(`s85-p-${i}`)))
+    const { threads } = await door.readInboxPlanes(STORE.tokyo)
+    expect(threads.length).toBeGreaterThan(0)
+    expect(threads.every((t) => t.source_proof === null)).toBe(true)
+  })
+  it('limits inbox reach, keeps canonical twin text and customer-only affiliation', async () => {
+    const twin = fixtureThreads.find((t) => t.category === 'change')!
+    const live = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([{ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) }])
+    expect(INBOX_WINDOW_DAYS).toBe(RESERVATIONS_WINDOW_DAYS)
+    const [d6, d7, before] = [pick('s85-d6', true)[0], pick('s85-d7', true)[0], pick('s85-y', true)[0]]
+    serve([row(d6, { starts_at: '2026-09-20T14:59:00Z' }), row(d7, { starts_at: '2026-09-20T15:00:00Z' }), row(before, { starts_at: '2026-09-13T14:59:00Z' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.map((t) => t.appointment_id)).toEqual([d6])
+    const wait = fixtureThreads.find((t) => t.appointment_id === null)!
+    serve([row('affiliated', { customer_id: liveIdOf('customers', wait.customer_id)! })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads).toContainEqual({ ...wait, id: `smp-thr-${wait.id}`, customer_id: liveIdOf('customers', wait.customer_id) })
+    serve(Array.from({ length: 20 }, (_, i) => row(`mixed-${i}`, { customer_id: liveIdOf('customers', wait.customer_id)! })))
+    const mixed = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(mixed.filter((t) => t.category === 'waitlist').map((t) => t.id)).toEqual([`smp-thr-${wait.id}`])
+  })
+  it('settles only ended bookings, balances every yen and the count sheet, rejects a refund mutant', async () => {
+    const spy = serve([row('paid'), row('zero', { booked_price_amount: null }),
+      row('scheduled', { status: 'SCHEDULED' }), row('cancelled', { status: 'CANCELLED' }), row('absent', { status: 'NO_SHOW' }),
+      row('future', { status: 'SCHEDULED', ends_at: '2026-09-14T05:00:00Z' }), row('now', { status: 'SCHEDULED', ends_at: '2026-09-14T04:24:00Z' }),
+      row('tomorrow', { starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' })])
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    expect(plane.transactions.map((t) => t.appointment_id).sort()).toEqual(['paid', 'scheduled'])
+    const bookings = await data.listAppointments(STORE.tokyo)
+    const assertMoney = (transactions: FixtureTransaction[]) => {
+      expect(transactions.flatMap((t) => t.tenders).every((t) => t.flag === '')).toBe(true)
+      expect(transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(2468)
+      const totals = ledgerTotals(buildLedger({ transactions, appointments: bookings, customers: [], menus: [], terminalHeld: [], auditTrail: {}, lensStoreId: STORE.tokyo }))
+      expect(totals).toMatchObject({ net: 2468, refunds: 0, outstanding: 0 })
+      expect(plane.closing!.cash_counted - expectedCash({ float: plane.closing!.cash_float, paidIn: plane.closing!.cash_paid_in, paidOut: plane.closing!.cash_paid_out, bankDeposit: plane.closing!.cash_bank_deposit }, totals.cash)).toBe(0)
+      expect(denominationTotal(plane.closing!.cash_count_sheet)).toBe(plane.closing!.cash_counted)
+    }
+    assertMoney(plane.transactions)
+    const mutant = structuredClone(plane.transactions)
+    mutant[0].tenders.push({ label: '現金', flag: 'refund', amount: -1 })
+    expect(() => assertMoney(mutant)).toThrow()
+    expect((await door.readRegisterPlanes(VIEW_ALL, bookings)).closing).toBeNull()
+    const calls = spy.appointmentsList.mock.calls.length
+    await data.readRegisterPlanes(STORE.tokyo, bookings, { transactions: [], closing: null, cashTolerance: 0 })
+    await data.readInboxPlanes(STORE.tokyo, bookings, { threads: [] })
+    expect(spy.appointmentsList).toHaveBeenCalledTimes(calls)
+  })
+  const unsettledCheck = (props: unknown) => JSON.stringify(props).match(/\{"key":"unsettled".*?"done":(true|false)/)
+  it('T-f/T-g/T-h the register settles what the close calls finished, and nothing in the chair or unpriced', async () => {
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' }), row('chair', { status: 'IN_PROGRESS' }), row('unpriced', { booked_price_amount: null })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => t.appointment_id)).toEqual(['late'])
+    const check = unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)!
+    expect(check[1]).toBe('false')
+    expect(check[0]).toContain('¥0')
+    expect(check[0]).not.toContain('¥1,234')
+    serve([row('late', { ends_at: '2026-09-14T06:00:00Z' })])
+    expect(unsettledCheck((await registerProps({ locale: 'ja', store: STORE.tokyo })).props)![1]).toBe('true')
+  })
+  it('T-i a twin with no tenders falls back to the single-tender rule', async () => {
+    const empty = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length === 0)!
+    serve([row(liveIdOf('appointments', empty.appointment_id!)!, { booked_price_amount: 0 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: 0, flag: '' }])
+  })
+  it('T-j over 30 mixed rows Σ tenders = Σ booked_price of the settled bookings, and only finished visits settle', async () => {
+    const statuses = ['COMPLETED', 'SCHEDULED', 'IN_PROGRESS', 'CANCELLED', 'NO_SHOW'] as const
+    serve(Array.from({ length: 30 }, (_, i) => row(`s85-m-${i}`, { status: statuses[i % 5],
+      booked_price_amount: i % 7 === 0 ? null : 1000 + i * 37, ends_at: i % 3 === 0 ? '2026-09-14T06:00:00Z' : '2026-09-14T02:00:00Z' })))
+    const plane = await door.readRegisterPlanes(STORE.tokyo)
+    const byId = new Map((await data.listAppointments(STORE.tokyo)).map((a) => [a.id, a]))
+    const settled = plane.transactions.map((t) => byId.get(t.appointment_id!)!)
+    expect(settled.length).toBeGreaterThan(0)
+    expect(settled.every((a) => a.booked_price != null && a.board_state !== 'noshow' && (a.status === 'done' || a.status === 'booked'))).toBe(true)
+    expect(plane.transactions.flatMap((t) => t.tenders).reduce((n, t) => n + t.amount, 0)).toBe(settled.reduce((n, a) => n + a.booked_price!, 0))
+  })
+  it('R4 a live booking without a display number reads as a booking; a fixture walk-in still reads as one', async () => {
+    const fact = (r: { facts: Array<{ label: string; value: string }> }) => r.facts.find((f) => f.label === '予約')?.value
+    serve([row('visit')])
+    const on = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(on.rows).toHaveLength(1)
+    expect(fact(on.rows[0])).not.toBe('予約なし・店頭販売')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect((await registerProps({ locale: 'ja', store: STORE_A })).props.rows.map(fact)).toContain('予約なし・店頭販売')
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+  })
+  it('S86 TEST 1 planes on Dev 銀座, props on the Tokyo lens with ids that have no 予約一覧 row: today\'s seats carry a deadline, 要対応 moves, 配信失敗 counts; an exception seat, a later day and a no-show keep none', async () => {
+    const store = STORE.devGinza
+    expect([STORE.tokyo, STORE.yokohama]).not.toContain(store) // not a registry twin: none of its own bookings has a 予約一覧 row
+    const at = (id: string, hourUtc: number) => row(id, { store_id: store, customer_id: seed.customer_id, status: 'SCHEDULED',
+      starts_at: `2026-09-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, ends_at: `2026-09-14T${String(hourUtc + 1).padStart(2, '0')}:00:00Z` })
+    const early = pick('s86-e', true, 6).map((id) => at(id, 1)) // 10:00 JST — before the pinned board now
+    const late = pick('s86-l', true, 6).map((id) => at(id, 6)) // 15:00 JST — after it
+    const record = fixtureReservations.find((r) => r.appointment_id === fixtureThreads.find((t) => t.category === 'change' && t.appointment_id)!.appointment_id)!
+    const exceptionId = liveIdOf('appointments', record.appointment_id)!
+    const [tomorrowId] = pick('s86-t', true)
+    const tomorrow = { ...at(tomorrowId, 1), starts_at: '2026-09-15T01:00:00Z', ends_at: '2026-09-15T02:00:00Z' } // 10:00 JST tomorrow
+    const [absentId] = pick('s86-n', false)
+    const absent = { ...at(absentId, 1), status: 'NO_SHOW' as const }
+    const extra = [tomorrow, absent]
+    serve([...early, ...late, at(exceptionId, 2), ...extra])
+    const planes = (await door.readInboxPlanes(store)).threads
+    expect(planes.find((t) => t.appointment_id === tomorrowId)!.due).toBeNull()
+    expect(planes.find((t) => t.appointment_id === absentId)).toMatchObject({ category: 'noshow', due: null })
+    const exceptionSeat = planes.find((t) => t.appointment_id === exceptionId)!
+    expect(exceptionSeat.due).toBeNull()
+    const seated = planes.filter((t) => t.appointment_id !== null && ![exceptionId, tomorrowId, absentId].includes(t.appointment_id))
+    expect(seated.length).toBe(12)
+    for (const t of seated) expect(t.due).toBe(jstMinuteOfDay([...early, ...late].find((r) => r.id === t.appointment_id)!.starts_at))
+    const records = (await data.readReservationPlanes(store)).reservations.map((r) => r.appointment_id)
+    expect(seated.filter((t) => records.includes(t.appointment_id!))).toEqual([])
+    // The props half on the Tokyo lens: the recorded harness lists no customers for Dev 銀座, and buildThreads drops
+    // a thread whose customer the lens cannot read. These s86-* ids have no fixture twin, so no 予約一覧 row either.
+    serve([...early, ...late, at(exceptionId, 2), ...extra].map((r) => ({ ...r, store_id: STORE.tokyo })))
+    const tokyoRecords = (await data.readReservationPlanes(STORE.tokyo)).reservations.map((r) => r.appointment_id)
+    expect(seated.filter((t) => tokyoRecords.includes(t.appointment_id!))).toEqual([])
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const shown = props.threads.filter((t) => seated.some((s) => s.id === t.id))
+    expect(shown).toHaveLength(12)
+    for (const t of shown) expect(t.dueLabel).not.toBe('期限なし')
+    expect(props.summary.attention).toBeGreaterThan(0)
+    expect(shown.filter((t) => early.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'attention' && t.overdue)).toBe(true)
+    expect(shown.filter((t) => late.some((r) => `smp-thr-${r.id}` === t.id)).every((t) => t.status === 'new' && !t.overdue)).toBe(true)
+    expect(props.threads.find((t) => t.id === `smp-thr-${tomorrowId}`)).toMatchObject({ dueLabel: '期限なし', status: 'new', overdue: false })
+    const failed = shown.filter((t) => t.category === 'delivery')
+    expect(failed.length).toBeGreaterThan(0)
+    expect(failed.every((t) => t.deliveryState === 'undelivered')).toBe(true)
+    expect(props.summary.failures).toBeGreaterThanOrEqual(failed.length)
+  })
+  it('S86 TEST 2 door ON on the TWIN store: a twin thread keeps its 予約一覧 record\'s deadline, non-null and null alike', async () => {
+    const withDeadline = fixtureReservations.find((r) => r.deadline !== null && fixtureThreads.some((t) => t.appointment_id === r.appointment_id))!
+    const withoutDeadline = fixtureReservations.find((r) => r.deadline === null && fixtureThreads.some((t) => t.appointment_id === r.appointment_id && t.category !== 'noshow'))!
+    expect([withDeadline.appointment_id, withDeadline.deadline, withoutDeadline.appointment_id]).toEqual(['apt-31', 12 * 60 + 30, 'apt-28'])
+    const ids = [withDeadline, withoutDeadline].map((r) => liveIdOf('appointments', r.appointment_id)!)
+    serve(ids.map((id) => row(id, { customer_id: seed.customer_id, status: 'SCHEDULED', starts_at: '2026-09-14T06:00:00Z', ends_at: '2026-09-14T07:00:00Z' })))
+    const planes = (await door.readInboxPlanes(STORE.tokyo)).threads
+    expect(ids.map((id) => planes.find((t) => t.appointment_id === id)!.due)).toEqual([null, null])
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const label = (id: string) => props.threads.find((t) => t.id === `smp-thr-${id}`)!.dueLabel
+    expect(label(ids[0])).toMatch(/^12:30まで/)
+    expect(label(ids[1])).toBe('期限なし')
+  })
+  it('S86 P1 a seated thread on a live booking with no fixture twin links 予約一覧 (display_no \'\'); a twin keeps its href exactly', async () => {
+    const [liveId] = pick('s86-h', true)
+    const twinId = liveIdOf('appointments', 'apt-31')!
+    serve([liveId, twinId].map((id) => row(id, { customer_id: seed.customer_id, status: 'SCHEDULED', starts_at: '2026-09-14T06:00:00Z', ends_at: '2026-09-14T07:00:00Z' })))
+    const { props } = await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const thread = (id: string) => props.threads.find((t) => t.id === `smp-thr-${id}`)!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(thread(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(thread(twinId).bookingNo).toBeTruthy()
+    expect(thread(twinId).bookingHref).toBe(href)
+  })
+  it('S86 P1 register sibling: a live booking with no fixture twin gets a 予約一覧 link on its register row; a twin row keeps its href exactly', async () => {
+    const [liveId] = pick('s86-r', false)
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const twinId = liveIdOf('appointments', twin.appointment_id!)!
+    serve([row(liveId, { customer_id: seed.customer_id }), row(twinId, { customer_id: seed.customer_id, booked_price_amount: twin.tenders.reduce((n, t) => n + t.amount, 0) })])
+    const txOf = new Map((await door.readRegisterPlanes(STORE.tokyo)).transactions.map((t) => [t.appointment_id, t.id]))
+    const { props } = await registerProps({ locale: 'ja', store: STORE.tokyo })
+    const rowOf = (id: string) => props.rows.find((r) => r.id === txOf.get(id))!
+    const href = `/ja/business/reservations?store=${encodeURIComponent(STORE.tokyo)}`
+    expect(rowOf(liveId)).toMatchObject({ bookingNo: '', bookingHref: href })
+    expect(rowOf(twinId).bookingNo).toBeTruthy()
+    expect(rowOf(twinId).bookingHref).toBe(href)
+  })
+  it('R5 one id served twice → one thread, one transaction', async () => {
+    // The id CARRIES a thread (hash % 23 < 5), so the floor alone cannot make the inbox half pass.
+    const [dup] = pick('s85-dup', true)
+    serve([row(dup), row(dup)])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.filter((t) => t.appointment_id === dup)).toHaveLength(1)
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions).toHaveLength(1)
+  })
+  it('S86 F2 inboxProps reads appointments from JST midnight to the last ms of day INBOX_WINDOW_DAYS − 1', async () => {
+    // Pinned clock: today is 2026-09-14 JST, whose 00:00 is 2026-09-13T15:00Z (the reach test above: 09-13T14:59Z is
+    // outside, 09-20T14:59Z inside). inboxProps asks for to = jstSlot(7, 0, 0, now) − 1 ms = 2026-09-20T14:59:59.999Z;
+    // the door hands core the exclusive day bound after it, 2026-09-20T15:00:00.000Z — that is the call pinned here.
+    const spy = serve([row(pick('s86-w', true)[0])])
+    await inboxProps({ locale: 'ja', store: STORE.tokyo })
+    const window = spy.appointmentsList.mock.calls.map(([q]) => q as { from?: string; to?: string; store_id?: string }).find((q) => q.from === '2026-09-13T15:00:00.000Z')
+    expect(window).toMatchObject({ to: '2026-09-20T15:00:00.000Z', store_id: STORE.tokyo })
+  })
+  it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
+    const twin = fixtureTransactions.find((t) => t.appointment_id && t.tenders.length)!
+    const id = liveIdOf('appointments', twin.appointment_id!)!
+    const price = twin.tenders.reduce((n, t) => n + t.amount, 0)
+    serve([row(id, { booked_price_amount: price })])
+    const kept = (await door.readRegisterPlanes(STORE.tokyo)).transactions[0]
+    expect(kept.tenders).toEqual(twin.tenders)
+    expect(kept.tenders).not.toBe(twin.tenders)
+    expect(kept.tenders[0]).not.toBe(twin.tenders[0])
+    expect(kept.audit).toEqual(twin.audit)
+    expect(kept.audit).not.toBe(twin.audit)
+    serve([row(id, { booked_price_amount: price + 1 })])
+    expect((await door.readRegisterPlanes(STORE.tokyo)).transactions[0].tenders).toEqual([{ label: expect.any(String), amount: price + 1, flag: '' }])
+    withReads().appointmentsList.mockRejectedValue(new Error('S84 timeout'))
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toThrow('S84 timeout')
+    as(LOGIN.musubi)
+    await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+    await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
+  })
+  it('OFF returns exactly the `off` object passed and ON ignores it for the door readers; props keep overrides and table marks', async () => {
+    const offInbox = { threads: fixtureThreads }
+    const offRegister = { transactions: fixtureTransactions, closing: fixtureClosing[STORE_A], cashTolerance }
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(await data.readInboxPlanes(STORE_A, undefined, offInbox)).toBe(offInbox)
+    expect(await data.readRegisterPlanes(STORE_A, undefined, offRegister)).toBe(offRegister)
+    expect(await data.readRegisterPlanes(VIEW_ALL, undefined, offRegister)).toBe(offRegister)
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    const onInbox = await data.readInboxPlanes(STORE.tokyo, undefined, offInbox)
+    expect(onInbox).not.toBe(offInbox)
+    expect(onInbox).toEqual(await door.readInboxPlanes(STORE.tokyo))
+    expect(await data.readRegisterPlanes(STORE.tokyo, undefined, offRegister)).toEqual(await door.readRegisterPlanes(STORE.tokyo))
+    const inbox = (await inboxProps({ locale: 'ja', store: STORE.tokyo })).props
+    const register = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(inbox.threads.length).toBeGreaterThan(0)
+    expect(register.sample).toEqual({ form: 'whole' })
+    expect(inbox.sample).toEqual({ form: 'whole' })
+    expect(inbox.dateline).toBe(data.sampleDateline(data.renderNow(), inbox.lensLabel, true))
+    expect(register.dateline).not.toContain('サンプル')
+    expect((await inboxProps({ locale: 'ja', store: STORE.tokyo, world: { threads: [] } })).props.threads).toEqual([])
   })
 })

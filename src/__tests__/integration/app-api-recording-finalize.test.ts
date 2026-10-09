@@ -4,6 +4,7 @@
 // is the DOOR contract — auth, zod, the roster gate, the status mapping and
 // the audit-map registration — never the shared body's logic, which is proved
 // in recording-finalize-take.test.ts.
+import { rangedHeadFetch, WEBM_HEAD } from './helpers/container-head-fetch' // reason: S60 A2 probe stub
 import { createHmac } from 'node:crypto'
 import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
@@ -41,8 +42,15 @@ const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
   error: null as { message: string; status?: number; statusCode?: string } | null,
 }))
+// reason: S60 A2 — the finalize head probe signs a read URL (answered here) and
+// fetches 64 bytes through it (the ranged stub below, a real webm head).
+const createSignedUrl = jest.fn(async (key: string, _ttl: number) => ({
+  data: { signedUrl: `https://proj.supabase.co/sign/${key}` } as { signedUrl: string } | null,
+  error: null as { message: string } | null,
+}))
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
+  // reason: S60 A2 — finalize now signs one short read URL for its head probe.
+  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info, createSignedUrl }) } }),
 }))
 
 // A real uuid: the finalize schema demands one for the session id (fix round 2).
@@ -129,6 +137,8 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
+  // reason: S60 A2 — the head probe reads a real webm head, so every take here stays readable.
+  global.fetch = jest.fn(rangedHeadFetch(206, WEBM_HEAD)) as unknown as typeof fetch
   recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
   held.clear()
   createSignedUploadUrl.mockImplementation(fakeCreateSignedUploadUrl(held, uploadUrl))

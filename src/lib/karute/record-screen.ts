@@ -15,7 +15,8 @@
 // so a cross-tenant explicit id surfaces per the caller's contract.
 
 import { assignStaffColors } from '@/lib/staff-colors'
-import { isReturningCustomer } from '@/lib/customers/status-signals'
+import { isReturningCustomer, countsAsPriorVisit } from '@/lib/customers/status-signals'
+import { ymdInJst } from '@/lib/date/jst'
 import type { CustomerWithStaff } from '@/lib/customers/queries'
 import {
   classifyVisitSegment,
@@ -32,6 +33,7 @@ import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
 import type { OrgSettings, PackPreset } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
+import { isRecordingTarget } from '@/lib/appointments/by-date'
 import type { KaruteRecord, KaruteEntry } from '@synqed-kk/client'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -200,7 +202,8 @@ export async function buildRecordScreen(input: {
   let nearbyBookings: RecordTargetBooking[] = []
 
   // Today's bookings from synqed-core, ordered by start time.
-  const list: AppointmentRow[] = [...todayAppts].sort((a, b) =>
+  // 担当未定 bookings are on the day list but are never recording targets.
+  const list: AppointmentRow[] = todayAppts.filter(isRecordingTarget).sort((a, b) =>
     a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
   )
 
@@ -254,10 +257,16 @@ export async function buildRecordScreen(input: {
   // half-joined invite are documented prod states), which would re-open the
   // very cross-staff auto-bind this change closes. No identity → no target;
   // the screen then asks. Explicit entries above are untouched.
+  // An explicit ?appointmentId that resolves to no row (a 担当未定 booking —
+  // both resolvers refuse a staff-less row — or one core no longer has) opens
+  // NO recorder: a failed explicit lookup never falls through to the implicit
+  // pick (R9 — that would bind the viewer's own next booking, another customer).
   const unlinked =
     requestedRow ??
     customerRow ??
-    (requestedCustomerId || !activeStaffId ? undefined : findFirst(myRows))
+    (requestedAppointmentId || requestedCustomerId || !activeStaffId
+      ? undefined
+      : findFirst(myRows))
 
   if (unlinked) {
     const startMs = new Date(unlinked.start_time).getTime()
@@ -536,13 +545,20 @@ export async function buildRecordScreen(input: {
     // in-store target's classification is byte-unchanged.
     targetHasTicketPack =
       (cc?.hasTicketPack ?? targetCustomer?.has_ticket_pack ?? false) || targetHasActivePack
+    // R-O7 (PR-O commit 3): the SAME prior-visit rule the server guard uses
+    // (status-signals countsAsPriorVisit), anchored to today in JST since no
+    // recording has started: today's 仮カルテ placeholder is not a prior visit.
+    // It feeds BOTH halves of the client gate — the count below and the brief
+    // (resolveReturningForOutcome reads brief.isFirstTimeVisit, which the brief
+    // builder derives from these rows).
+    const priorKarute = customerKarute.filter((r) => countsAsPriorVisit(r, ymdInJst(now)))
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
       isExistingCustomer: cc?.isExistingCustomer ?? targetCustomer?.is_existing_customer,
       visitCount: cc?.visitCount ?? targetCustomer?.visit_count,
       hasTicketPack: targetHasTicketPack,
-      karuteCount: customerKarute.length,
+      karuteCount: priorKarute.length,
     })
     const visitSignals = {
       joinDateIso: targetCustomer?.created_at ?? null,
@@ -565,7 +581,7 @@ export async function buildRecordScreen(input: {
     const briefMemo =
       memoContent(nextAppointment.notes) ?? memoContent(targetCustomer?.notes)
     brief = buildPreSessionBriefFor(
-      customerKarute,
+      priorKarute,
       briefMemo,
       now,
       locale,

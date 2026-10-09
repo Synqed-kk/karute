@@ -341,12 +341,16 @@
   top: 0;
   align-self: start;
   min-height: 100vh;
+  min-height: 100dvh;
   border-right: 1px solid var(--section);
   background: #fff;
   display: flex;
   flex-direction: column;
   padding: 16px 10px;
-  overflow: hidden;
+  /* Greptile T2 — the outer fallback scroller: when the fixed parts (brand, toggle, business, store picker,
+     identity card) exceed a short window, the rail scrolls as a whole; x stays clipped for the collapse. */
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: padding .26s cubic-bezier(.2, .7, .1, 1);
 }
 .biz .brand { padding: 0 0 14px; }
@@ -551,6 +555,40 @@
 .biz .operator strong { display: block; font-size: 14px; }
 .biz .operator > span:last-child { display: none; }
 .biz .operator > span:last-child > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+/* ⚖ R57 V1 — the rail fits any window height: exactly one viewport tall, the nav groups
+   scroll, the brand / store switcher above and the identity card below never move out. */
+.biz .sidebar { height: 100vh; height: 100dvh; }
+/* S41 X6 — only the nav gives way: the toggle and the store switcher keep their size. */
+.biz .sidebar .rail-toggle, .biz .sidebar .store-picker { flex-shrink: 0; }
+.biz .sidebar .nav-scroll { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.biz .sidebar .operator { flex-shrink: 0; }
+/* ⚖ R53 — the login e-mail: one line, ellipsised; the full address rides in title. */
+.biz .operator > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.biz .operator .operator-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚖ R53 — ログアウト: a text button, never filled; the focus ring is the shell's shared
+   `.biz button:focus-visible` rule. Drawn at its text size; the 44px hit area is touch-only (R29). */
+.biz .operator .sign-out {
+  display: inline-block; margin: 2px 0 0 -8px; padding: 4px 8px; border: 0; background: none;
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.biz .operator .sign-out:hover, .biz .operator .sign-out:focus-visible { color: var(--ink); text-decoration: underline; }
+.biz .operator .sign-out[disabled] { cursor: default; }
+/* ⚖ R57 V2 — the icon-strip form: shown only while the rail is a strip (collapsed, or any open
+   rail below 1024px); drawn like a strip nav glyph (20px, the rail's stroke), never filled. */
+.biz .operator .sign-out-icon {
+  display: grid; place-items: center; margin-top: 6px; padding: 4px; border: 0; border-radius: 11px;
+  background: none; color: var(--muted); cursor: pointer;
+}
+.biz .operator .sign-out-icon svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.biz .operator .sign-out-icon:hover, .biz .operator .sign-out-icon:focus-visible { color: var(--ink); }
+.biz.sidebar-open .operator .sign-out-icon { display: none; }
+.biz .operator > .sign-out-failed { max-width: 56px; color: var(--muted); font-size: 12px; text-align: center; }
+.biz.sidebar-open .operator > .sign-out-failed { display: none; }
+@media (max-width: 1023px) {
+  .biz.sidebar-open .operator .sign-out-icon { display: grid; }
+  .biz.sidebar-open .operator > .sign-out-failed { display: block; }
+}
+@media (pointer: coarse) { .biz .operator .sign-out, .biz .operator .sign-out-icon { min-height: 44px; } .biz .operator .sign-out-icon { min-width: 44px; } }
 
 /* ═══ RAIL COLLAPSE — canon icon-rail system ═══ */
 .biz .app { grid-template-columns: 76px minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.2, .7, .1, 1); }

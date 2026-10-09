@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_unlinked',
   'recording.capture_warned',
   'recording.discard',
+  'recording.finalize_refused',
   'recording.karute_missing',
   'recording.no_sessions_today',
   'recording.play',
@@ -235,6 +236,10 @@ export const AUDITED_CORES: {
   // The take-finalize choke point (capture pipeline PR2) — its recordings
   // .update write sits inside the same symbol as its emit (via emitFinalized,
   // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
+  // S60 A2: its unreadable-take refusal emits recording.finalize_refused the
+  // same way (via emitFinalizeRefused); the create-only `refused` mark it
+  // writes is a storage upload in take-mark.ts#markTake, which carries its OWN
+  // SDK_WRITE_ALLOWLIST row — nothing in this symbol's span uploads.
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
@@ -657,6 +662,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-29',
   },
   {
+    file: 'src/lib/recording/take-mark.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['markTake', 'markStagedCopy'],
+    justification:
+      "S60 PR-A (A4) + PR-K: durable refusal/partial flag, never overwritten. The create-only (upsert:false) PUT of a tiny JSON mark `{ v, kind, at, bytes, first_byte }` at mrk/<take key>.<kind>.json (markTake) or mrk/<staged key>.partial.json (markStagedCopy) — numbers and flags only, never audio content. A mark names an object the server named: two homes, by door, never a shared key — markTake refuses a staged key, markStagedCopy refuses a take key. Two kinds from the doors today, the same create-only rule for both. (1) `refused`: finalizeTakeWithClient (AUDITED_CORES, from S60 A2) — the durable half of an audited act, not an act of its own — files the one recording.finalize_refused row only when this call answers 'created', so a phone re-finalizing the same refused take every minute gets the same answer and files no second row. (2) `partial`: finalizeTakeWithClient's fresh path (A4b) and its unreadable branch when the body says partial (beside the refused mark, S67 fix round 1) and the server-named door of mintTakeUploadUrl's markPartialAtMint (src/lib/recording/mint-take-url.ts, A1/A4b) mark the take key via markTake; the staged door marks the STAGED key it composed for that copy via markStagedCopy (PR-K A1/A3, its only caller) — each for a blob the phone says is not whole; that write files NO audit row (a flag for PR-R, not an act). A duplicate is refused by storage and answered 'exists' (storage-duplicate.ts#isDuplicateRefusal); neither writer throws. Nothing is ever deleted or edited — a later mark of a later kind (rescued / regenerated) supersedes it (M7).",
+    dated: '2026-09-29',
+  },
+  {
     file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
@@ -1016,6 +1029,46 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/25 「make it work」 (PKT-S38 R3/R8, R-S39-1) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): 予約の色分け — one key per store (booking_colors:<storeId>, sent alone; the legacy booking_colors map is read-only), closed palette, settings.manage + a store the operator may see, read-before-write; one structured server log line per real write; a core audit row is R5 (later).',
     dated: '2026-09-25',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.set',
+    symbols: ['setSpecialOpenDays'],
+    justification:
+      'PKT-S29-B1 — the 特別営業日 (special_open_days) writer: a store the operator may see, settings.manage AND core\'s own HQ_ADMIN grant (businessGrants.check, memoized per actor — an OWNER passes by role), read-before-write (get fresh, next = current ± one entry, sorted, nothing else in the body), one structured server log line per real write; core\'s own store_policy.edit audit row covers this write server-side (EV/CORE-READ-B1.md Q5).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.addClosedDay',
+    symbols: ['addClosedDay'],
+    justification:
+      'PKT-S29-B1 — the 臨時休業 add writer: same guard as the special-days writer above (store visibility, settings.manage, HQ_ADMIN), a fresh read refuses a duplicate date before core is ever asked, one structured server log line per real write; the door opts into the SDK\'s own `audit` payload on this call (store_closed_day.add), since core does not default one for closed-day writes (EV/CORE-READ-B1.md Q5).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.removeClosedDay',
+    symbols: ['removeClosedDay'],
+    justification:
+      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit events via a second write-only handle (audit.log, one site under removeClosedDay): a store_closed_day.remove_attempt row BEFORE the delete — blocking, no row, no removal — and a store_closed_day.remove row only AFTER a successful delete, best-effort; a remove row always means a completed removal (PKT-S32 R19/R21).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'audit.log',
+    symbols: ['removeClosedDay'],
+    justification:
+      'PKT-S30 F6 · PKT-S32 R19/R20/R21 — the closure-removal audit events: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes its own rows through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site), one call site, each bounded by AUDIT_LOG_BOUND_MS: store_closed_day.remove_attempt BEFORE the delete — blocking (no row within the bound → the removal is refused, nothing deleted; the midnight re-check can still refuse after it) — and store_closed_day.remove only AFTER a successful delete, best-effort (a failure is warned, the removal stands). An attempt row is NOT a completed removal; a remove row always is. A failed delete writes no further row: the attempt row + the closure still in core is the truth.',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-store-capabilities.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeStoreCapabilities'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). DECISIONS-S49 R86 (Liam 10/1 「If there\'s no harm in doing it now, use it now.」): お店ページ\'s 16 switches — the CORE-47 wire record under ONE key per store (reserve_store_capabilities:<storeId>, sent alone) until CORE-47 lands; strict record parse, settings.manage + a store the operator may see + the admitted practice tenant only (real mode DISCONNECTED), read-before-write with server-side stamps; one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-10-01',
   },
 ]
 

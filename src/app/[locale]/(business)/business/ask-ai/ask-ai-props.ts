@@ -30,6 +30,8 @@ import {
   listStaff,
   listStoreOptions,
   renderNow,
+  sampleDateline,
+  practiceDoorOn,
   type StoreLens,
   readShellIdentity,
 } from '@/business/lib/data'
@@ -61,9 +63,6 @@ import {
   type AskAiWorld,
 } from '@/business/lib/ask-ai'
 import { type AskAiCardProps, type AskAiProps } from './AskAiScreen'
-
-const JST = { timeZone: 'Asia/Tokyo' } as const
-const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 
 /** The phone's own words, where the desk shows the same meaning — ⚖ the
  *  recognition floor (`messages/ja.json` askAi, line ~3179). A staffer who reads
@@ -217,6 +216,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
   const storeQuery = clamped ? `?store=${encodeURIComponent(storeId!)}` : ''
   const hrefOf = (segment: string) => `/${locale}/business/${segment}${storeQuery}`
 
+  const doorOn = await practiceDoorOn()
   const now = renderNow()
   // The operator is the DOOR's (readShellIdentity: the admitted person under the
   // practice switch, the fixture operator when it is off) — never the fixture read directly.
@@ -230,7 +230,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
   if (!access.consult) {
     return {
       props: {
-        dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+        dateline: sampleDateline(now, lensLabel, doorOn),
         lensLabel,
         subtitle: PHONE.subtitle,
         noticeLines: permissionNotice(access),
@@ -305,7 +305,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
 
   return {
     props: {
-      dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+      dateline: sampleDateline(now, lensLabel, doorOn),
       lensLabel,
       subtitle: PHONE.subtitle,
       noticeLines: [],

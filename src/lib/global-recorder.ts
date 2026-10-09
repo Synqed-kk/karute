@@ -51,12 +51,14 @@ export interface RecordingTarget {
 
 // ── Runaway-recording safety nets ────────────────────────────────────────────
 // Interim guard until segmented capture removes the length ceiling entirely.
-// Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, and the
-// effective upload cap is 50 MB (Supabase Free plan's global file size limit —
-// it overrides any larger per-bucket value, so ~139 min is the absolute max).
-// The 2h hard stop yields ~43 MB, a comfortable margin under the cap, so the
-// auto-saved recording can still upload. A forgotten 3-4h recording would
-// otherwise be both too big to save AND a total loss of the session.
+// Sizes: a 2-hour recording measured 70,950,340 bytes (≈79 kbit/s) on
+// 2026-10-03. The storage service's project-wide file size limit was read on
+// its dashboard as 1 GB on 2026-10-03 (the 50 MB figure once quoted here is
+// stale); this code's own byte limit is 2 GiB (MAX_TAKE_BYTES,
+// src/lib/app-api/record-schemas.ts). The 2-hour stop is what bounds the
+// pieces one recording creates (AUTO_STOP_MS ÷ RECORDER_SLICE_MS = 7,200): a
+// forgotten 3-4 hour recording would create 10,800-14,400 pieces against the
+// ≈16,000 entries one test phone had free.
 //
 // NOTE: a locked or pocketed iPhone KEEPS recording (⚖ field-proven): the
 // iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist).
@@ -64,23 +66,41 @@ export interface RecordingTarget {
 // nets cover those recordings too. What take-store persistence guarantees is
 // that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
-const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
-const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
+export const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (≈71 MB measured 2026-10-03)
+export const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
 
 // Take durability: flush accumulated chunks to IndexedDB (take-store) every
-// ~5 s — NOT per 100 ms chunk, so the disk isn't ground — plus on pause/stop/
+// ~5 s — NOT per 1000 ms chunk, so the disk isn't ground — plus on pause/stop/
 // visibilitychange-hidden. Persistence is best-effort and must NEVER block
 // capture: any failure disables the layer for this take and recording
 // continues memory-only exactly as before.
-const TAKE_FLUSH_MS = 5_000
+export const TAKE_FLUSH_MS = 5_000
+
+// ⚖ THE RECORDER'S TIMESLICE: ONE PIECE A SECOND (S92). On iPhones each piece
+// holds one open file inside the app's network helper. On the test phone, at
+// ten a second the table of open files ran out at about 41 minutes and iOS
+// stopped the helper, cutting the recording (very likely the cause of the
+// field cuts). One a second is what a real phone already ran for 2 hours
+// uncut (test build d550ec5b3). The ONLY timeslice:
+// `recorder.start(RECORDER_SLICE_MS)` below reads it, and SEGMENT_MAX_CHUNKS
+// is derived from it.
+export const RECORDER_SLICE_MS = 1000
+
+// ⚖ PIECES ONE RECORDING MAY CREATE (S92). A bound on the pieces CREATED by one
+// recording (AUTO_STOP_MS / RECORDER_SLICE_MS), NOT on what the helper holds.
+// One 2-hour recording creates 7,200. Two full-length recordings held at once =
+// 2 × 7,200 = 14,400, under the ≈16,000 entries ONE test phone had free — one
+// phone's measurement, a margin, not a guarantee; 2 × 8,000 would leave no
+// margin. Read only by the pin test; it changes no behaviour.
+export const PIECES_PER_RECORDING_BUDGET = 8_000
 
 // ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
-// tick of the recorder's 100 ms timeslice (`recorder.start(100)` below). A
-// flush after storage was off — the revive's catch-up — would otherwise write
-// every chunk held in memory as ONE blob: after an eight-minute outage a
-// multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
-// chunk count, not a length of anything the salon sets.
-const SEGMENT_MAX_CHUNKS = 50
+// tick of the recorder's 1000 ms timeslice (`recorder.start(RECORDER_SLICE_MS)`
+// below). A flush after storage was off — the revive's catch-up — would
+// otherwise write every chunk held in memory as ONE blob: after an
+// eight-minute outage a multi-MB IndexedDB write and a segment far past the
+// pump's per-PUT floor. A chunk count, not a length of anything the salon sets.
+export const SEGMENT_MAX_CHUNKS = TAKE_FLUSH_MS / RECORDER_SLICE_MS
 
 // ⚖ THE REVIVE'S WAIT AFTER EACH FAILED TRY (S36 PR-1), the last one repeating
 // while the take records. On the flush tick, so each is at least one tick.
@@ -140,16 +160,19 @@ const STOP_PUMP_BUDGET_MS = 20_000
 // exactly what it does today.
 const SECURE_SETTLE_BELT_MS = 120_000
 
+/** The MIME types this recorder negotiates, in preference order. Exported so
+ *  the container-sniff totality test pins every one against a signature. */
+export const RECORDER_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/wav',
+] as const
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
-  const formats = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-    'audio/wav',
-  ]
-  return formats.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
+  return RECORDER_MIME_CANDIDATES.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
 }
 
 /** One take's persistence state (fix round 20). Everything a queued take-write
@@ -312,11 +335,12 @@ class GlobalRecorder {
    *  first and would otherwise refuse the one caller holding the live
    *  measurement (see the release below). Which means the hold is already gone
    *  for the whole of the PUT and the finalize: a reader that asked it "is the
-   *  stop still working on this take?" would be told no while 43 MB is in
-   *  flight, read `finalizedPath` as null, and stage a SECOND whole copy of
-   *  the same recording to a row-less key. The leg's own promise is the only
-   *  thing in this file that spans the upload, so it is what `awaitTakeSecured`
-   *  waits on. */
+   *  stop still working on this take?" would be told no while the whole
+   *  recording (≈71 MB for 2 hours, measured 2026-10-03) is in flight, read
+   *  `finalizedPath` as null, and stage a SECOND whole copy of the same
+   *  recording to a row-less key. The leg's own promise is the only thing in
+   *  this file that spans the upload, so it is what `awaitTakeSecured` waits
+   *  on. */
   private stopLegs = new Map<string, Promise<void>>()
   private startTime = 0
   private pausedDuration = 0
@@ -374,8 +398,8 @@ class GlobalRecorder {
     this.runawayTimer = setInterval(() => {
       const ms = this.recordedMs()
       if (ms >= AUTO_STOP_MS) {
-        // Hard cap: stop + save so a forgotten recording is never lost to size and
-        // never grows past what the storage bucket accepts. stop() routes through
+        // Hard cap: stop + save at 2 hours, which bounds the pieces one
+        // recording creates (see AUTO_STOP_MS above). stop() routes through
         // onstop → the existing pipeline saves it.
         this.autoStopped = true
         this.stop()
@@ -1144,14 +1168,14 @@ class GlobalRecorder {
     }
 
     this.stream = micStream
-    // Voice-optimized bitrate. The browser default (~128 kbps) makes a 60-90 min
-    // session ~80-90 MB, which blows past Supabase Storage's per-bucket limit
-    // (50 MB on Free) — the upload fails with "object exceeded the maximum allowed
-    // size". 48 kbps opus is ~2.7x smaller (~32 MB for 90 min) and keeps a
-    // comfortable accuracy margin: ASR shows no significant Opus degradation at
-    // ≥16 kbps, so 48 leaves 3x headroom for noisy-salon / phone-mic / 2-speaker
-    // audio. Deepgram accuracy tracks sample rate, not bitrate. (Pair with a
-    // raised bucket file_size_limit + resumable uploads for 2-hr sessions.)
+    // Voice-optimized bitrate: asks for 48 kbps. ASR shows no significant Opus
+    // degradation at ≥16 kbps, so 48 leaves 3x headroom for noisy-salon /
+    // phone-mic / 2-speaker audio. Deepgram accuracy tracks sample rate, not
+    // bitrate. What is stored is larger than the request: a 2-hour recording
+    // measured 70,950,340 bytes (≈79 kbit/s) on 2026-10-03. The storage
+    // service's project-wide file size limit was read on its dashboard as 1 GB
+    // on 2026-10-03 (the 50 MB figure once quoted here is stale); this code's
+    // own byte limit is 2 GiB (MAX_TAKE_BYTES).
     const recorder = new MediaRecorder(micStream, {
       ...(mimeType ? { mimeType } : {}),
       audioBitsPerSecond: 48_000,
@@ -1472,7 +1496,7 @@ class GlobalRecorder {
     this.recorder = recorder
     this.startTime = Date.now()
     this.startedAt = Date.now()
-    recorder.start(100)
+    recorder.start(RECORDER_SLICE_MS)
     this.state = 'recording'
     this.armRunawayGuard()
 
@@ -1734,9 +1758,9 @@ class GlobalRecorder {
    *  the stop leg's PUT + finalize is still in flight — so `finalizedPath` read
    *  null on every ordinary recording and the in-tab leg staged a second whole
    *  copy of the same take to a server-named key nothing points at. Two uploads
-   *  of the same 43 MB and a permanent orphan object, per recording. The
-   *  fallback is meant for a take the store never held; this made it the
-   *  common case.
+   *  of the same recording (≈71 MB for 2 hours, measured 2026-10-03) and a
+   *  permanent orphan object, per recording. The fallback is meant for a take
+   *  the store never held; this made it the common case.
    *
    *  Resolves IMMEDIATELY when this runtime has no stop leg for the take —
    *  another tab's take, the mount drain's, a take recorded before this bundle

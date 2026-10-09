@@ -73,10 +73,43 @@ import {
 } from 'react'
 import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { jstClock } from '@/business/lib/clock'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
+import { SPRING_THUMB, Switch, type InertProps } from './Switch'
 import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
+// S59 P7A (C7) — the 業種 / 機能 headings and the 16 row names, so a reader can type them to find お店ページ.
+import { STORE_PAGE_HEADINGS, TYPE_BLOCK, UNDO } from '@/business/lib/store-page/copy'
+// S60 P7A-R2b — the 業種 / 機能 blocks mounted under the card look, the room's one draft, and the room's toast (R207).
+import type { CapKey, CapRecord } from '@/business/lib/store-page/model'
+import { afterHandFlip, flippedKeys, storePageDraft, storePageEdits, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
+import { putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
+import { saveFailLines } from '@/business/lib/store-page/save-lines'
+// S61 P7B-R1 (R224) — the sample of the type core last accepted (pure; imports only copy/model types).
+import { practiceSample } from '@/business/lib/store-page/practice-counts'
+import { StorePageType } from './StorePageType'
+import { ROWS_HEAD, StorePageRows } from './StorePageRows'
+import { useToast } from './Toast'
+import {
+  ADD_PENDING_LABEL,
+  applyClosureAdded,
+  applyClosureRemoved,
+  applyClosuresReplaced,
+  applySpecialOpenDays,
+  GENERIC_FAIL_LINE,
+  LIVE_SAVE_LINE,
+  READ_ONLY_NOTE,
+  REMOVE_PENDING_LABEL,
+  addSpecialDraft,
+  CLOSE_AT_MIDNIGHT_LABEL,
+  MIDNIGHT_CLOSE,
+  MIDNIGHT_CLOSE_BOX_ARIA,
+  specialCloseOf,
+  specialDayBadge,
+  type ClosureCore,
+  type SpecialCore,
+} from '@/business/lib/store-days-state'
 import {
   isIntegerTextAtLeast,
   StorePolicySection,
@@ -89,13 +122,17 @@ import {
   blockDirty,
   BOOKING_GUARD_ID,
   CARD_COLOR_ID,
-  CARD_LOOK_ID,
+  STORE_PAGE_ID,
+  STORE_PAGE_DEFAULTS_ID,
+  STORE_PAGE_FAMILY_ID,
+  storePageSwitchId,
   hitOf,
   blockingError,
   changedCount,
   clampInt,
   commitNumberField,
   controlIdsOf,
+  dayTitle,
   effectiveCeiling,
   effectiveLock,
   fillTemplate,
@@ -132,6 +169,17 @@ import {
  *  the room back on insertion order. */
 const ROOT = 'page pg-settings'
 
+/** S60 P7A-R2b (P0) — お店ページ's value ids, the room's own (settings.ts), never retyped. */
+const STORE_PAGE_IDS: StorePageIds = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId, defaults: STORE_PAGE_DEFAULTS_ID }
+
+/** S60 P7A-R2c (R210) — THE ids a 保存する commits: the section's control ids EXCEPT お店ページ's 17.
+ *  S61 P7B-2 (R223) — the permanent rule, no longer a stand-in: a page-level commit (`commitSection`) NEVER marks one
+ *  of the 17 ids saved, in any mode; only a 200 of the capabilities route does (R219, `saveStorePageSection`). */
+function committedIdsOf(target: SettingsSection): string[] {
+  const sp = target.storePage ? storePageValues(target.storePage.saved, STORE_PAGE_IDS) : {}
+  return controlIdsOf(target).filter((id) => !(id in sp))
+}
+
 /** ⚖ R6-20, CARRIED (room 6's `Overlay`, room 8's tour). A dismiss-by-backdrop
  *  surface that mounts under a pointer already resting where its opener was will
  *  eat the SECOND press of a double-click and close itself instantly — and
@@ -155,8 +203,10 @@ const HEAD_GUIDE_NARROW =
 /** ⚖ S17 · F13 — the search terms of the ONE section that renders itself. Asked
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
+/** S59 P7A (C7) — お店ページ's terms: カードの見た目's headings, then 業種 / 機能 and their rows. */
+const STORE_PAGE_TERMS: readonly string[] = [...CARD_LOOK_HEADINGS, ...STORE_PAGE_HEADINGS]
 const termsFor = (id: string): readonly string[] | undefined =>
-  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? STORE_PAGE_TERMS : undefined)
 
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
@@ -165,8 +215,8 @@ const EMPHASIS_ID = 'my-display.emphasis'
  *  house default is 0.30s critically damped — thumbs and the save card's rise;
  *  a height panel gets 0.34 because it travels further and a fast height reads
  *  as a jump rather than as an opening. No third number, and no second easing:
- *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused). */
-const SPRING_THUMB = 0.3
+ *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused).
+ *  The thumb's 0.30 (`SPRING_THUMB`) is declared beside the switch, in ./Switch. */
 /** ⚖ S17 fix round 1 · F16 — the panel's arrival. Slower than a thumb because
  *  it is the whole reading column moving, still well under a beat: ⚖ apple-
  *  design's 「response is how quickly the value reaches the target, not a
@@ -195,8 +245,30 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
     for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.value
     // ⚖ A1b — カードの見た目's one value ('' = nothing set), so the save bar counts and commits it.
     if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''
+    // S60 P7A-R2b (C1) — お店ページ's 17 values join the one seed, so `values` and `saved` both carry them.
+    if (section.storePage) Object.assign(out, storePageValues(section.storePage.saved, STORE_PAGE_IDS))
   }
   return out
+}
+
+/** ⚖ PKT-S29-B1 — the payload's own 臨時休業 rows, taken once (`null` = a
+ *  failed read, R7; never confused with "no block on this section"). */
+function seedLiveClosures(props: SettingsProps): ClosureCore[] | null {
+  for (const s of props.sections) {
+    const b = s.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
+    if (b) return b.collection ? b.collection.items.map((r) => ({ id: r.id, date: r.date ?? r.id, reason: r.note === '' ? null : r.note })) : null
+  }
+  return null
+}
+/** The payload's own 特別営業日 rows, RAW (date/open/close only — the badge is
+ *  re-asked of `specialDayBadge`, its one home, against the CURRENT 臨時休業 list:
+ *  R3, "computed from the CLOSURES list"). */
+function seedLiveSpecial(props: SettingsProps): SpecialCore[] | null {
+  for (const s of props.sections) {
+    const b = s.blocks.find((x) => x.id === STORE_HOURS_SPECIAL_ID)
+    if (b) return b.specialDays ? b.specialDays.items.map(({ date, open, close }) => ({ date, open, close })) : null
+  }
+  return null
 }
 
 function kindsOf(props: SettingsProps): Record<string, ControlKind> {
@@ -318,7 +390,7 @@ export function jumpAnchorsOf(sectionId: string | undefined, blocks: ReadonlyArr
  *  of truth is settings.css's `html:has(.biz .page.pg-settings) { --st-topbar: 62px }`; a suite pins the two equal. */
 const TOPBAR_FALLBACK_PX = 62
 
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
@@ -345,13 +417,22 @@ async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: 
     return { ok: false, reason: 'core' }
   }
 }
-/** JP-COPY-A2-FINAL.md, byte for byte, by id. */
-const CARD_SAVE_NOTE = '色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card
+/** ⚖ B2 act 2a (S38) — THE BAR'S STAMP, ONE TRUTH. Chosen at commit time from the commit's own outcome:
+ *  `persisted` = this commit sent it to core AND core confirmed it holds the value (a no-op confirmation counts — core holds it) (カードの見た目 / 予約の色分け with
+ *  the door ON, on core's yes). Every other commit — the door OFF for any section, the door ON for a
+ *  section without a writer, 予約の色分け with nothing changed (no PUT) — reached this page only, and says so.
+ *  Never derived from the door flag a second time. */
+export const stampFor = (persisted: boolean, at: string): string =>
+  persisted ? `✓ 保存しました ${at}` : `${businessStrings.sampleMark.pageOnlyStamp} ${at}`
+
+/** save.note.card = the switchboard mock's save-bar warning (MOCK-SWITCHBOARD-v2.html #cardWarn), byte for byte.
+ *  save.fail.* = JP-COPY-A2-FINAL.md by id, with Reserve → お客様のアプリ (S40 C8). */
+const CARD_SAVE_NOTE = 'カードの変更は、全店のお客様のアプリに反映されます。' // save.note.card
 const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
-  forbidden: '設定を変更できる権限がないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.forbidden
-  tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant
-  invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid
-  core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core
+  forbidden: '設定を変更できる権限がないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.forbidden
+  tenant: 'ここからはこの事業の設定を保存できないため、お客様のアプリのカードはこれまでの色のままです。', // save.fail.tenant
+  invalid: '選んだ色が12色に含まれていないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.invalid
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。', // save.fail.core
 }
 
 /** ⚖ PKT-S38 R7 (Liam 9/25 「make it work」) — 予約の色分け's REAL save, mirrored from the card colour's.
@@ -404,6 +485,100 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
 }
 
+// ── ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE (Liam 9/28 20:0x) ──────────────
+//
+// Mirrored from the card-colour / 予約の色分け writers above, with one shape
+// difference: door-writes.ts already returns a READY JP message per refusal
+// (R4's own mapping table lives server-side), so the fetch wrappers below
+// read `message` straight off the response rather than keeping a second
+// reason→copy table here. Copy is the R9 copy round's own folded verdicts —
+// this file NEVER imports door-writes.ts (a server-only module; see its own
+// header on why a 'use client' file must not). ⚖ PKT-S30 P3-12 / F2 — the copy
+// and the list reducers come from store-days-state.ts, their one (pure) home.
+/** `lockedNote` null = writable; otherwise the line shown INSTEAD of add/remove (PKT-S31 R9, settings-props.ts storeDaysLockedNote). */
+export type StoreDaysSave = { businessId: string; storeId: string; lockedNote: string | null }
+const STORE_HOURS_CLOSURES_ID = 'store-hours.closures'
+const STORE_HOURS_SPECIAL_ID = 'store-hours.special-open'
+const CLOSURES_URL = '/api/business/store-days/closures'
+const SPECIAL_URL = '/api/business/store-days/special'
+
+/** `forbidden` = the door answered 403 at write time (⚖ PKT-S30 Also-noted A): the capability
+ *  changed under the user, so the block turns read-only. */
+type StoreDaysFail = { ok: false; message: string; forbidden: boolean }
+
+function storeDaysFail(body: unknown): StoreDaysFail {
+  const b = body as { message?: unknown; reason?: unknown } | null
+  const m = b?.message
+  return { ok: false, message: typeof m === 'string' && m !== '' ? m : GENERIC_FAIL_LINE, forbidden: b?.reason === 'forbidden' }
+}
+const NO_ANSWER: StoreDaysFail = { ok: false, message: GENERIC_FAIL_LINE, forbidden: false }
+
+async function postAddClosedDay(save: StoreDaysSave, date: string, reason: string): Promise<{ ok: true; row: { id: string; date: string; reason: string | null } } | StoreDaysFail> {
+  try {
+    const res = await fetch(CLOSURES_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, date, reason }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; row?: unknown }
+    const row = answer.row as { id?: unknown; date?: unknown; reason?: unknown } | undefined
+    if (res.ok && answer.ok === true && row && typeof row.id === 'string' && typeof row.date === 'string') {
+      return { ok: true, row: { id: row.id, date: row.date, reason: typeof row.reason === 'string' ? row.reason : null } }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+/** `closures` = the door's refreshed list (⚖ PKT-S33 F1), `null` when the answer carries none. */
+async function deleteClosedDay(save: StoreDaysSave, id: string): Promise<{ ok: true; closures: ClosureCore[] | null } | StoreDaysFail> {
+  try {
+    const url = `${CLOSURES_URL}?storeId=${encodeURIComponent(save.storeId)}&id=${encodeURIComponent(id)}`
+    const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; closures?: unknown }
+    if (res.ok && answer.ok === true) return { ok: true, closures: Array.isArray(answer.closures) ? (answer.closures as ClosureCore[]) : null }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+async function postAddSpecialOpenDay(save: StoreDaysSave, date: string, open: string, close: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
+  try {
+    const res = await fetch(SPECIAL_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, date, open, close }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
+    if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+async function deleteSpecialOpenDay(save: StoreDaysSave, date: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
+  try {
+    const url = `${SPECIAL_URL}?storeId=${encodeURIComponent(save.storeId)}&date=${encodeURIComponent(date)}`
+    const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
+    if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
 export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
    *  panel always shows something (the opening section); on a phone the rail IS
@@ -438,13 +613,57 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  shape every other piece of this room's state has, so one reading rule
    *  covers all of it — and it keeps `.delete(`, which the guard really does
    *  ban, out of the room without an exception being argued for. */
-  const [committed, setCommitted] = useState<Record<string, boolean>>({})
+  // ⚖ B2 act 1c (R41/R42) — presence = committed; the VALUE is the stamp of the commit, its time read ONCE
+  // in the event callback before any state update (never in an updater or render). For core-backed
+  // saves commitSection runs after core's yes, so the stamp is the commit instant, not the press.
+  // ⚖ B2 act 2a — for the bar's commits the VALUE is the whole stamp text (`stampFor`); 自分の表示設定's
+  // on-press save keeps the bare time (its own 「この端末に保存しました」 line prefixes it).
+  const [committed, setCommitted] = useState<Record<string, string>>({})
   /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
   const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
+  /** S61 P7B-2 (R221) — the section's ONE in-flight answer: the colour's save AND お店ページ's switches' save. Set at the
+   *  press, released when every sent half has answered; it guards 保存する and 元に戻す for both halves. */
   const cardSaving = useRef(false)
+  /** S60 P7A-R2b (C4) — お店ページ's reset keys (R156); 戻す adds them, a hand flip removes its own (R182). S61 P7B-2:
+   *  the switches' save body reads them. */
+  const [resetKeys, setResetKeys] = useState<readonly CapKey[]>([])
+  /** S75 fix 3b (R-E′) — お店ページ's TOUCHED keys: the switches the owner hand-flipped or 戻す flipped since the last
+   *  successful save. Added in `typeChange` (a pick moves none), cleared by a caps 200 for the ids not edited in its flight and by the
+   *  section's 元に戻す. storePageDraft reads an untouched TYPE_DEFAULT key as the draft type's standard. */
+  const [touched, setTouched] = useState<readonly CapKey[]>([])
+  /** S75 fix 4 (R-F) — お店ページ's per-key EDIT sequence, bumped in `typeChange` for every key it flips; a caps 200 clears
+   *  `touched` only for keys whose sequence is unchanged since the send (an edit during the flight keeps the key touched). */
+  const editSeq = useRef<Partial<Record<CapKey, number>>>({})
+  /** S61 P7B-2 (R218) — the last save core ACCEPTED for お店ページ (null until the first 200), written ONLY from a 200's
+   *  own record: the draft's base, both blocks' `saved`, and the next body's `based_on`. page.tsx keys the room by
+   *  store, so it dies on a store switch. */
+  const [accepted, setAccepted] = useState<{ record: CapRecord; basedOn: string } | null>(null)
+  /** S61 P7B-2 (R220) — the last お店ページ press's two outcomes beside `cardFail`: did the colour land, and the
+   *  switches' answer ('unsent' = not sent by that press). `saveFailLines` picks the two lines from them. */
+  const [spPress, setSpPress] = useState<{ cardOk: boolean; caps: 'unsent' | 'ok' | CapsSaveReason }>({ cardOk: false, caps: 'unsent' })
+  /** S60 R207 — the room's one toast; its host sits in the room root, outside the keyed お店ページ subtree. */
+  const toast = useToast()
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
   const bookingSaving = useRef(false)
+  /** ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while `props.saveStoreDays` is set: each
+   *  own state (never `listRows`/`savedRows` — R8, the save bar never counts them),
+   *  seeded once from the payload, updated only from core's OWN returned array/row.
+   *  `null` = a failed read (R7); `[]` = a real, empty list. One `useRef` guard per
+   *  list (never both writes in flight at once), `pending` names WHICH control is
+   *  busy ('add' or the specific row's id/date) for the per-row disabled state. */
+  const [liveClosures, setLiveClosures] = useState<ClosureCore[] | null>(() => seedLiveClosures(props))
+  const [closurePending, setClosurePending] = useState<string | null>(null)
+  const [closureError, setClosureError] = useState<string | null>(null)
+  const closureBusy = useRef(false)
+  const [liveSpecial, setLiveSpecial] = useState<SpecialCore[] | null>(() => seedLiveSpecial(props))
+  const [specialPending, setSpecialPending] = useState<string | null>(null)
+  const [specialError, setSpecialError] = useState<string | null>(null)
+  const specialBusy = useRef(false)
+  /** ⚖ S34 act 0 — 特別営業日's 24:00閉店 switch; the typed 閉店 value is kept while it is ON. */
+  const [closeAtMidnight, setCloseAtMidnight] = useState(false)
+  /** ⚖ PKT-S30 Also-noted A — a write answered `forbidden`: both store-days blocks turn read-only. */
+  const [storeDaysRevoked, setStoreDaysRevoked] = useState(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -552,6 +771,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  personal preference that needed committing would be the page asking
    *  permission for something nobody else can see. */
   const setValue = useCallback((id: string, next: RowValue) => {
+    // ⚖ R42 — the stamp's clock, read once here in the callback, never inside the updater below.
+    const at = id === DENSITY_ID || id === EMPHASIS_ID ? jstClock(new Date()) : ''
     setValues((prev) => {
       const merged = { ...prev, [id]: next }
       if (id === DENSITY_ID || id === EMPHASIS_ID) {
@@ -569,7 +790,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           // see above — the choice still applies to this render.
         }
         setSaved((s) => ({ ...s, [id]: next }))
-        setCommitted((c) => ({ ...c, 'my-display': true }))
+        setCommitted((c) => ({ ...c, 'my-display': at }))
       }
       return merged
     })
@@ -616,6 +837,27 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
   }, [values, listRows])
 
+  /** ⚖ PKT-S30 F10 (R-A) — 特別営業日 in the OFF world: EXACTLY 臨時休業's OFF behaviour above — a
+   *  page-local draft in the same `listRows` map, so an add or a remove is an unsaved change and 保存
+   *  commits it locally (demoSaveLine says so). Never a refusal, never a no-op. */
+  const addSpecialRow = useCallback((block: SettingsBlock) => {
+    const sd = block.specialDays
+    if (!sd) return
+    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? '')), dayTitle)
+    setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
+    if (next.error !== null) return
+    setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
+    setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
+    setCloseAtMidnight(false)
+  }, [values, listRows, closeAtMidnight])
+
+  const removeSpecialRow = useCallback((block: SettingsBlock, date: string) => {
+    if (!block.specialDays) return
+    const rows = rowsOfBlock(block, listRows)
+    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
+    setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== date) }))
+  }, [listRows])
+
   const removeFromCollection = useCallback((block: SettingsBlock, rowId: string) => {
     const coll = block.collection
     if (!coll) return
@@ -624,8 +866,96 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== rowId) }))
   }, [listRows])
 
-  const commitSection = useCallback((target: SettingsSection) => {
-    const ids = controlIdsOf(target)
+  /** ⚖ PKT-S29-B1 R8 — 臨時休業's LIVE add: ONE immediate `addClosedDay`, the
+   *  card-colour pattern's own useRef guard (never both a closure write and
+   *  another closure write in flight at once). The committed row is core's
+   *  OWN returned row (`result.row`), never the echoed input — same law as
+   *  every other real writer on this page. */
+  const addClosureLive = useCallback(async (block: SettingsBlock, save: StoreDaysSave) => {
+    const coll = block.collection
+    if (!coll || closureBusy.current) return
+    closureBusy.current = true
+    setClosurePending('add')
+    setClosureError(null)
+    const date = String(values[coll.dateControlId] ?? '')
+    const reason = String(values[coll.reasonControlId] ?? '')
+    const result = await postAddClosedDay(save, date, reason)
+    closureBusy.current = false
+    setClosurePending(null)
+    setLiveClosures((prev) => applyClosureAdded(prev, result.ok ? { ok: true, value: result.row } : { ok: false }))
+    if (!result.ok) {
+      setClosureError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+      return
+    }
+    setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
+  }, [values])
+
+  const removeClosureLive = useCallback(async (rowId: string, save: StoreDaysSave) => {
+    if (closureBusy.current) return
+    closureBusy.current = true
+    setClosurePending(rowId)
+    setClosureError(null)
+    const result = await deleteClosedDay(save, rowId)
+    closureBusy.current = false
+    setClosurePending(null)
+    // ⚖ PKT-S33 F1 — an ok remove takes the door's refreshed list (as 特別営業日 do); only an answer
+    // without one (defensive) falls back to dropping the row locally.
+    setLiveClosures((prev) =>
+      result.ok && result.closures !== null
+        ? applyClosuresReplaced(result.closures)
+        : applyClosureRemoved(prev, result.ok ? { ok: true, value: rowId } : { ok: false }),
+    )
+    if (!result.ok) {
+      setClosureError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+    }
+  }, [])
+
+  /** ⚖ PKT-S29-B1 R8 — 特別営業日's LIVE add/remove: the door returns the
+   *  FULL array every time (R5 — read-before-write, sorted), so the screen
+   *  simply replaces its local state with core's answer; it never assembles
+   *  the next array itself. */
+  const addSpecialLive = useCallback(async (block: SettingsBlock, save: StoreDaysSave) => {
+    const sd = block.specialDays
+    if (!sd || specialBusy.current) return
+    specialBusy.current = true
+    setSpecialPending('add')
+    setSpecialError(null)
+    const date = String(values[sd.dateControlId] ?? '')
+    const open = String(values[sd.openControlId] ?? '')
+    const close = specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? ''))
+    const result = await postAddSpecialOpenDay(save, date, open, close)
+    specialBusy.current = false
+    setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
+    if (!result.ok) {
+      setSpecialError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+      return
+    }
+    setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
+    setCloseAtMidnight(false)
+  }, [values, closeAtMidnight])
+
+  const removeSpecialLive = useCallback(async (date: string, save: StoreDaysSave) => {
+    if (specialBusy.current) return
+    specialBusy.current = true
+    setSpecialPending(date)
+    setSpecialError(null)
+    const result = await deleteSpecialOpenDay(save, date)
+    specialBusy.current = false
+    setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
+    if (!result.ok) {
+      setSpecialError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+    }
+  }, [])
+
+  const commitSection = useCallback((target: SettingsSection, persisted: boolean) => {
+    const at = jstClock(new Date()) // ⚖ R42 — the commit instant, read once, before any state update
+    const ids = committedIdsOf(target)
     const wordValues = committedWordValues(target, values)
     setValues((prev) => ({ ...prev, ...wordValues }))
     setSaved((prev) => {
@@ -642,9 +972,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSavedRows((prev) => {
       const next = { ...prev }
       for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)
+      // ⚖ PKT-S30 F10 (R-A) — the OFF world's 特別営業日 draft is committed the same way.
+      for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)
       return next
     })
-    setCommitted((prev) => ({ ...prev, [target.id]: true }))
+    const stamp = stampFor(persisted, at) // ⚖ B2 act 2a — the commit's own outcome, chosen here and nowhere else
+    setCommitted((prev) => ({ ...prev, [target.id]: stamp }))
   }, [values, listRows])
 
   /** ⚖ A2 — カードの見た目 with the door ON: core first (the route), and the page commits ONLY on core's
@@ -661,7 +994,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       setCardFail(result.reason)
       return
     }
-    commitSection(target)
+    commitSection(target, true) // core confirmed it holds this colour (the route has no baseline; the echoed colour is compared with the pick — a different answer shows as unsaved)
     setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
   }, [values, commitSection])
 
@@ -674,14 +1007,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await sendBookingColors(save, values, saved)
     bookingSaving.current = false
     if (result === null) {
-      commitSection(target) // Greptile T2: the four unchanged → no PUT, the section commits locally
+      commitSection(target, false) // Greptile T2: the four unchanged → no PUT, the section commits locally (page only)
       return
     }
     if (!result.ok) {
       setBookingFail(result.reason)
       return
     }
-    commitSection(target)
+    commitSection(target, true) // core confirmed it holds these four (the route has no baseline; the echoed four are compared with the picks — a different answer shows as unsaved)
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
   }, [values, saved, commitSection])
 
@@ -690,6 +1023,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const openSection = useCallback((id: string, fromRail: boolean) => {
     if (fromRail) cameFromRef.current = id
     setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null) // …and an old 予約の色分け refusal
     setPicked(id)
     setJumpPin(null)
@@ -699,6 +1033,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const backToList = useCallback(() => {
     const id = cameFromRef.current
     setCardFail(null) // G7 — leaving the section clears an old card refusal
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null)
     setPicked(null)
     if (!id) return
@@ -1015,6 +1350,105 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
+  /** S60 P7A-R2b (P4) — the colour's may-save answer, named once: the save bar and お店ページ's blocks read it. */
+  const maySave = props.saveCardColor?.canSave !== false
+  const spCanEdit = section?.storePage?.disconnected !== true && maySave // R208: disconnected = both blocks locked
+  /** S60 P7A-R2b (P2) — お店ページ's draft, ONE per render, from the saved record and the room's `values`. S61 P7B-2
+   *  (R218): the saved record is core's last accepted one, else the payload's. */
+  const spSaved = section?.storePage ? accepted?.record ?? section.storePage.saved : undefined
+  const spDraft = useMemo(() => (spSaved ? storePageDraft(spSaved, values, STORE_PAGE_IDS, touched) : null), [spSaved, values, touched])
+  /** S61 P7B-R1 (R224, R189) — the section's sample, ONE definition: the SAVED type's. `accepted` (door ON only) →
+   *  its type's sample; else the payload's. Read by the preview's `storeView` and by StorePageRows' `counts`. */
+  const spSample = section?.storePage
+    ? accepted
+      ? practiceSample(accepted.record.business_type)
+      : { counts: section.storePage.counts, sampleKey: section.storePage.sampleKey }
+    : undefined
+  /** S60 P7A-R2b (P6) — a type pick writes the record; it removes NO reset key (R182). S61 P7B-3 (R220, G7): an edit
+   *  of the switches' half clears the switches' refusal line (the colour's line is the colour pick's to clear). */
+  const typeChange = (next: CapRecord) => {
+    setValues((prev) => ({ ...prev, ...storePageEdits(spDraft, next, STORE_PAGE_IDS) })) // S75 fix 1: only what moved
+    // S75 fix 3b (R-E′): a hand flip's key and 戻す's flips become touched (a 業種 pick flips none)
+    const moved = spDraft ? flippedKeys(spDraft, next) : []
+    if (moved.length > 0) setTouched((prev) => [...prev, ...moved.filter((k) => !prev.includes(k))])
+    for (const k of moved) editSeq.current[k] = (editSeq.current[k] ?? 0) + 1 // S75 fix 4 (R-F)
+    setSpPress((prev) => ({ ...prev, caps: 'unsent' }))
+  }
+  /** …a hand flip writes the record AND drops every key it flipped from the reset keys (C4). */
+  const rowsChange = (next: CapRecord) => {
+    typeChange(next)
+    if (spDraft) setResetKeys((prev) => afterHandFlip(prev, spDraft, next))
+  }
+  /** S60 P7A-R2c (R209 · U2) — the section's 元に戻す: one press, no confirm; every id (the 17 + the colour) back to
+   *  `saved` in ONE write, the reset keys emptied (R182), the colour's refusal cleared, and the toast says so. */
+  const undoSection = (target: SettingsSection) => {
+    if (cardSaving.current) return // S60 P7A-R3 (R215) · S61 R221: a save in flight (either half) — the save press's own guard; no write, no toast
+    setValues((prev) => {
+      const next = { ...prev }
+      for (const id of controlIdsOf(target)) next[id] = saved[id]
+      return next
+    })
+    setResetKeys(() => [])
+    if (target.storePage) setTouched(() => []) // S75 fix 3b (R-E′): the 17 are back to saved — nothing touched
+    setCardFail(null)
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-3 (R209): the switches' line too
+    toast.show(UNDO.toast)
+  }
+  /** S61 P7B-2 (R219) — お店ページ with the door ON: THE SPLIT SAVE. At the press: the colour is sent only if it differs
+   *  from saved, the switches only if one of the 17 does; both may fly; each answer is handled alone; `cardSaving`
+   *  (R221) is released when every sent half has answered. Switches' 200: saved for the 17 and `accepted` from the
+   *  RESPONSE (R222's hash), the reset keys emptied only if still the very list sent, `values` rewritten from the RESPONSE for every id still as sent (S75 fix 2, R-A), the stamp
+   *  alone — never `commitSection`. A refusal: only its line; draft, saved, accepted, based_on, reset keys all stay. */
+  const saveStorePageSection = async (target: SettingsSection, sp: NonNullable<SettingsSection['storePage']>, card: CardSave) => {
+    if (cardSaving.current) return
+    const sendColour = values[CARD_COLOR_ID] !== saved[CARD_COLOR_ID]
+    const sendCaps = spDraft !== null && Object.keys(storePageValues(sp.saved, STORE_PAGE_IDS)).some((id) => values[id] !== saved[id])
+    if (!sendColour && !sendCaps) return
+    cardSaving.current = true
+    setCardFail(null)
+    setSpPress({ cardOk: false, caps: 'unsent' })
+    const picked = String(values[CARD_COLOR_ID] ?? '')
+    const sentKeys = resetKeys
+    const sentSeq = { ...editSeq.current } // S75 fix 4 (R-F): the edit sequence as sent
+    // S75 fix 2 (R-A): the room's 17 values (+ defaults id) as sent — after a 200 an id still holding its sent value is rewritten
+    const sentValues = sendCaps ? Object.fromEntries(Object.keys(storePageValues(sp.saved, STORE_PAGE_IDS)).map((id) => [id, values[id]])) : {}
+    const colour = sendColour
+      ? putCardColor(card, picked === '' ? null : picked).then((result) => {
+        if (!result.ok) {
+          setCardFail(result.reason)
+          return
+        }
+        setSpPress((prev) => ({ ...prev, cardOk: true }))
+        commitSection(target, true) // as saveCardSection: core confirmed it holds this colour
+        setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
+      })
+      : null
+    const caps = sendCaps && spDraft !== null
+      ? putStoreCapabilities(card.businessId, { storeId: sp.storeId, record: spDraft, resetKeys: sentKeys, basedOn: accepted?.basedOn ?? sp.basedOn }).then((result) => {
+        setSpPress((prev) => ({ ...prev, caps: result.ok ? 'ok' : result.reason }))
+        if (!result.ok) return
+        const got = storePageValues(result.record, STORE_PAGE_IDS)
+        setSaved((prev) => ({ ...prev, ...got }))
+        // S75 fix 2 (R-A): after a save the saved record is the only truth — an edit made during the flight is kept
+        setValues((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(got).filter(([id]) => prev[id] === sentValues[id])) }))
+        // S75 fix 4 (R-F): a key not edited during the flight is untouched again; any edit in flight keeps it touched, whatever its value
+        setTouched((prev) => prev.filter((k) => editSeq.current[k] !== sentSeq[k]))
+        setAccepted({ record: result.record, basedOn: result.basedOn })
+        setResetKeys((prev) => (prev === sentKeys ? [] : prev)) // R182: a list changed during the flight is kept whole
+        const at = jstClock(new Date()) // ⚖ R42 — the stamp alone (R219), its time read once, before the state update
+        setCommitted((prev) => ({ ...prev, [target.id]: stampFor(true, at) }))
+      })
+      : null
+    try {
+      await Promise.all([colour, caps])
+    } finally {
+      cardSaving.current = false // S61 P7B-3 (L2): released even if an answer handler throws
+    }
+  }
+  /** ⚖ R35 (S36) — door ON and this section holds 臨時休業/特別営業日: the footer is hidden here
+   *  (the live blocks write to core). ONE definition; the footer ternary reads it. (⚖ B2 act 2a — the
+   *  committed stamp no longer reads the door: `stampFor` takes the commit's own outcome.) */
+  const storeDaysLive = !!props.saveStoreDays && !!section?.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
   const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
@@ -1128,7 +1562,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   )
 
   /** THE ROOM'S SAVE BAR, one copy for every section that uses it (⚖ A1b: カードの見た目 too). */
-  const roomSave = (section: SettingsSection) =>
+  const roomSave = (section: SettingsSection, onUndo?: () => void) =>
     /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
        already saved, in this browser, the moment it is pressed.
        Printing 保存する under it would ask a reader to commit
@@ -1136,7 +1570,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     section.persist === 'local' ? (
       <p className="st-save-state" role="status">
         {committed[section.id]
-          ? `✓ この端末に保存しました ${props.saveStampTime}`
+          ? `✓ この端末に保存しました ${committed[section.id]}`
           : '押すとすぐ保存されます'}
       </p>
     ) : (
@@ -1146,16 +1580,20 @@ export function SettingsScreen(props: SettingsScreenProps) {
             {blocked ??
               (changed > 0
                 ? `変更した設定 ${changed}件`
-                : committed[section.id]
-                  ? `✓ 保存しました ${props.saveStampTime}`
-                  : '変更はありません')}
+                : committed[section.id] || '変更はありません')}
           </span>
         </div>
+        {/* S60 P7A-R2c (R209 · U1) — only お店ページ passes `onUndo`; the room's wash-pill text button (.st-link). */}
+        {onUndo && (
+          <button type="button" className="st-link" aria-disabled={changed === 0} onClick={() => { if (changed > 0) onUndo() }}>
+            {UNDO.button}
+          </button>
+        )}
         <button
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
         >
           保存する
         </button>
@@ -1190,6 +1628,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   return (
     <div className={`${ROOT}${isDetail ? ' is-detail' : ''}`} ref={rootRef}>
+      {toast.host}
       {/* ⚖ IMPROVEMENT 1 — ONE COMPACT ROW. The dateline, the title, the ? and
           the one-line subtitle sit on one band; the old two-line lead folds into
           the head's own tour text, where a reader asks for it. */}
@@ -1364,23 +1803,67 @@ export function SettingsScreen(props: SettingsScreenProps) {
             // ⚖ A1b — カードの見た目 renders itself, like 予約と確保, but on the ROOM's save bar:
             // its one value lives in `values`, so the count, the rise and 保存する are the room's own.
             <ReserveCardLookSection
-              look={section.cardLook}
+              // S60 P7A-R2b (C6 / R184) — the whole お店ページ subtree (card look + 業種 + 機能) is the store's own
+              key={section.storePage?.storeId}
+              // the source line speaks for the colour core last confirmed: the room's `saved`, not the page payload
+              look={{ ...section.cardLook, value: CARD_COLOR_ID in saved ? String(saved[CARD_COLOR_ID] ?? '') || null : section.cardLook.value }}
+              // By design (R242 / R288): STORE_CAPABILITIES_REAL_MODE (data.ts) is hard-coded false, so every room that exists today is a practice room,
+              // and the customer-app preview always shows the full believable sample with its サンプル dateline (settings-props.ts),
+              // never a real customer. A store whose features are locked is the practice door OFF, not a real business without data.
+              storeView={spSample && spDraft ? { draft: spDraft, counts: spSample.counts, sampleKey: spSample.sampleKey } : undefined}
               value={String(values[CARD_COLOR_ID] ?? '')}
               onPick={(hex) => {
                 setCardFail(null) // G7 — an old refusal never stands beside a new pick
                 setValue(CARD_COLOR_ID, hex)
+                setSpPress((prev) => ({ ...prev, cardOk: false })) // S61 P7B-R1 (R225): …nor the last press's "colour saved" (cardOk)
               }}
               reduced={reduced}
+              narrow={narrow && isDetail} // S62 — the band WHILE the section is its own screen: back to the list closes the sheet
               render={(slots) =>
                 columnAnd(
-                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p></div>,
+                  <div className="st-main">
+                    {slots.main}
+                    {/* S60 P7A-R2b (P11) — under the card look, 業種 then 機能 (MOCK-FUNCTION-SPEC-S48 B4/B6/B7). */}
+                    {section.storePage && spSaved && spDraft ? (
+                      <>
+                        <StorePageType
+                          draft={spDraft}
+                          saved={spSaved}
+                          canEdit={spCanEdit}
+                          onChange={typeChange}
+                          onResetKeys={setResetKeys}
+                          onToast={toast.show}
+                          // R211 — each block's pair is picked by its heading (copy.ts BLOCK_GUIDES), never by index
+                          guide={section.storePageGuides?.find((g) => g.title === TYPE_BLOCK.title)}
+                        />
+                        <StorePageRows
+                          draft={spDraft}
+                          saved={spSaved}
+                          counts={spSample?.counts ?? section.storePage.counts}
+                          canEdit={spCanEdit}
+                          onChange={rowsChange}
+                          reduced={reduced}
+                          guide={section.storePageGuides?.find((g) => g.title === ROWS_HEAD)}
+                        />
+                      </>
+                    ) : section.storePageNoStore ? <p className="st-block-note">{section.storePageNoStore}</p> : null}
+                    <p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p>
+                    {/* S62 R230 — the sheet's opener, LAST in the reading column for every branch above (CSS shows it only ≤ 899) */}
+                    {slots.viewButton}</div>,
                   sideNode(
                     [],
                     slots.preview,
                     <>
                       {/* ⚖ G5 — core's sheet says no: no 保存する to press; the foot says why. */}
-                      {props.saveCardColor?.canSave === false ? null : roomSave(section)}
-                      {cardFail && <p className="st-act-error" role="alert">{CARD_SAVE_FAIL[cardFail]}</p>}
+                      {maySave ? roomSave(section, section.storePage ? () => undoSection(section) : undefined) : null}
+                      {/* S61 P7B-2 (R220) — the colour's line where it always stood, the switches' beside it; with no
+                          switches sent (`caps` 'unsent', always so without storePage) the colour's line is CARD_SAVE_FAIL[cardFail] as before. */}
+                      {((lines) => (
+                        <>
+                          {lines.card && <p className="st-act-error" role="alert">{lines.card}</p>}
+                          {lines.caps && <p className="st-act-error" role="alert">{lines.caps}</p>}
+                        </>
+                      ))(saveFailLines(cardFail ?? (spPress.cardOk ? 'ok' : 'unsent'), spPress.caps, CARD_SAVE_FAIL))}
                     </>,
                     () => false,
                     changed > 0,
@@ -1392,27 +1875,63 @@ export function SettingsScreen(props: SettingsScreenProps) {
             columnAnd(
               <div className="st-main">
                 {section.sampleNone && <NoSample />}
-                {section.blocks.map((b) => (
-                  <Block
-                    key={b.id}
-                    block={b}
-                    section={section}
-                    values={values}
-                    onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
-                    labelFor={labelFor}
-                    result={results[b.id] ?? null}
-                    error={actionErrors[b.id] ?? null}
-                    onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
-                    onLink={(id) => openSection(id, false)}
-                    openRows={openRows}
-                    onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
-                    listRows={b.collection ? rowsOfBlock(b, listRows) : null}
-                    listError={listErrors[b.id] ?? null}
-                    onListAdd={() => addRow(b)}
-                    onListRemove={(rowId) => removeFromCollection(b, rowId)}
-                    reduced={reduced}
-                  />
-                ))}
+                {section.blocks.map((b) => {
+                  // ⚖ PKT-S29-B1 — 臨時休業 goes LIVE the moment `props.saveStoreDays` is
+                  // handed over (the door is ON and a store is selected); OFF/no-store
+                  // keeps today's local-only behaviour byte for byte (`listRows`/`addRow`/
+                  // `removeFromCollection`, untouched below). ⚖ PKT-S30 F10 (R-A) — 特別営業日's
+                  // OFF world is the SAME local draft (`addSpecialRow`/`removeSpecialRow`), its
+                  // badge asked of `specialDayBadge` against the draft 臨時休業 rows (OFF ids = dates).
+                  const closuresLive = b.id === STORE_HOURS_CLOSURES_ID && props.saveStoreDays
+                  const readOnlyNote = props.saveStoreDays ? props.saveStoreDays.lockedNote ?? (storeDaysRevoked ? READ_ONLY_NOTE : null) : null
+                  const closureDisplay = liveClosures === null ? null : liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
+                  const specialLive = b.id === STORE_HOURS_SPECIAL_ID && props.saveStoreDays
+                  const offClosureBlock = section.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                  const offClosureDates = offClosureBlock ? rowsOfBlock(offClosureBlock, listRows).map((r) => ({ date: r.id })) : []
+                  const specialDisplay = specialLive
+                    ? liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
+                    : b.specialDays ? rowsOfBlock(b, listRows).map((r) => ({ date: r.id, title: r.title, open: r.open ?? '', close: r.close ?? '', badge: specialDayBadge(r.id, offClosureDates) })) : null
+                  // ⚖ S35 B2 act 1 (S2) — the live line, ONLY where a press really saves: the door handed
+                  // the store over, the actor may write (no read-only line), and the block holds its LIVE
+                  // read — 臨時休業: a `collection` and no sample mark (a failed read carries no collection;
+                  // storeDaysRead === null carries the sample mark); 特別営業日: `specialDays` present (null on
+                  // a failed read) and its sibling 臨時休業 read live (no sample mark).
+                  const liveSaves = readOnlyNote === null && (
+                    (Boolean(closuresLive) && b.collection !== null && b.sample === undefined)
+                    || (Boolean(specialLive) && b.specialDays !== null && offClosureBlock !== undefined && offClosureBlock.sample === undefined))
+                  return (
+                    <Block
+                      key={b.id}
+                      block={liveSaves ? { ...b, facts: [LIVE_SAVE_LINE, ...b.facts] } : b}
+                      section={section}
+                      values={values}
+                      onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
+                      labelFor={labelFor}
+                      result={results[b.id] ?? null}
+                      error={actionErrors[b.id] ?? null}
+                      onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
+                      onLink={(id) => openSection(id, false)}
+                      openRows={openRows}
+                      onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
+                      listRows={closuresLive ? closureDisplay : b.collection ? rowsOfBlock(b, listRows) : null}
+                      listError={closuresLive ? closureError : listErrors[b.id] ?? null}
+                      listReadOnly={closuresLive ? readOnlyNote : null}
+                      listPending={closuresLive ? closurePending : null}
+                      onListAdd={closuresLive ? () => void addClosureLive(b, props.saveStoreDays!) : () => addRow(b)}
+                      onListRemove={closuresLive ? (rowId) => void removeClosureLive(rowId, props.saveStoreDays!) : (rowId) => removeFromCollection(b, rowId)}
+                      specialRows={b.specialDays ? specialDisplay : null}
+                      specialError={specialLive ? specialError : b.specialDays ? listErrors[b.id] || null : null}
+                      specialReadOnly={b.id === STORE_HOURS_SPECIAL_ID ? readOnlyNote : null}
+                      specialPending={b.id === STORE_HOURS_SPECIAL_ID ? specialPending : null}
+                      // ⚖ PKT-S30 F10 (R-A) — OFF: the local draft, exactly like 臨時休業's OFF add/remove.
+                      onSpecialAdd={() => (specialLive ? void addSpecialLive(b, props.saveStoreDays!) : addSpecialRow(b))}
+                      onSpecialRemove={(date) => (specialLive ? void removeSpecialLive(date, props.saveStoreDays!) : removeSpecialRow(b, date))}
+                      closeAtMidnight={closeAtMidnight}
+                      onCloseAtMidnight={() => setCloseAtMidnight((on) => !on)}
+                      reduced={reduced}
+                    />
+                  )
+                })}
                 {/* ⚖ S17 fix round 3 · R3-1 — THE STANDING FOOTNOTE IS IN FLOW,
                     NOT IN THE STICKY CARD. At ① the save card is stuck to the
                     bottom of the phone's own screen, so every sentence inside it
@@ -1437,7 +1956,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
-                    : <p className="st-foot">{props.demoSaveLine}</p>}
+                    : storeDaysLive
+                      ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
+                      : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
@@ -1794,8 +2315,18 @@ function Block({
   onToggleRow,
   listRows,
   listError,
+  listReadOnly,
+  listPending,
   onListAdd,
   onListRemove,
+  specialRows,
+  specialError,
+  specialReadOnly,
+  specialPending,
+  onSpecialAdd,
+  onSpecialRemove,
+  closeAtMidnight,
+  onCloseAtMidnight,
   reduced,
 }: {
   block: SettingsBlock
@@ -1811,10 +2342,27 @@ function Block({
   onToggleRow: (rowId: string) => void
   /** ⚖ C2 — the live rows of a block that is a collection, `null` for every
    *  other block. */
-  listRows: ReadonlyArray<{ id: string; title: string; note: string }> | null
+  listRows: ReadonlyArray<{ id: string; title: string; note: string; date?: string }> | null
   listError: string | null
+  /** ⚖ PKT-S29-B1 R2 — non-null = read-only, the sentence to show, zero write
+   *  attempts on any press. `null` everywhere the block is not store-days. */
+  listReadOnly: string | null
+  /** ⚖ PKT-S29-B1 R8 — which control is mid-write: `'add'` or a specific row's
+   *  id, `null` when nothing is in flight. */
+  listPending: string | null
   onListAdd: () => void
   onListRemove: (rowId: string) => void
+  /** ⚖ PKT-S29-B1 — 特別営業日's own live rows, `null` for every other block
+   *  (including a FAILED read, R7 — never `[]` standing in for a failure). */
+  specialRows: Array<{ date: string; title: string; open: string; close: string; badge: string | null }> | null
+  specialError: string | null
+  specialReadOnly: string | null
+  specialPending: string | null
+  onSpecialAdd: () => void
+  onSpecialRemove: (date: string) => void
+  /** ⚖ S34 act 0 — 特別営業日's 24:00閉店 switch (page state; only that block reads it). */
+  closeAtMidnight: boolean
+  onCloseAtMidnight: () => void
   reduced: boolean
 }) {
   const [markOpen, setMarkOpen] = useState(false)
@@ -1854,6 +2402,7 @@ function Block({
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
       {mark && <MarkNote mark={mark} id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
+      {mark && block.markLine && <p className="sample-mark-note">{block.markLine}</p>}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
@@ -1881,10 +2430,30 @@ function Block({
           coll={block.collection}
           rows={listRows}
           error={listError}
+          readOnly={listReadOnly}
+          pending={listPending}
           values={values}
           onChange={onChange}
           onAdd={onListAdd}
           onRemove={onListRemove}
+        />
+      )}
+
+      {block.specialDays && specialRows !== null && (
+        <SpecialDaysCollection
+          block={block}
+          sd={block.specialDays}
+          rows={specialRows}
+          error={specialError}
+          readOnly={specialReadOnly}
+          pending={specialPending}
+          values={values}
+          onChange={onChange}
+          onAdd={onSpecialAdd}
+          onRemove={onSpecialRemove}
+          closeAtMidnight={closeAtMidnight}
+          onCloseAtMidnight={onCloseAtMidnight}
+          reduced={reduced}
         />
       )}
 
@@ -2010,6 +2579,8 @@ function Collection({
   coll,
   rows,
   error,
+  readOnly,
+  pending,
   values,
   onChange,
   onAdd,
@@ -2019,6 +2590,13 @@ function Collection({
   coll: NonNullable<SettingsBlock['collection']>
   rows: ReadonlyArray<{ id: string; title: string; note: string }>
   error: string | null
+  /** ⚖ PKT-S29-B1 R2 — non-null = a store-days block a non-HQ actor may only
+   *  READ: the add form is hidden, every row's 取り消す is disabled, and this
+   *  sentence prints once. `null` on every OFF/local (draft-model) collection. */
+  readOnly: string | null
+  /** ⚖ PKT-S29-B1 R8 — `'add'` or the row id mid-write; disables just that
+   *  control (the card-colour pattern's own useRef guard, made visible). */
+  pending: string | null
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   onAdd: () => void
@@ -2026,6 +2604,14 @@ function Collection({
 }) {
   const dateId = `${block.id}-date`
   const reasonId = `${block.id}-reason`
+  const noop = () => {}
+  /** ⚖ the room's own accessibility law (settings.test.ts "the ACCESSIBLE NAME
+   *  of a locked control…"): a busy control stays FOCUSABLE — `aria-disabled`,
+   *  never `disabled` — so its state is reachable by keyboard/screen reader;
+   *  the handler still needs SOMETHING while busy (a no-op), never `undefined`
+   *  (a controlled `value` with no `onChange` warns on every render). */
+  const busy = pending !== null
+  const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
   return (
     <div className="st-coll">
       {rows.length === 0 ? (
@@ -2037,46 +2623,198 @@ function Collection({
               <div className="st-coll-title">{r.title}</div>
               {r.note && <div className="st-coll-note">{r.note}</div>}
             </div>
-            <button
-              type="button"
-              className="st-coll-del"
-              /* ⚠ THE ROW'S SUBJECT RIDES THE BUTTON'S OWN NAME. A column of
-                 buttons all called 「取り消す」 is a screen reader hearing the
-                 same word six times with no way to tell which day it removes. */
-              aria-label={`${r.title}の臨時休業を${coll.removeLabel}`}
-              onClick={() => onRemove(r.id)}
-            >
-              {coll.removeLabel}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="st-coll-del"
+                /* ⚠ THE ROW'S SUBJECT RIDES THE BUTTON'S OWN NAME. A column of
+                   buttons all called 「取り消す」 is a screen reader hearing the
+                   same word six times with no way to tell which day it removes. */
+                aria-label={`${r.title}の臨時休業を${coll.removeLabel}`}
+                {...inert}
+                onClick={busy ? noop : () => onRemove(r.id)}
+              >
+                {pending === r.id ? REMOVE_PENDING_LABEL : coll.removeLabel}
+              </button>
+            )}
           </div>
         ))
       )}
-      <div className="st-coll-add">
-        <label className="st-coll-field" htmlFor={dateId}>
-          <span>日付</span>
-          <input
-            id={dateId}
-            className="st-input is-date"
-            type="date"
-            value={String(values[coll.dateControlId] ?? '')}
-            onChange={(e) => onChange(coll.dateControlId, e.target.value)}
-          />
-        </label>
-        <label className="st-coll-field" htmlFor={reasonId}>
-          <span>理由</span>
-          <input
-            id={reasonId}
-            className="st-input"
-            type="text"
-            maxLength={40}
-            placeholder="設備メンテナンスのため"
-            value={String(values[coll.reasonControlId] ?? '')}
-            onChange={(e) => onChange(coll.reasonControlId, e.target.value)}
-          />
-        </label>
-        <button type="button" className="st-act" onClick={onAdd}>{coll.addLabel}</button>
-        {error && <p className="st-coll-error" role="status">{error}</p>}
-      </div>
+      {readOnly ? (
+        <p className="st-coll-readonly" role="status">{readOnly}</p>
+      ) : (
+        <div className="st-coll-add">
+          <label className="st-coll-field" htmlFor={dateId}>
+            <span>日付</span>
+            <input
+              id={dateId}
+              className="st-input is-date"
+              type="date"
+              {...inert}
+              value={String(values[coll.dateControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(coll.dateControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={reasonId}>
+            <span>理由</span>
+            <input
+              id={reasonId}
+              className="st-input"
+              type="text"
+              maxLength={40}
+              placeholder="設備メンテナンスのため"
+              {...inert}
+              value={String(values[coll.reasonControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(coll.reasonControlId, e.target.value)}
+            />
+          </label>
+          <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
+            {pending === 'add' ? ADD_PENDING_LABEL : coll.addLabel}
+          </button>
+          {error && <p className="st-coll-error" role="status">{error}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** ⚖ PKT-S29-B1 R8 — 特別営業日's own add/remove list: date + 開店 + 閉店, a
+ *  badge when the same date is also a 臨時休業 (computed by the caller from
+ *  the CLOSURES list — R3), and no `reason` field (core's `SpecialOpenDay`
+ *  carries none). Same shape as `Collection` otherwise: real keyboard-reachable
+ *  controls, a live-region refusal, a sentence for the empty state. */
+function SpecialDaysCollection({
+  block,
+  sd,
+  rows,
+  error,
+  readOnly,
+  pending,
+  values,
+  onChange,
+  onAdd,
+  onRemove,
+  closeAtMidnight,
+  onCloseAtMidnight,
+  reduced,
+}: {
+  block: SettingsBlock
+  sd: NonNullable<SettingsBlock['specialDays']>
+  rows: ReadonlyArray<{ date: string; title: string; open: string; close: string; badge: string | null }>
+  error: string | null
+  readOnly: string | null
+  pending: string | null
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+  onAdd: () => void
+  onRemove: (date: string) => void
+  closeAtMidnight: boolean
+  onCloseAtMidnight: () => void
+  reduced: boolean
+}) {
+  const dateId = `${block.id}-date`
+  const openId = `${block.id}-open`
+  const closeId = `${block.id}-close`
+  const midnightLabelId = `${block.id}-midnight-label`
+  const noop = () => {}
+  const busy = pending !== null
+  const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
+  return (
+    <div className="st-coll">
+      {rows.length === 0 ? (
+        <p className="st-coll-empty">{sd.emptyLine}</p>
+      ) : (
+        rows.map((r) => (
+          <div className="st-coll-row" key={r.date}>
+            <div className="st-coll-what">
+              <div className="st-coll-title">
+                {r.title}
+                {r.badge && <span className="st-chip">{r.badge}</span>}
+              </div>
+              <div className="st-coll-note">{r.open}〜{r.close}</div>
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                className="st-coll-del"
+                aria-label={`${r.title}の特別営業日を${sd.removeLabel}`}
+                {...inert}
+                onClick={busy ? noop : () => onRemove(r.date)}
+              >
+                {pending === r.date ? REMOVE_PENDING_LABEL : sd.removeLabel}
+              </button>
+            )}
+          </div>
+        ))
+      )}
+      {readOnly ? (
+        <p className="st-coll-readonly" role="status">{readOnly}</p>
+      ) : (
+        <div className="st-coll-add">
+          <label className="st-coll-field" htmlFor={dateId}>
+            <span>日付</span>
+            <input
+              id={dateId}
+              className="st-input is-date"
+              type="date"
+              {...inert}
+              value={String(values[sd.dateControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(sd.dateControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={openId}>
+            <span>開店</span>
+            <input
+              id={openId}
+              className="st-input is-time"
+              type="time"
+              {...inert}
+              value={String(values[sd.openControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(sd.openControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={closeId}>
+            <span>閉店</span>
+            {/* ⚖ S34 act 0 — ON: a read-only 24:00 box stands in place of the time field (which
+                cannot type 24:00); the typed value stays in state for OFF. */}
+            {closeAtMidnight ? (
+              <input
+                id={closeId}
+                className="st-input is-time is-fixed"
+                type="text"
+                value={MIDNIGHT_CLOSE}
+                readOnly
+                aria-readonly="true"
+                tabIndex={-1}
+                aria-label={MIDNIGHT_CLOSE_BOX_ARIA}
+              />
+            ) : (
+              <input
+                id={closeId}
+                className="st-input is-time"
+                type="time"
+                {...inert}
+                value={String(values[sd.closeControlId] ?? '')}
+                onChange={busy ? noop : (e) => onChange(sd.closeControlId, e.target.value)}
+              />
+            )}
+          </label>
+          <div className="st-coll-field">
+            <span id={midnightLabelId}>{CLOSE_AT_MIDNIGHT_LABEL}</span>
+            <Switch
+              on={closeAtMidnight}
+              ariaLabelledBy={midnightLabelId}
+              inert={inert}
+              reduced={reduced}
+              onToggle={busy ? noop : onCloseAtMidnight}
+            />
+          </div>
+          <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
+            {pending === 'add' ? ADD_PENDING_LABEL : sd.addLabel}
+          </button>
+          {error && <p className="st-coll-error" role="status">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -2625,10 +3363,7 @@ function NumberField({
 // thumb is decoration behind it, `pointer-events: none`, so nothing about the
 // keyboard or a screen reader depends on the motion.
 
-/** What a LOCKED control wears instead of `disabled` — the reason, reachable by
- *  keyboard and by a screen reader. Spelled as a type rather than inline so the
- *  two controls whose thumb travels take exactly what `Control` hands them. */
-type InertProps = { 'aria-disabled'?: 'true'; title?: string; 'aria-label'?: string }
+// `InertProps` and `Switch` live in ./Switch (⚖ R93 — one switch for the room).
 
 function Segment({
   options,
@@ -2714,70 +3449,6 @@ function Segment({
           </button>
         )
       })}
-    </div>
-  )
-}
-
-function Switch({
-  on,
-  aria,
-  onLabel,
-  offLabel,
-  inert,
-  reduced,
-  onToggle,
-}: {
-  on: boolean
-  aria: string
-  onLabel: string
-  offLabel: string
-  inert: InertProps
-  reduced: boolean
-  onToggle?: () => void
-}) {
-  const thumbRef = useRef<HTMLSpanElement>(null)
-  const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
-  const seated = useRef(false)
-
-  /** Same shape, same reason as `Segment` above: built unconditionally, keyed on
-   *  `reduced`, so the flag can never be pinned at its first value. */
-  useLayoutEffect(() => {
-    springRef.current?.stop()
-    springRef.current = makeSpring(
-      (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
-      { response: SPRING_THUMB, eps: 0.3, reduced },
-    )
-    seated.current = false
-  }, [reduced])
-
-  useLayoutEffect(() => {
-    const thumb = thumbRef.current
-    if (!thumb || !springRef.current) return
-    /** The travel is the track's own arithmetic, read from the element rather
-     *  than typed: the touch band widens the track to 44px and a hard-coded
-     *  20px would leave the thumb short of its own end there. */
-    const track = thumb.parentElement
-    const travel = track ? Math.max(0, track.clientWidth - thumb.offsetWidth - 4) : 18
-    if (!seated.current) { seated.current = true; springRef.current.jump(on ? travel : 0); return }
-    springRef.current.set(on ? travel : 0)
-  }, [on, reduced])
-
-  useEffect(() => () => springRef.current?.stop(), [])
-
-  return (
-    <div className="st-switchline">
-      <span className={`st-state${on ? ' is-on' : ''}`}>{on ? onLabel : offLabel}</span>
-      <button
-        type="button"
-        className="st-switch"
-        role="switch"
-        aria-checked={on}
-        aria-label={aria}
-        {...inert}
-        onClick={onToggle}
-      >
-        <span className="st-switch-thumb" aria-hidden="true" ref={thumbRef} />
-      </button>
     </div>
   )
 }

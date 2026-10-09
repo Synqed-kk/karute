@@ -79,6 +79,8 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const stripLineComments = (src: string) => stripComments(src).replace(/^\s*\/\/.*$/gm, '')
 const DISCLOSURE = stripLineComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/Collapse.tsx`), 'utf8'))
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
+// ⚖ R93 (S50 P5c) — the room's Switch moved into its own file; its spring is read there.
+const SWITCH_CODE = stripComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/Switch.tsx`), 'utf8')).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
 /** Every OPENING TAG of `<tag …>` in the source, whole. JSX attributes hold
@@ -358,7 +360,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       }
       return out
     }
-    const springs = [...callsOf(SRC_CODE), ...callsOf(DISCLOSURE)]
+    const springs = [...callsOf(SRC_CODE), ...callsOf(SWITCH_CODE), ...callsOf(DISCLOSURE)]
     expect(springs.length).toBeGreaterThanOrEqual(5)
     /** ⚠ D-32 RE-POINT (⚖ S17 fix round 4 · H5) — AND THE TOKEN IS NOT THE
      *  CLAIM. This loop used to ask `sp.includes('reduced')`, which is true of
@@ -448,7 +450,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       // Segment — the pair of thumb springs
       { what: 'Segment', slice: sliceOf(SRC_CODE, 'const paint = () => {', '}, [reduced])'), stops: ['xRef.current?.stop()', 'wRef.current?.stop()'] },
       // Switch — one thumb spring
-      { what: 'Switch', slice: sliceOf(SRC_CODE, 'springRef.current?.stop()', '}, [reduced])'), stops: ['springRef.current?.stop()'] },
+      { what: 'Switch', slice: sliceOf(SWITCH_CODE, 'springRef.current?.stop()', '}, [reduced])'), stops: ['springRef.current?.stop()'] },
       // Collapse — the 詳しく height, in its own file (D-20)
       { what: 'Collapse', slice: sliceOf(DISCLOSURE, 'if (!springRef.current || builtWith.current !== reduced)', 'const spring = springRef.current'), stops: ['springRef.current?.stop()'] },
     ]
@@ -491,11 +493,13 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(motionHook).toContain("mq.removeEventListener('change', apply)")
     // …and re-seats, so a rebuilt spring places its thumb instead of sliding it
     // in from zero.
-    expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(2)
+    // (Segment in the screen, Switch in its own file since ⚖ R93.)
+    expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(1)
+    expect((SWITCH_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(1)
     // …and the re-seat runs when the answer CHANGES, so a reader who turns the
     // preference on mid-session is obeyed without a reload.
     expect(SRC_CODE).toContain('}, [value, options, reduced])')
-    expect(SRC_CODE).toContain('}, [on, reduced])')
+    expect(SWITCH_CODE).toContain('}, [on, reduced])')
   })
 
   // ⚖ S17 · F17 — THE TOUR CARD NEVER SITS ON THE BLOCK IT IS EXPLAINING.
@@ -916,7 +920,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
   })
 
   it('the screen commits a section’s values, and says so — once, per section', () => {
-    expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection) => {')
+    expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection, persisted: boolean) => {')
     // ⚖ S17 STEP 1 — RE-PINNED. The note used to be a SENTENCE stored per
     // section (「保存しました（この画面の中だけ）」); the save state now shows a
     // COUNT while there is something to save and a stamped 「保存しました 13:24」
@@ -925,11 +929,14 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // did not disappear — it is the standing footnote under the same card
     // (`props.demoSaveLine`), which is where it belongs on every section rather
     // than only after a press.
-    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: true }))")
-    // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are カードの見た目
+    // ⚖ B2 act 2a (S38) — RE-PINNED: the value is now the whole stamp, chosen by `stampFor` from the
+    // commit's own outcome (core wrote and said yes, or page only).
+    expect(SRC_CODE).toContain("const stamp = stampFor(persisted, at)")
+    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: stamp }))")
+    // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are お店ページ (カードの見た目)
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}')
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
@@ -941,12 +948,19 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // button that commits it) is unchanged.
     expect(SRC_CODE).toContain("`変更した設定 ${changed}件`")
     expect(SRC_CODE).not.toContain("`変更 ${changed}件`")
-    expect(SRC_CODE).toContain("`✓ 保存しました ${props.saveStampTime}`")
+    // ⚖ B2 act 2a — RE-PINNED: the 保存しました literal lives in `stampFor` (the one chooser) and the bar prints the committed text.
+    expect(SRC_CODE).toContain("persisted ? `✓ 保存しました ${at}` : `${businessStrings.sampleMark.pageOnlyStamp} ${at}`")
+    expect(SRC_CODE).toContain("committed[section.id] || '変更はありません'")
     expect(SRC_CODE).toContain("'変更はありません'")
-    // ⚠ AND THE CLOCK IS THE SERVER'S, not the browser's: the room holds no
-    // clock and no formatter (the family law), and a `new Date()` here would
-    // also make every shot of this page a different picture.
-    expect(SRC_CODE).not.toMatch(/new Date\(\)/)
+    // ⚖ B2 act 1c (R41) — the stamp's time is the PRESS: the screen reads the
+    // clock only inside the two commit event paths, through the one JST
+    // formatter (clock.ts `jstClock`), and never during render — so every
+    // `new Date()` in the screen is one of those two commit reads (R42).
+    // S61 P7B-3 (R219) — a THIRD stamp instant: the switches' 200 sets the stamp alone in
+    // `saveStorePageSection`'s answer handler, its clock read once there, before its state update.
+    // Each stamp's instant is still read ONCE, through `jstClock`, never during render.
+    expect(SRC_CODE.match(/new Date\(\)/g) ?? []).toHaveLength(3)
+    expect(SRC_CODE.match(/jstClock\(new Date\(\)\)/g) ?? []).toHaveLength(3)
   })
 
   it('EVERY control shape wires its own change — a shape with no handler is a dead lever', () => {
@@ -1290,14 +1304,14 @@ describe('予約の色分け — 保存する sends only a real colour change (G
     expect(f.mock.calls[0]).toEqual(['/api/business/booking-colors', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-expected-business': BIZ }, body: JSON.stringify({ storeId: STORE, colors: picked }) }])
     expect(result).toEqual({ ok: true, colors: picked })
     // …on that yes the handler commits the section and takes core's four as the baseline (the dirty state clears)
-    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}\s*commitSection\(target\)\s*setSaved\(\(prev\) => \(\{ \.\.\.prev, \.\.\.Object\.fromEntries\(BOOKING_KEYS\.map\(\(k\) => \[`lang\.color-\$\{k\}`, result\.colors\[k\]\]\)\) \}\)\)/)
+    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}\s*commitSection\(target, true\)[^\n]*\n\s*setSaved\(\(prev\) => \(\{ \.\.\.prev, \.\.\.Object\.fromEntries\(BOOKING_KEYS\.map\(\(k\) => \[`lang\.color-\$\{k\}`, result\.colors\[k\]\]\)\) \}\)\)/)
   })
 
   it('(b) only a non-colour row changed (the four equal the last save) → ZERO fetch, and the handler commits locally', async () => {
     const f = reply(200, { ok: true, colors: SEED })
     expect(await sendBookingColors(SAVE, { ...SAVED, 'lang.ui': 'en' }, SAVED)).toBeNull()
     expect(f).not.toHaveBeenCalled()
-    expect(HANDLER).toMatch(/const result = await sendBookingColors\(save, values, saved\)\s*bookingSaving\.current = false\s*if \(result === null\) \{\s*commitSection\(target\)[^\n]*\n\s*return\s*\}/)
+    expect(HANDLER).toMatch(/const result = await sendBookingColors\(save, values, saved\)\s*bookingSaving\.current = false\s*if \(result === null\) \{\s*commitSection\(target, false\)[^\n]*\n\s*return\s*\}/)
   })
 
   it('(c) canSave false → the section renders no 保存する, and its foot is the forbidden line (source pin)', () => {

@@ -21,13 +21,27 @@
 
 import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { listStoreOptions, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
-import { practiceTenant } from '@/business/lib/practice-door/switch'
+import { listStoreOptions, practiceDoorOn, readShellIdentity, readShellViewer, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
 import { ShiftsSessionEdits } from './ShiftsSessionEdits'
 import './business-shell.css'
+
+// ⚖ Liam 2026-09-30 — the tab reads 「SYNQED Business」 only for an ADMITTED
+// request. The title is computed from the SAME admission the layout awaits:
+// admission.ts memoises requireBusinessAdmission per request (React cache),
+// so generateMetadata, this layout and the page share ONE admission on a full
+// load AND on a soft navigation (Next resolves metadata from the full route
+// tree on every RSC request). A static `metadata` export here would also title
+// the 404 thrown in this segment, so there is none. Not admitted / any failure
+// → {} and the root 「Karute」 stands.
+export async function generateMetadata(): Promise<{ title?: string }> {
+  return requireBusinessAdmission().then(
+    () => ({ title: 'SYNQED Business' }),
+    () => ({}),
+  )
+}
 
 const fmtTime = new Intl.DateTimeFormat('ja-JP', {
   hour: '2-digit',
@@ -43,12 +57,14 @@ export default async function BusinessLayout({
   children: React.ReactNode
   params: Promise<{ locale: string }>
 }) {
-  await requireBusinessAdmission()
-  const [{ locale }, storeOptions, shell, unresolved] = await Promise.all([
+  const admission = await requireBusinessAdmission()
+  const [{ locale }, storeOptions, shell, viewer, unresolved, doorOn] = await Promise.all([
     params,
     listStoreOptions(),
     readShellIdentity(),
+    readShellViewer(admission),
     readUnresolvedCounts(),
+    practiceDoorOn(),
   ])
 
   // Formatted on the server so the client renders one string and no clock or
@@ -65,9 +81,10 @@ export default async function BusinessLayout({
             locale={locale}
             businessName={shell.business.name}
             storeCount={shell.business.storeCount}
-            operatorName={shell.operator.name}
-            operatorMark={shell.operator.mark}
-            operatorRole={shell.operator.role}
+            viewerName={viewer.name}
+            viewerMark={viewer.mark}
+            viewerRoleLabel={viewer.roleLabel}
+            viewerEmail={viewer.email}
             stores={storeOptions}
             unresolved={unresolved}
           />
@@ -77,7 +94,7 @@ export default async function BusinessLayout({
         <BusinessTopbarActionSlot>
           <main className="main">
             <Suspense fallback={<header className="topbar" />}>
-              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} {...(practiceTenant() !== null ? { practice: true as const } : {})} />
+              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} {...(doorOn ? { practice: true as const } : {})} />
             </Suspense>
             {/* ⚖ Liam 22: day navigation is a `?day=` LINK, so the screen
                 remounts on every flip and the layout does not. The session's

@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, stripColumns, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -123,10 +123,9 @@ import {
   landingVerdict,
   lossOf,
   windowsOn,
-  lostOn,
+  heldPriceOf,
+  dayOnlyCell,
   EMPTY_WINDOWS,
-  EMPTY_DAY,
-  type DayLoss,
   bedClassCell,
   nearestFreeStarts,
   offerableCell,
@@ -165,7 +164,7 @@ import {
   sellDrawnFor,
   sellLayerFor,
   sellPublishedFor,
-  sellStaffLanes,
+  sellableLaneKeysOf,
   sharedRoomSub,
   sharedRoomTitle,
   withheldTitle,
@@ -188,6 +187,8 @@ import {
   type LandingFloor,
   type LandingQuestion,
   type LandingVerdict,
+  DRAG_EDGE_STEP_PX,
+  edgeScrollDir,
   type Move,
   type Moves,
   type OverrideLevel,
@@ -198,11 +199,13 @@ import {
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
+import { heldDelta, type HeldDelta } from './held-delta'
 import { offerKey, withheldOffers, type OfferAsk } from './bed-aware-sales'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
 import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
+import { heldReferenceFor, identitiesOf, settleHeldReference } from './held-reference'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 import { releaseTimed } from './timed-release'
@@ -240,6 +243,26 @@ export function bedViewsFor(
   // throw reaching a render.
   const hand = handId === null || handId === '' ? null : handId
   return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }, words) }
+}
+
+/** ⚖ DECISIONS.md R4 · R8e · C1/F1 (S5 PR-B; S6 read round) — THE SETTLE, ONE
+ *  DEFINITION. The settle effect's whole body: only the UN-STAGED answer
+ *  becomes the allocator's reference — no staged day (`dayStaged`), no pending
+ *  landing of any kind (`pendingId`), no card in flight (`live`), and never an
+ *  answer the rail did NOT prove a fixed point (`fixedPoint: false`; absent =
+ *  no preference, settles as before). No board (`honest` null/undefined, the
+ *  bed-less store) writes nothing. Idempotent
+ *  for the same state (StrictMode's double effect writes the same set).
+ *  Exported so the lifecycle is provable without a renderer. */
+export function settleUnstagedHeld(
+  honest: HonestHeld | null | undefined,
+  dayStaged: boolean,
+  pendingId: string | null,
+  live: unknown,
+  heldRefStore: string,
+  heldRefDate: string,
+): void {
+  if (honest && honest.fixedPoint !== false && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -615,7 +638,7 @@ export interface TodayProps {
   windowDays: number
   /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). `lead` (P20, rulerLead()): present only on a
    *  fractional axis — the gridlines' offset to the first whole hour, so they start where the ruler's first label does. */
-  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }>; lead?: number }
+  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; text: string; leftPct: number; widthPct: number; edge?: true }>; lead?: number }
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
    *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
    *  store in core — only then is 営業時間外 painted. */
@@ -861,7 +884,23 @@ interface DragCtx {
    *  during the gesture, so this is also the live answer to "where is the other
    *  half right now". */
   home: PairLanes
+  /** ⚖ Q-23 (S27) — THE STAGED ENTRIES AS THEY STOOD AT POINTERDOWN, both sides: `moves[id]` and
+   *  `bedMoves[id]`, `null` = no key. Every abandoned landing (`restoreSides`) puts exactly these back —
+   *  a key that was absent is deleted, a value that was there is written back — so a cancelled drag
+   *  leaves nothing staged behind, and a cancelled re-drag of a staged card keeps its staged span. */
+  staged: { staff: Move | null; bed: Move | null }
   track: Element
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL runs on the board's ONE loop (`edgeStart` / `edgeAim` /
+   *  `edgeStop`, `edgeRef`). `scrolled` is how far the box moved under the held card: it is added to the pointer's
+   *  travel, so the card stays under the pointer and the drop lands where it shows. `at` = the last pointer position,
+   *  re-applied each scrolled frame while the pointer rests in the zone.
+   *  ⚖ S26 Round F (Greptile P1) — `scrolled` is DERIVED, never accumulated: `box.scrollLeft − scrollLeft0` (the
+   *  `.timeline-scroll` box and its scrollLeft at pickup, kept even when the track does not overflow), so the edge
+   *  loop and a manual sideways scroll (trackpad, shift-wheel, scrollbar) are one source and cannot double-count. */
+  box: HTMLElement | null
+  scrollLeft0: number
+  scrolled: number
+  at: { clientX: number; clientY: number } | null
   moved: boolean
   overShelf: boolean
   /** ⚖ Liam flag 61 / 63(a) — DID THE RESOLVER ANSWER THIS FRAME? `targetLane`
@@ -951,6 +990,12 @@ interface BlockDragCtx {
   grab: { dx: number; dy: number; w: number; h: number }
   pending: { clientX: number; clientY: number } | null
   frame: number | null
+  /** ⚖ Liam S25-17 (2) — the block drag rides the same edge loop; the card's `box` / `scrollLeft0` / `scrolled` /
+   *  `at`, same meaning (S26 Round F: `scrolled` derived from the box, never accumulated). */
+  box: HTMLElement | null
+  scrollLeft0: number
+  scrolled: number
+  at: { clientX: number; clientY: number } | null
   detach: () => void
 }
 
@@ -1030,6 +1075,8 @@ interface HoldPop {
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
   guardRow: { label: string; tone: 'warn' } | null
+  /** R1 — the day layer's quiet △ rows, from `warnFaceFor`. */
+  dayRows: Array<{ label: string; tone: 'warn' }>
   /** ⚖ LIAM flag 92 (2026-08-31) — THE SECOND FACE, composed by `warnFaceFor`
    *  from the store's settings. `null` (and `face: 'clean'`) is the card that
    *  ships today, rendered by the branch it has always been rendered by; a
@@ -1136,6 +1183,27 @@ export function TodayScreen(props: TodayProps) {
   const band = props.businessHours?.ownHours === true
   const offBefore = band ? (business.open - hours.open) / (hours.close - hours.open) : 0
   const offAfter = band ? (hours.close - business.close) / (hours.close - hours.open) : 0
+  // ⚖ 10/7 S25-1 — a day that cannot fit at the floor scrolls SIDEWAYS (the CSS min-width, today.css .timeline); on
+  // load it is scrolled so the now-line sits mid-view. The floor's only JS: one scroll, on mount, only when it overflows.
+  // Three guards (round 2 item 7 c): ON MOUNT ONLY — deps [], and a store or day switch re-renders this same instance
+  // (page.tsx keys nothing), so it never fires again; only on TODAY (`sell.nowMinute` is null on any other day); only
+  // when the track OVERFLOWS (scrollWidth > clientWidth — a day that fits never moves).
+  // Amended by the lead's ruling S25-15 (5): the scroll now keys on the SHOWN DAY and the STORE (deps [dayOffset,
+  // store]), not on mount — today brings the now-line in as above; another day goes back to the day's start
+  // (scrollLeft 0, written only when it is not 0 already); a store switch applies the same rule to the new board, so
+  // no stale offset rides over from the last day or store. Any other re-render still never re-scrolls.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (props.sell.nowMinute == null || props.nowFraction == null) {
+      if (el.scrollLeft !== 0) el.scrollLeft = 0
+      return
+    }
+    if (el.scrollWidth <= el.clientWidth) return
+    const label = parseFloat(getComputedStyle(el.firstElementChild ?? el).getPropertyValue('--label')) || 0
+    el.scrollLeft = (el.scrollWidth - label) * props.nowFraction - (el.clientWidth - label) / 2
+  }, [props.dayOffset, props.store]) // eslint-disable-line react-hooks/exhaustive-deps -- once per shown day and store by design: any other re-render must never re-scroll
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -1493,7 +1561,11 @@ export function TodayScreen(props: TodayProps) {
    *  popup would close itself the instant it appeared. */
   const adviceOpenedAt = useRef(0)
   const blockAdviceOpenedAt = useRef(0)
-  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; aimKey: string; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
+  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; aimKey: string; at?: number; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — THE ONE EDGE LOOP, shared by every drag that lands on the board (a card, a
+   *  block, a shelf chip). The scroll box and its two edge lines are taken ONCE at drag start and only when the track
+   *  overflows (null = a day that fits, never scrolls); `step` tells the gesture how far the box really moved. */
+  const edgeRef = useRef<{ el: HTMLElement; left: number; right: number; dir: -1 | 0 | 1; frame: number | null; step: (moved: number) => void } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
   const [hiInput, setHiInput] = useState(dialogs.pricing.hqMax)
@@ -2038,6 +2110,7 @@ export function TodayScreen(props: TodayProps) {
     : live && !live.overShelf && !live.offLane
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  const step = props.guard.bookingStepMin
   /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
    *  with the landing preview. Canon's `updateAimedTarget` (:7599-7606) marks the
    *  hovered start's cell `.aimed` and its CSS gives it the hover treatment
@@ -2045,9 +2118,12 @@ export function TodayScreen(props: TodayProps) {
    *  selector, so the label and the strip never agreed during a drag. The only
    *  genuine parity gap study 50 found. Floored to the 30-minute rail lattice for
    *  flag 48's reason: an off-lattice landing belongs to the cell it starts
-   *  INSIDE, and rounding would name the next chip along. */
+   *  INSIDE, and rounding would name the next chip along.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
   const aimed = landing && landing.w > 0
-    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
+    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / step) * step }
     : null
   /** ⚖ R8 GAP-11 — THE SAME LANDING, IN MINUTES, FOR THE CARD IN HAND.
    *
@@ -2265,6 +2341,17 @@ export function TodayScreen(props: TodayProps) {
    *  board and a protected window's subject is a NEW client. */
   // ⚖ D-52 (a) — no rooms, nothing to net: `undefined` is the law-off shape
   // every consumer below already reads.
+  // ⚖ DECISIONS.md R4 (S4 PR-B) — the allocator's two preference inputs: the
+  // ONE sellable predicate (`sellableLaneKeysOf`, the set `windowsOf` reads),
+  // built once per lane world, and the settled held set of THIS store and day
+  // (held-reference.ts). Moved up from below `honest` unchanged so the netting
+  // can read it.
+  const sellableLaneKeys = useMemo(
+    () => sellableLaneKeysOf(committedLanes, locked),
+    [committedLanes, locked],
+  )
+  const heldRefStore = props.store ?? ''
+  const heldRefDate = `${props.dayOffset}|${props.dayLabel}`
   const honest = useMemo(
     () => (HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)
       ? honestHeld(
@@ -2274,9 +2361,10 @@ export function TodayScreen(props: TodayProps) {
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
+          { sellable: (l) => sellableLaneKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
         )
       : undefined),
-    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],
+    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk, sellableLaneKeys, heldRefStore, heldRefDate],
   )
 
   /** ⚖ SPEC-HONEST-COUNT v5 (1) — THE SALE FILTER, ON TOP OF THE ONE NETTING.
@@ -2288,10 +2376,6 @@ export function TodayScreen(props: TodayProps) {
    *  layer); `honestDrawn` is what is DRAWN (the row's boxes, the online 確保
    *  rows). Never the filter before the netting: a row nobody can buy from
    *  still takes a room. */
-  const sellableLaneKeys = useMemo(
-    () => new Set(sellStaffLanes(committedLanes, locked).filter((l) => !l.locked).map((l) => l.key)),
-    [committedLanes, locked],
-  )
   /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
    *  — THE DRAWN HALF IS ONLY ROWS. It used to be a whole `HonestHeld` carrying
    *  the STORE's `total` beside a narrowed `byLane`, which is a typed value that
@@ -2808,12 +2892,15 @@ export function TodayScreen(props: TodayProps) {
   const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'
   // ⚖ D-52 (a) — no rooms, nothing to net; falls back to `heldBoard` like the
   // other law-off arm.
+  // ⚖ R4 (S4 PR-B) — the rail reads the SAME settled reference as `honest`.
+  const boardSellableKeys = useMemo(() => sellableLaneKeysOf(boardLanes, locked), [boardLanes, locked])
   const heldBoardHonest = useMemo(
     () => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
-      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores),
+        { sellable: (l) => boardSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) }).byLane.map(heldMaskOf)
       : heldBoard),
-    [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],
+    [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds, boardSellableKeys, heldRefStore, heldRefDate],
   )
 
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
@@ -2840,12 +2927,19 @@ export function TodayScreen(props: TodayProps) {
    *  named; the five constants are what make this the DAY question rather than a
    *  placement one — nothing is being placed, so there is no `excludeId`, no
    *  `placementFeasible`, and with two real boards there is nothing left to lift. */
+  /** ⚖ S25-15 (1) — THE STRIP'S DAY, ONE SOURCE: the ruler's axis (the day model's `hours`) on the board's own grid
+   *  unit (opsConfig.bookingStepMin). The rail input below and the strip's `rails` memo both spread THIS value, so the
+   *  strip can never walk the store hours while the ruler draws a widened day (the 52.8 px drift on 07–24). */
+  const railDay = useMemo(
+    () => ({ axis: { open: hours.open, close: hours.close }, stepMin: props.guard.bookingStepMin }),
+    [hours.open, hours.close, props.guard.bookingStepMin],
+  )
   const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
     open: business.open,
     close: business.close,
-    // the rail's 30-minute grid, spelled the way this screen's own two RailInput
-    // sites spell it — there is no constant for it in this file.
-    stepMin: 30,
+    // ⚖ 10/7 S25-2 (D4) — the cells walk the board's DAY (the ruler's axis) on the board's own grid unit
+    // (opsConfig.bookingStepMin, the drag lattice's step); the store's hours above stay the rule.
+    ...railDay,
     // canon's 60分配置. NOT `railDur`, which follows the live aim and would put
     // both memos on the frame path.
     dur: props.guard.standardSessionMin,
@@ -2858,11 +2952,32 @@ export function TodayScreen(props: TodayProps) {
     protectedWindowFeasible: windowDoorOn(lanes),
     resting: null,
     restingWindowFeasible: undefined,
-  }), [business.open, business.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+  }), [business.open, business.close, railDay, props.guard.standardSessionMin, props.guard.protectedDurationMin,
        props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
 
   const pendingId = pending?.id ?? null
   const dayStaged = pendingId != null && moves[pendingId] != null
+  // ⚖ DECISIONS.md R4 · R8e (S4 PR-B) — SETTLE: only the UN-STAGED answer
+  // becomes the reference, written after it exists and never inside another
+  // answer's computation. ⚖ C1/F1 (S5 fix round 1): a pending landing of ANY
+  // kind never settles — `pendingId == null` as well as `!dayStaged`, so a
+  // landing that stages no staff move (a bed row only) cannot settle its
+  // staged answer either; no card in flight (`live`). ⚖ F2 (S5 fix round 1):
+  // an exact answer is a fixed point at once; an inexact one is iterated to a
+  // fixed point inside honestHeld (at most HONEST_FIXED_POINT_ROUNDS = 4 loop
+  // searches, the last verify-only; an unproven answer is disclosed as
+  // fixedPoint:false, exact:false) on the first frame per key and on a
+  // board-change frame. The settle writes ONLY an answer the rail proved a
+  // fixed point; a not-proven one (fixedPoint:false — 0 / 39,960 calls at the
+  // real budget, S6 attack) is never settled, so each frame recomputes the
+  // same answer from the same reference and nothing moves. A disclosed frame
+  // never advances the holder, so a board change recomputes from the LAST
+  // SETTLED reference.
+  // ⚖ S6 — the guard AND the write are ONE exported function,
+  // `settleUnstagedHeld` (top of file), proven without a renderer.
+  useEffect(() => {
+    settleUnstagedHeld(honest, dayStaged, pendingId, live, heldRefStore, heldRefDate)
+  }, [honest, dayStaged, pendingId, live, heldRefStore, heldRefDate])
   /** The three boards-without-this-card helpers, so the ORIGIN board is the day
    *  元に戻す restores. `addedHere`'s identity is `a.item.caseId` — `applyMoves`'s
    *  own admission key — and not an `id` field, which does not exist on those rows
@@ -2904,7 +3019,7 @@ export function TodayScreen(props: TodayProps) {
   const dayCommitted = useMemo(
     () => {
       if (!guardOn) return EMPTY_WINDOWS
-      if (honest) return windowsOf(honest, committedLanes)
+      if (honest) return windowsOf(honest, committedLanes, locked)
       if (heldCommitted) {
         return windowsOf(
           honestHeld(
@@ -2914,6 +3029,7 @@ export function TodayScreen(props: TodayProps) {
             false,
           ),
           committedLanes,
+          locked,
         )
       }
       return windowsOn(committedLanes, inputOn(committedLanes))
@@ -2933,7 +3049,7 @@ export function TodayScreen(props: TodayProps) {
    *  `HONEST_HELD` off (`honest` undefined) this memo never ran, and
    *  `dayOrigin` fell to the RAW unreleased `windowsOn(originLanes, …)` while
    *  `dayCommitted`'s D-17 F3 arm kept reading the released mask (that arm
-   *  answers `SELLING_ENGINE_LAW`, never the netting). `lostOn` subtracts the
+   *  answers `SELLING_ENGINE_LAW`, never the netting). `heldDelta` compares the
    *  two boards, so with the netting off ANY staged move had a released 枠
    *  blamed on itself. The production moves here, independent of `honest`,
    *  computed whenever a day is staged and the law is on (`heldCommittedFor`
@@ -2955,13 +3071,13 @@ export function TodayScreen(props: TodayProps) {
     if (!originHeld) return undefined
     // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
     // the clock already let go. Same function, same clock, same dial and the same
-    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
+    // board-scoped keep-back as the committed side at :2085 — `heldDelta` compares
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
   }, [dayStaged, originLanes, ledgerFrame, business.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
-   *  `lostOn` subtracts two settled boards, so both of them have to come out of
+   *  `heldDelta` compares two settled boards, so both of them have to come out of
    *  the SAME producer: an honest 「after」 against a legacy 「before」 would
    *  report a lane losing a 枠 the netting had simply stopped counting, on every
    *  staged card. It is built only while a gesture is STAGED — the at-rest
@@ -2979,6 +3095,7 @@ export function TodayScreen(props: TodayProps) {
    *  ⚖ D-20 (1) — the mask production moved to `originReleased` above (shared
    *  with `dayOrigin`'s law-on/netting-off arm), so this body shrinks to the
    *  netting alone. */
+  const originSellableKeys = useMemo(() => sellableLaneKeysOf(originLanes, locked), [originLanes, locked])
   const honestOrigin = useMemo(() => {
     if (!honest || !dayStaged) return honest
     if (!originReleased) return honest
@@ -2989,8 +3106,10 @@ export function TodayScreen(props: TodayProps) {
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
+      // ⚖ R4 (S4 PR-B) — the origin reads the same settled reference, never `honest`.
+      { sellable: (l) => originSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
     )
-  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk])
+  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk, originSellableKeys, heldRefStore, heldRefDate])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
    *  off but the law on and a released origin mask in hand, read that RELEASED
    *  mask in the day layer's shape (`on: false`, the identity answer) instead
@@ -3000,7 +3119,7 @@ export function TodayScreen(props: TodayProps) {
     () => (guardOn
       ? (dayStaged
           ? (honestOrigin
-              ? windowsOf(honestOrigin, originLanes)
+              ? windowsOf(honestOrigin, originLanes, locked)
               : originReleased
                 ? windowsOf(
                     honestHeld(
@@ -3010,6 +3129,7 @@ export function TodayScreen(props: TodayProps) {
                       false,
                     ),
                     originLanes,
+                    locked,
                   )
                 : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
@@ -3035,7 +3155,7 @@ export function TodayScreen(props: TodayProps) {
           guardRailsFor(handBoard, {
             open: business.open,
             close: business.close,
-            stepMin: 30,
+            ...railDay,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -3065,7 +3185,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
           }, laneWords)
         : [],
-    [guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -3408,7 +3528,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardVerdictAt(lanes, laneKey, start, {
             open: business.open,
             close: business.close,
-            stepMin: 30,
+            stepMin: props.guard.bookingStepMin,
             dur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -4281,19 +4401,19 @@ export function TodayScreen(props: TodayProps) {
    *  is one rendering of that same cell — deriving them together here keeps them
    *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
    *  face keeps rendering `row` exactly as it did. */
-  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: DayLoss } => {
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: HeldDelta | null; dayHeld: readonly number[] } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const at = moves[pending.id]
-    if (!at) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!at) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
     /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
      *  SETTLED boards and nothing else: the day 元に戻す restores, and the day as
      *  it stands with the card where it is staged. Both are stable memos, so this
-     *  costs one `lostOn` subtraction per run of this memo (it re-runs per
+     *  costs one `heldDelta` comparison per run of this memo (it re-runs per
      *  pointer frame while a staged card is re-dragged, deps `boardLanes`) and
      *  NO engine walk per frame — the two `windowsOn` walks live in
      *  `dayOrigin`/`dayCommitted`, measured 0/frame by the spy.
@@ -4303,13 +4423,8 @@ export function TodayScreen(props: TodayProps) {
      *  pocket law byte for byte, and a day-carrying cell reaching it would compare
      *  a day-inclusive number against pocket-only offers. The one reader is the
      *  warn card. */
-    const rows = lostOn(dayOrigin, dayCommitted)
-    const day = {
-      laneKey: at.laneKey,
-      before: rows.reduce((a, r) => a + r.before.length, 0),
-      after: rows.reduce((a, r) => a + r.after.length, 0),
-      lostOn: rows,
-    }
+    const day = heldDelta(dayOrigin, dayCommitted, heldPriceOf(frame, depth, props.guard.protectedDurationMin))
+    const dayHeld = dayCommitted.byLane.find((l) => l.laneKey === at.laneKey)?.starts ?? []
     /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
      *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
      *
@@ -4456,6 +4571,7 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
       day,
+      dayHeld,
     }
     // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
     // The gate re-verdicts each candidate start through `verdictRef`, and the
@@ -4471,7 +4587,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ NEW-WINDOW — the two settled-day memos join the list BEFORE
     // `props.guard.bookingStepMin`, which is pinned as this list's own tail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -4537,11 +4653,15 @@ export function TodayScreen(props: TodayProps) {
   // `warnFaceFor` composes the headline, the △ row and the 長押し gate from it;
   // nothing else on this screen is ever handed a `day`-carrying cell, so the
   // offer path keeps today's pocket law byte for byte.
+  // FIX ROUND 1 X-A — a null staged cell (guard off, or a lane with no window / a
+  // locked lane) still carries the day: `dayOnlyCell` hands the delta alone.
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
+        cell: pendingGuardRow.cell == null
+          ? dayOnlyCell(pendingGuardRow.day, pendingGuardRow.dayHeld)
+          : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -4552,6 +4672,7 @@ export function TodayScreen(props: TodayProps) {
         depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
+        resourceNoun: props.words.resourceNoun,
       })
   const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
   // ⚖ D-53 (n) R-N2-3 — #26/#27 have no lane in JSX scope: the on-board
@@ -4629,7 +4750,10 @@ export function TodayScreen(props: TodayProps) {
         // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
         // told).
         checks: pendingRows,
-        guardRow: pendingGuardRow.row,
+        // R6 — the clean face's pocket row is the one `warnFaceFor` kept BY KIND, and
+        // the day's quiet △ rows come out of the same model (R8l).
+        guardRow: pendingWarnModel ? pendingWarnModel.guardRow : pendingGuardRow.row,
+        dayRows: pendingWarnModel?.dayRows ?? [],
         // ⚖ 92 — the same rows, the same cell, composed into the second face.
         warn: pendingWarn,
         placeSafe: placePendingAt,
@@ -4656,6 +4780,7 @@ export function TodayScreen(props: TodayProps) {
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
+          dayRows: [],
           // ⚖ 92 — the incident's own standing 仮押さえ is UNTOUCHED. Its rows are
           // the server's plain sentences with no verdict behind them, so it has
           // no warn-grade fact to lead with by construction, and its 確定 stays
@@ -4716,7 +4841,10 @@ export function TodayScreen(props: TodayProps) {
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
    *  lattice can put a card on 14:05) belongs to the cell it starts inside. Read
    *  as a selector rather than a rect, because the rect has to be measured in
-   *  the same frame as the popover's own. */
+   *  the same frame as the popover's own.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
   const holdRailSel = useMemo(() => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not batch-7's day-only test — this
     // builds a selector into the board ON SCREEN, so a 仮押さえ staged in another
@@ -4724,9 +4852,9 @@ export function TodayScreen(props: TodayProps) {
     if (!pending || pendingOffBoard) return null
     const at = moves[pending.id]
     if (!at) return null
-    const start = Math.floor(minuteOf(at.x, hours) / 30) * 30
+    const start = Math.floor(minuteOf(at.x, hours) / step) * step
     return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
-  }, [pending, pendingOffBoard, moves, hours])
+  }, [pending, pendingOffBoard, moves, hours, step])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {
@@ -4996,16 +5124,20 @@ export function TodayScreen(props: TodayProps) {
    *  sides, whichever one was dragged. Every abandoned landing goes through here
    *  — the shelf drop's write-back, the two refusals, the no-op release and the
    *  cancel — because a restore that knows only the staff lane is the same
-   *  one-sided write that lost the card in the first place. */
-  function restoreSides(id: string, home: PairLanes) {
-    if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))
-    setBedMoves((was) => {
-      if (home.bed) return { ...was, [id]: home.bed }
+   *  one-sided write that lost the card in the first place.
+   *  ⚖ Q-23 (S27) — it puts back the STAGED ENTRIES as they were at pointerdown (`DragCtx.staged`), never
+   *  "stage home": staging the home span left a Move behind on every cancel, and `atSpan` prints a staged
+   *  Move's full range, so a cancelled stretch read 「07:00〜07:30」 on a card that never changed. */
+  function restoreSides(id: string, staged: DragCtx['staged']) {
+    const put = (was: Moves, m: Move | null): Moves => {
+      if (m) return was[id] === m ? was : { ...was, [id]: m }
       if (!(id in was)) return was
       const next = { ...was }
       delete next[id]
       return next
-    })
+    }
+    setMoves((was) => put(was, staged.staff))
+    setBedMoves((was) => put(was, staged.bed))
   }
 
   function revertPending() {
@@ -5516,7 +5648,82 @@ export function TodayScreen(props: TodayProps) {
    *  until the release (canon's `dragMove` only ever calls `evSet` on the card
    *  it started with), and the listeners hang off `window`, so no re-render,
    *  re-order or re-parent anywhere on the board can interrupt a drag. */
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame'>) {
+  /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL, one loop for every board drag. `edgeStart` at drag start
+   *  takes the scroll box's rect ONCE (its left edge moved past the sticky name column, --label read as the now-line
+   *  effect reads it), only when the track overflows; `edgeAim` is all a move handler calls — it compares clientX with
+   *  those two numbers (`edgeScrollDir`) and starts the frame loop; the loop scrolls DRAG_EDGE_STEP_PX a frame, hands
+   *  the real distance to the gesture's `step`, and stops itself when the pointer leaves the zone; `edgeStop` ends it
+   *  on every ending (up, cancel, blur, the self-heal, unmount). */
+  function edgeStart(within: Element | null | undefined, step: (moved: number) => void) {
+    edgeStop()
+    const box = within?.closest<HTMLElement>('.timeline-scroll') ?? null
+    if (!box || box.scrollWidth <= box.clientWidth) return
+    const r = box.getBoundingClientRect()
+    const label = parseFloat(getComputedStyle(box.firstElementChild ?? box).getPropertyValue('--label')) || 0
+    edgeRef.current = { el: box, left: r.left + label, right: r.right, dir: 0, frame: null, step }
+  }
+  function edgeFrame() {
+    const e = edgeRef.current
+    if (!e || e.dir === 0) {
+      if (e) e.frame = null
+      return
+    }
+    const before = e.el.scrollLeft
+    e.el.scrollLeft = before + e.dir * DRAG_EDGE_STEP_PX
+    const moved = e.el.scrollLeft - before
+    // ⚖ S26 Round E (E4) — at the scroll limit nothing moved: no callback, and the loop pauses (edgeAim restarts it on
+    // the next pointer move in a zone, its `dir ≠ 0 && frame == null` rule).
+    if (moved === 0) {
+      e.frame = null
+      return
+    }
+    e.step(moved)
+    e.frame = requestAnimationFrame(edgeFrame)
+  }
+  function edgeAim(clientX: number | null) {
+    const e = edgeRef.current
+    if (!e) return
+    e.dir = clientX == null ? 0 : edgeScrollDir(clientX, e)
+    if (e.dir !== 0 && e.frame == null) e.frame = requestAnimationFrame(edgeFrame)
+  }
+  function edgeStop() {
+    const e = edgeRef.current
+    if (e?.frame != null) cancelAnimationFrame(e.frame)
+    edgeRef.current = null
+  }
+  useEffect(() => () => edgeStop(), [])
+
+  /** ⚖ S26 Round F (Greptile P1) — ONE SOURCE for how far the board scrolled under a held card or block: the box's
+   *  scrollLeft now minus at pickup. Read by the edge loop's step, by a `scroll` listener on the box (a manual
+   *  sideways scroll mid-drag; reading scrollLeft inside a scroll handler forces no layout, and the re-apply rides the
+   *  gesture's own `frame` rAF so a scroll burst coalesces), and by the release. The shelf chip needs none of this: its
+   *  landing reads the track's LIVE rect at the pointer (`fractionIn`), which already moves with any scroll. */
+  function scrolledNow(c: Pick<DragCtx, 'box' | 'scrollLeft0'>) {
+    return c.box ? c.box.scrollLeft - c.scrollLeft0 : 0
+  }
+  function followScroll(track: Element, current: () => DragCtx | BlockDragCtx | null, apply: () => void) {
+    const box = track.closest<HTMLElement>('.timeline-scroll')
+    edgeStart(track, () => {
+      const c = current()
+      if (!c) return
+      c.scrolled = scrolledNow(c)
+      c.pending = c.at
+      apply()
+    })
+    const onScroll = () => {
+      const c = current()
+      if (!c) return
+      const scrolled = scrolledNow(c)
+      if (scrolled === c.scrolled) return // the edge loop's own step already applied this distance
+      c.scrolled = scrolled
+      c.pending = c.at
+      if (c.frame == null) c.frame = requestAnimationFrame(() => { c.frame = null; apply() })
+    }
+    box?.addEventListener('scroll', onScroll, { passive: true })
+    return { box, scrollLeft0: box?.scrollLeft ?? 0, unfollow: () => box?.removeEventListener('scroll', onScroll) }
+  }
+
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at' | 'staged'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5547,6 +5754,9 @@ export function TodayScreen(props: TodayProps) {
         rowStamp: () => rowStampRef.current,
       })
     }
+    // ⚖ S25-15 (4) — the board's one edge loop; each scrolled frame re-applies the last pointer position.
+    // ⚖ S26 Round F — and a manual sideways scroll does the same (`followScroll`: one derived distance).
+    const follow = followScroll(ctx.track, () => dragRef.current, applyDragFrame)
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c) return
@@ -5571,6 +5781,8 @@ export function TodayScreen(props: TodayProps) {
       // faster than it paints, and a derive-and-paint per raw event is the jank
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
       c.pending = { clientX: e.clientX, clientY: e.clientY }
+      c.at = c.pending
+      edgeAim(e.clientX)
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyDragFrame() })
     }
@@ -5590,9 +5802,17 @@ export function TodayScreen(props: TodayProps) {
     window.addEventListener('blur', cancelDrag)
     dragRef.current = {
       ...ctx,
+      staged: { staff: moves[ctx.id] ?? null, bed: bedMoves[ctx.id] ?? null },
       pending: null,
       frame: null,
+      box: follow.box,
+      scrollLeft0: follow.scrollLeft0,
+      scrolled: 0,
+      at: null,
       detach: () => {
+        // ⚖ S25-15 (4) — every ending (up, cancel, blur, the self-heal, unmount) detaches: the edge loop stops here.
+        edgeStop()
+        follow.unfollow()
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -5711,7 +5931,7 @@ export function TodayScreen(props: TodayProps) {
     if (!ctx || !ctx.pending) return
     const { clientX, clientY } = ctx.pending
     ctx.pending = null
-    const dx = clientX - ctx.startX
+    const dx = clientX - ctx.startX + ctx.scrolled // ⚖ S25-15 (4): plus what the edge scroll moved under the hand
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
     const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
@@ -5881,10 +6101,10 @@ export function TodayScreen(props: TodayProps) {
     openClickWindow(upAt, ctx.nodes[0] ?? null)
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
-    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
+    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX + scrolledNow(ctx), STEP) // ⚖ S26 Round F: derived
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
-      restoreSides(ctx.id, from)
+      restoreSides(ctx.id, ctx.staged)
       // The chip's `home` is the STAFF side: its × writes it straight back into
       // `moves`, and a bed key there is the same collapse in the shelf's clothes.
       park(ctx.id, item, from.staff ?? { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w })
@@ -5895,7 +6115,7 @@ export function TodayScreen(props: TodayProps) {
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (!laneKey) {
         clearDrag()
-        restoreSides(ctx.id, from)
+        restoreSides(ctx.id, ctx.staged)
         // ⚖ LIAM flag 50(d) + flag 61 — AND THIS ONE EXPLAINS ITSELF AT THE
         // CURSOR TOO. A bottom toast, on a dense board, while the operator's
         // eye is on the card they are holding, is functionally silence — the
@@ -5924,7 +6144,7 @@ export function TodayScreen(props: TodayProps) {
     const laneChanged = ctx.origin.mode === 'move' && targetLane !== ctx.homeLane
     clearDrag()
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && !laneChanged) {
-      restoreSides(ctx.id, from)
+      restoreSides(ctx.id, ctx.staged)
       return
     }
     // ⚖ Liam flag 31a — A MOVE NEVER OPENS THE CONSULT. It used to call
@@ -6259,7 +6479,7 @@ export function TodayScreen(props: TodayProps) {
   function cancelDrag(e: { timeStamp: number }) {
     const ctx = dragRef.current
     if (!ctx) return
-    restoreSides(ctx.id, ctx.home)
+    restoreSides(ctx.id, ctx.staged)
     openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)
     clearDrag()
     freeGesture()
@@ -6377,7 +6597,10 @@ export function TodayScreen(props: TodayProps) {
    *  canon binds both through one `bindBlock` (:4276) so a box can never end up
    *  movable but unopenable. `suppressClickUntil` keeps the release's synthetic
    *  click out of it, exactly as the cards already do. */
-  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame'>) {
+  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at'>) {
+    // ⚖ Liam S25-17 (2) — the same edge loop as the card's, the same re-apply of the last pointer position.
+    // ⚖ S26 Round F — and the same manual-scroll follow (`followScroll`).
+    const follow = followScroll(ctx.track, () => blockDragRef.current, applyBlockFrame)
     const onMove = (e: PointerEvent) => {
       const c = blockDragRef.current
       if (!c) return
@@ -6390,6 +6613,8 @@ export function TodayScreen(props: TodayProps) {
       if (e.pointerId !== c.pointerId) return
       e.preventDefault()
       c.pending = { clientX: e.clientX, clientY: e.clientY }
+      c.at = c.pending
+      edgeAim(e.clientX)
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })
     }
@@ -6411,7 +6636,13 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
+      box: follow.box,
+      scrollLeft0: follow.scrollLeft0,
+      scrolled: 0,
+      at: null,
       detach: () => {
+        edgeStop() // ⚖ Liam S25-17 (2) — every ending of a block drag stops the edge loop too.
+        follow.unfollow()
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -6425,7 +6656,7 @@ export function TodayScreen(props: TodayProps) {
     if (!ctx || !ctx.pending) return
     const { clientX, clientY } = ctx.pending
     ctx.pending = null
-    const dx = clientX - ctx.startX
+    const dx = clientX - ctx.startX + ctx.scrolled // ⚖ Liam S25-17 (2): plus what the edge loop scrolled under the box
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
     const span = nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)
@@ -6500,7 +6731,7 @@ export function TodayScreen(props: TodayProps) {
     // Read off the event's own clock, the same monotonic origin the board's
     // click checks use — nothing in this component reads the wall clock.
     openClickWindow(e.timeStamp, ctx.node)
-    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, BLOCK_STEP)
+    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX + scrolledNow(ctx), BLOCK_STEP) // ⚖ S25-17 (2), S26 Round F
     let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
       const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
@@ -6964,6 +7195,18 @@ export function TodayScreen(props: TodayProps) {
       grab: { dx: e.clientX - box.left, dy: e.clientY - box.top, w: box.width, h: box.height },
     }
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
+    // ⚖ Liam S25-17 (2) — the board's one edge loop. The chip's landing is read off the track's LIVE rect at the
+    // pointer (`fractionIn`), which moves with the scroll, so nothing is added to it; each scrolled frame only
+    // repaints the verdict under the resting pointer.
+    // ⚖ S26 Round F — no `followScroll` here: a manual scroll moves that live rect too, so the drop already includes it.
+    edgeStart(scrollRef.current, () => {
+      const c = chipDragRef.current
+      const chip = c ? parkChips.find((p) => p.id === c.id) : undefined
+      if (c?.moved && c.at != null && chip) {
+        c.aimKey = ''
+        paintChipVerdict(c, chip, c.at)
+      }
+    })
     e.preventDefault()
   }
 
@@ -6981,6 +7224,7 @@ export function TodayScreen(props: TodayProps) {
   function clearChipDrag(e?: { timeStamp: number; currentTarget: EventTarget | null }) {
     const ctx = chipDragRef.current
     if (e && ctx?.moved) openClickWindow(e.timeStamp, e.currentTarget instanceof Element ? e.currentTarget : null)
+    edgeStop() // ⚖ Liam S25-17 (2) — up, cancel and the self-heal all end here, so the edge loop does too.
     chipDragRef.current = null
     setChipTarget(null)
     setDragLen(null)
@@ -7015,6 +7259,9 @@ export function TodayScreen(props: TodayProps) {
     // in and leaving the person alone.
     ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY) ?? laneKeyAtY(boardRef.current, 'beds', e.clientY)
     setChipTarget(ctx.laneKey)
+    // ⚖ Liam S25-17 (2) — over a lane only: the shelf sits above the board, so a chip still over the shelf never scrolls it.
+    ctx.at = e.clientX
+    edgeAim(ctx.laneKey ? e.clientX : null)
     // ⚖ Liam flag 50(b) — the chip in hand wears the verdict too. It is the same
     // question and the same word; a shelf placement is a landing exactly as a
     // card move is, and canon's own demo drag IS a chip drag.
@@ -7790,7 +8037,8 @@ export function TodayScreen(props: TodayProps) {
                 return
               }
             }
-            const start = slotStartAt(e.currentTarget, e.clientX, hours, business)
+            // ⚖ Q-25 (2026-10-07) — the click snaps on the store's booking step (opsConfig.bookingStepMin), never slotStartAt's default 30.
+            const start = slotStartAt(e.currentTarget, e.clientX, hours, business, props.guard.bookingStepMin)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
             // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
             // proposing a start that does not exist yet, so the guard's better
@@ -8097,6 +8345,8 @@ export function TodayScreen(props: TodayProps) {
                   // window, the store's own duration and the release rule. One
                   // composer with the rail chip's clause under it, so the board
                   // cannot word its own rule two ways.
+                  // ⚖ S25-2 (D5, round 2 item 7 a) — at SLIVER the box is its bar alone; its two lines stay in `title`.
+                  title={`新規用に確保 ${h.end - h.start}分・オンラインで新規のお客様に販売中`}
                   onClick={() => releaseAsk(lane.key, h)}
                 >
                   <span className="held-title">新規用に確保</span>
@@ -8303,6 +8553,8 @@ export function TodayScreen(props: TodayProps) {
             carries `0` on every rail, always. */}
         <div
           className="guard-rail-track"
+          // ⚖ S26 Round E (E1) — each cell's column is its real share of the day (stripColumns, one source with place()).
+          style={{ '--strip-cols': stripColumns(hours, railDay.stepMin, rail.cells.map((c) => c.start)) } as React.CSSProperties}
           onKeyDown={(e) => {
             const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
             if (step === 0) return
@@ -8541,7 +8793,7 @@ export function TodayScreen(props: TodayProps) {
       const body = (
         <>
           <strong>{item.title}</strong>
-          {!item.micro && <small>{item.time}</small>}
+          {!item.micro && <small className="e-time">{item.time}</small>}
         </>
       )
       // A shift-derived wash is a STATEMENT, not a control — canon renders it as
@@ -8586,7 +8838,6 @@ export function TodayScreen(props: TodayProps) {
           key={item.key}
           style={style}
           role="note"
-          title={item.label}
           aria-label={item.label}
           onPointerDown={locked ? () => show(locked) : undefined}
         >
@@ -8639,10 +8890,17 @@ export function TodayScreen(props: TodayProps) {
    *  so what travels under the cursor is the visual he grabbed, to the character,
    *  rather than a second rendering of the same booking that can drift from it. */
   function cardFace(item: BoardItem, settledHere: boolean, words: ResourceWords, timeLabel: string = item.time) {
+    // ⚖ 10/7 S25 round 3 (D5) — the name line in parts, so the label tiers (today.css @container) decide what prints:
+    // WIDE = the full name + the room tag (as before) · MID = the family name + the time line (round 4: no given name,
+    // no tag — MID prints the family name because any fixed boundary would chop some full names) · NARROW = the family
+    // name only · SLIVER = the bar. The tag's source is unchanged; the text at WIDE is unchanged.
+    const family = familyNameOf(item.title)
+    const given = item.title.trimStart().slice(family.length)
     return (
       <>
         <strong>
-          {item.title}
+          <span className="e-fam">{family}</span>
+          {given && <span className="e-given">{given}</span>}
           <i className="tg">{item.tag}</i>
         </strong>
         <small className="e-time">{timeLabel}</small>
@@ -8802,8 +9060,8 @@ export function TodayScreen(props: TodayProps) {
               // is not. Asked of `honest` — the value `dayCommitted` itself was
               // built from — so this is not a second read of the gate.
               data-guide={honest
-                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。`
-                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
+                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。`
+                : '新規のお客様のために店全体で確保している枠の数です。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。'}
             >
               新規用に確保 {dayCommitted.total}枠
             </span>
@@ -9360,6 +9618,7 @@ export function TodayScreen(props: TodayProps) {
               </div>
               <div
                 className="timeline-scroll"
+                ref={scrollRef}
                 tabIndex={0}
                 aria-label={`営業時間${hhmm(business.open)}から${hhmm(business.close)}の予約ボード${props.businessHours ? `（営業時間外を含め${hhmm(hours.open)}から${hhmm(hours.close)}を表示）` : ''}`}
                 data-guide-title="今日のボード"
@@ -9368,7 +9627,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, '--board-cells': boardCells(hours, props.guard.bookingStepMin), '--floor-slots': floorSlots(hours), '--cell-floor': `${minPxPer30}px`, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).
@@ -9389,7 +9648,7 @@ export function TodayScreen(props: TodayProps) {
                     {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
                     {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}
+                      {hours.labels.map((l) => <span key={l.hour} style={l.edge ? undefined : { left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={`${band && ((l.hour + 1) * 60 <= business.open || (l.edge ? l.hour * 60 > business.close : l.hour * 60 >= business.close)) ? 'off' : ''}${l.edge ? ' edge' : ''}`.trim() || undefined}>{l.text}</span>)}
                     </div>
                   </div>
 
@@ -9727,6 +9986,7 @@ export function TodayScreen(props: TodayProps) {
         data={dialogs.create}
         hours={hours}
         business={business}
+        stepMin={props.guard.bookingStepMin}
         seed={seed}
         onCreate={(laneKey, item, message, priced) => {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
@@ -10294,6 +10554,7 @@ export function TodayScreen(props: TodayProps) {
                 {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
                 {/* ⚖ 31b — the guard's move-assessment, where the operator is already
                     reading. It reports; it never disables 確定. */}
+                {holdPop.dayRows.map((r) => <span className={`ck ${r.tone}`} key={r.label}>{r.label}</span>)}
                 {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
               </div>
               <div className="hp-actions">
@@ -10318,6 +10579,9 @@ export function TodayScreen(props: TodayProps) {
             if (el) el.style.transform = proxyAt.current
           }}
           aria-hidden="true"
+          // ⚖ S26 Round E (E2) — a booking's proxy carries the booking marker like the card it copies (empty, so
+          // cardNodes' `[data-book="<id>"]` never finds it); a block's carries its blockChrome class via `state`.
+          data-book={proxy.kind === 'card' ? '' : undefined}
           data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
           style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)) }}
         >
@@ -10335,7 +10599,7 @@ export function TodayScreen(props: TodayProps) {
             // said where it was going. Its grammar is the span, not the start.
             <>
               <strong>{proxy.item.title}</strong>
-              {!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
+              {!proxy.item.micro && <small className="e-time">{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
             </>
           ) : (
             // ⚖ R8 GAP-11 — the ONE difference between the card in hand and the
@@ -10444,6 +10708,7 @@ function CreateDialog({
   data,
   hours,
   business,
+  stepMin,
   seed,
   onCreate,
   turnoverWord,
@@ -10453,6 +10718,7 @@ function CreateDialog({
   hours: TodayProps['hours']
   /** ⚖ §v11 V11-15(b) — the store's own hours: every 営業時間 check below. `hours` only places the card. */
   business: { open: number; close: number }
+  stepMin: number
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
   /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
@@ -10482,9 +10748,10 @@ function CreateDialog({
   useEffect(() => {
     if (!seed) return
     setStaffId(seed.staffId)
-    setStart(Math.max(business.open, Math.min(business.close - 30, seed.start)))
+    // ⚖ Q-25 (2026-10-07) — the form's clamp and its ‹ › steppers move by the store's booking step, never a fixed 30 (Greptile #1150 P1).
+    setStart(Math.max(business.open, Math.min(business.close - stepMin, seed.start)))
     setTab('book')
-  }, [seed, business.open, business.close])
+  }, [seed, business.open, business.close, stepMin])
 
   const everyone = useMemo(() => [...localCustomers, ...data.customers], [localCustomers, data.customers])
   const customer = everyone.find((c) => c.id === customerId) ?? null
@@ -10591,9 +10858,9 @@ function CreateDialog({
             <div className="cc-field">
               開始・時間
               <span className="stepper">
-                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(business.open, s - 30))}>‹</button>
+                <button type="button" aria-label={`${stepMin}分早く`} onClick={() => setStart((s) => Math.max(business.open, s - stepMin))}>‹</button>
                 <b>{hhmm(start)}–{hhmm(end)}</b>
-                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(business.close - duration, s + 30))}>›</button>
+                <button type="button" aria-label={`${stepMin}分遅く`} onClick={() => setStart((s) => Math.min(business.close - duration, s + stepMin))}>›</button>
               </span>
             </div>
             <div className="cc-field">

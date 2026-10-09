@@ -92,6 +92,18 @@ export interface HonestHeld {
    *  best COMPLETE legal assignment found rather than the proven maximum. Such
    *  an answer under-holds; it never over-holds. */
   readonly exact: boolean
+  /** ⚖ F2 (S6) — set only when a preference (sellable or reference) was given;
+   *  absent otherwise, so the no-preference answer stays byte-identical. The
+   *  number of fixed-point loop searches this call ran (0 to
+   *  HONEST_FIXED_POINT_ROUNDS). */
+  readonly rounds?: number
+  /** ⚖ F2 (S6) — set with `rounds`. PROVEN / NOT PROVEN, nothing more.
+   *  true = PROVEN to return itself when fed back as its own reference (exact,
+   *  the steady-state exit, or a converging round). false = NOT proven (the
+   *  verify round moved, or a shrink was refused) — never 「proven to move」: a
+   *  fresh call may still return this set (the floor can restore it). With
+   *  false, `exact` is false too, and the screen never settles the answer. */
+  readonly fixedPoint?: boolean
 }
 
 /** Nodes per overlap component before the search stops widening.
@@ -101,16 +113,48 @@ export interface HonestHeld {
  *  interval-scheduling-with-eligibility solver if a real store ever trips it. */
 export const HONEST_SEARCH_BUDGET = 4_096
 
+/** ⚖ R4 · F2 (S5 PR-B; S6 read round) — loop searches per call that iterate an
+ *  inexact answer to a fixed point (a search-budget constant, not a business
+ *  duration). Rounds 1–3 may be TAKEN; the last is VERIFY-ONLY (its answer is
+ *  never taken). Worst case per frame: 1 preferred + 1 floor + 3 taken + 1
+ *  verify search. */
+export const HONEST_FIXED_POINT_ROUNDS = 4
+
+/** ⚖ DECISIONS.md R4 (S4 PR-B) — THE ONE SPELLING of a held 枠's identity:
+ *  `laneKey|windowStart`, the same identity as a release. The output rebuild
+ *  below, the comparator's KEPT tier, the seed and the settled reference all
+ *  read it from here; there is no second spelling. */
+export const heldIdOf = (laneKey: string, windowStart: number): string => `${laneKey}|${windowStart}`
+
+/** ⚖ DECISIONS.md R4 (S4 PR-B) — how to choose AMONG equally large held sets.
+ *  Absent (or `sellable` and `reference` both absent) = the historic answer,
+ *  byte-identical: size, then the earlier held set. */
+export type HeldPreference = {
+  /** ONE definition of 「sellable」: the caller passes `sellableLaneKeysOf`'s
+   *  answer (today-interactions.ts, the predicate `windowsOf` reads). A tie
+   *  when absent. */
+  readonly sellable?: (lane: BoardLane) => boolean
+  /** The settled held set, as `heldIdOf` identities. A tie when absent. */
+  readonly reference?: ReadonlySet<string>
+  /** Tests only: node-budget override. Default HONEST_SEARCH_BUDGET. */
+  readonly budget?: number
+}
+
 interface Candidate {
   readonly laneKey: string
   readonly span: ReservedSpan
   readonly rooms: readonly string[]
+  /** 1 when this 枠's row is sellable under the preference, else 0. */
+  readonly sell: number
+  /** 1 when this 枠's identity is in the reference, else 0. */
+  readonly kept: number
 }
 
 const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd
 
 /** The identity answer: every candidate held, nothing shared. This is what the
- *  round gate off looks like, and it is a function of the input alone — the
+ *  round gate off looks like, and it is a function of the input alone (the
+ *  preference, DECISIONS.md R4 (S4 PR-B), is not read on this path) — the
  *  book is not asked ONE question, so a gated-off board pays nothing for a law
  *  it is not running. `heldRooms` is therefore empty on this path: it is the
  *  answer to a question nobody asked. */
@@ -151,6 +195,11 @@ const EMPTY_ROOMS: readonly string[] = Object.freeze([])
  *    law above). A row whose store owns no bed lane holds its 枠 on staff time
  *    alone: HELD by construction, no room, never shared. Absent = every row
  *    needs a room = the answer this function gave before F4.
+ *  @param prefer ⚖ DECISIONS.md R4 (S4 PR-B) — the tie-break among maximum-size
+ *    sets: SIZE → SELLABLE count → KEPT from `reference` → the earlier held
+ *    set. With a reference, its legal subset seeds the search, so a budget
+ *    trip can only keep the reference, never lose a 枠 it already had. Absent
+ *    = the historic function, byte-identical.
  */
 export function honestHeld(
   candidates: readonly ReservedLaneMask[],
@@ -158,8 +207,11 @@ export function honestHeld(
   book: BedTruth,
   on: boolean,
   needsRoom: (lane: BoardLane) => boolean = () => true,
+  prefer?: HeldPreference,
 ): HonestHeld {
   if (!on) return identity(candidates)
+  const sellableOf = prefer?.sellable
+  const reference = prefer?.reference
 
   const laneOf = new Map(lanes.map((l) => [l.key, l]))
   const flat: Candidate[] = []
@@ -174,6 +226,8 @@ export function honestHeld(
     // held-by-construction branch — the m3 lie again).
     const roomed = lane ? needsRoom(lane) : true
     if (!roomed) roomless.add(m.laneKey)
+    // ⚖ R4 (S4 PR-B) — asked once per row too, like `needsRoom`.
+    const sell = sellableOf && lane && sellableOf(lane) ? 1 : 0
     for (const span of m.spans) {
       // ⚖ THE EQUAL-LENGTH INVARIANT, LOUD RATHER THAN A LIE. `reserved-mask.ts`
       // ends every span at `windowStart + protectedDuration` today, and the room
@@ -193,6 +247,8 @@ export function honestHeld(
           laneKey: m.laneKey,
           span,
           rooms: lane ? [...book.freeBedKeys(span.start, span.end, { stores: lane.stores })].sort() : [],
+          sell,
+          kept: reference?.has(heldIdOf(m.laneKey, span.windowStart)) ? 1 : 0,
         })
       }
     }
@@ -200,14 +256,77 @@ export function honestHeld(
 
   // ⚖ ORDER IS DETERMINISM. Every answer below is a function of this order, so
   // a published number can never depend on which lane the loop happened to
-  // reach first.
+  // reach first. ⚖ DECISIONS.md R4 (S4 PR-B): the output is f(board,
+  // preference) — deterministic for the same (board, preference); absent
+  // preference = the historic function, byte-identical.
   flat.sort((a, b) => (a.span.start === b.span.start ? (a.laneKey < b.laneKey ? -1 : a.laneKey > b.laneKey ? 1 : 0) : a.span.start - b.span.start))
 
-  const { room, exact } = assign(flat)
+  const budget = prefer?.budget ?? HONEST_SEARCH_BUDGET
+  const preferred = assign(flat, budget, reference !== undefined)
+  let room = preferred.room
+  let exact = preferred.exact
+  let rounds = 0
+  let fixedPoint = true
+  // ⚖ R4 (S4 PR-B) — THE FLOOR, BY CONSTRUCTION: the preference may never hold
+  // FEWER 枠 than the historic size-only search. Exact, it cannot (size is the
+  // first tier); past the budget the extra tiers can spend the nodes size
+  // needed, so the size-only search runs as if `prefer` were absent, with its
+  // own budget, and wins when it holds strictly more. `exact` stays false.
+  // Without a preference this never runs: one search, today's bytes.
+  if (!exact && (sellableOf !== undefined || reference !== undefined)) {
+    const plain = flat.map((c) => ({ ...c, sell: 0, kept: 0 }))
+    const floor = assign(plain, budget, false)
+    const held = (rs: readonly (string | null)[]) => rs.reduce((n, r) => n + (r === null ? 0 : 1), 0)
+    if (held(floor.room) > held(room)) room = floor.room
+    // ⚖ R4 · F2 (S5 PR-B fix round 1; S6 read round, lead ruling 1) — THE
+    // FIXED POINT, VERIFIED OR DISCLOSED. An exact answer is a fixed point at
+    // once (the same tuple wins whatever it is fed). An inexact one need not be:
+    // fed back as its own reference, the seeded search can reach a strictly
+    // better leaf in the same budget, and the board would move with no change
+    // to the windows. If the answer A equals the reference it was searched with
+    // (compared on this board's candidates, which is all the search reads), it
+    // is the steady state: 0 rounds, a fixed point. Otherwise the preferred
+    // search runs again with A as the reference, charged its own budget like
+    // the floor above, up to HONEST_FIXED_POINT_ROUNDS times. Same held set →
+    // proven fixed point, A and its `exact` stand. Moved in the LAST round →
+    // that round is VERIFY-ONLY: A stays, NOT proven. Moved to fewer → refused:
+    // A stays, NOT proven. Moved to at least as many → taken, loop again.
+    // `fixedPoint: false` means NOT PROVEN, never proven to move.
+    // THE ARGUMENT: each taken hop improves (size, then sellable) or keeps them with
+    // more kept, so hops are monotone in a finite lattice and converge; the cap
+    // bounds a frame's cost (1 floor + 3 taken + 1 verify search worst case, plus the
+    // first preferred search); an answer not proven a fixed point is disclosed by
+    // `fixedPoint: false` AND `exact: false` — never reported exact, and never
+    // settled (TodayScreen `settleUnstagedHeld`). Measured at the real budget: 0
+    // moved / 22,860 calls (S5 attack); S6 BAR-4: 0 fixedPoint:false / 2,400 checks,
+    // rounds 0/1/2/3/4 = 1170/1057/170/2/1, the one cap exit verified
+    // (honest-held.test.ts (e)).
+    const heldSet = (rs: readonly (string | null)[], i: number) => rs[i] !== null
+    const same = (a: readonly (string | null)[], b: (i: number) => boolean) => {
+      for (let i = 0; i < flat.length; i += 1) if (heldSet(a, i) !== b(i)) return false
+      return true
+    }
+    if (!same(room, (i) => flat[i].kept === 1)) {
+      for (let round = 1; round <= HONEST_FIXED_POINT_ROUNDS; round += 1) {
+        const taken = room
+        const again = flat.map((c, i) => ({ ...c, kept: heldSet(taken, i) ? 1 : 0 }))
+        const next = assign(again, budget, true)
+        rounds = round
+        if (same(next.room, (i) => heldSet(taken, i))) break
+        if (round === HONEST_FIXED_POINT_ROUNDS || held(next.room) < held(room)) {
+          fixedPoint = false
+          exact = false
+          break
+        }
+        room = next.room
+        exact = next.exact
+      }
+    }
+  }
 
   // Back into per-lane shape, in the CANDIDATES' own lane order so the output
   // mirrors the mask it came from row for row.
-  const at = new Map(flat.map((c, i) => [`${c.laneKey}|${c.span.windowStart}`, i]))
+  const at = new Map(flat.map((c, i) => [heldIdOf(c.laneKey, c.span.windowStart), i]))
   let total = 0
   const byLane = candidates.map((m) => {
     const held: ReservedSpan[] = []
@@ -225,7 +344,7 @@ export function honestHeld(
         heldRoom.push('')
         continue
       }
-      const i = at.get(`${m.laneKey}|${span.windowStart}`)
+      const i = at.get(heldIdOf(m.laneKey, span.windowStart))
       const c = i === undefined ? undefined : flat[i]
       const taken = i === undefined ? null : room[i]
       if (c && taken !== null) {
@@ -267,7 +386,9 @@ export function honestHeld(
       shared: Object.freeze(shared),
     })
   })
-  return Object.freeze({ byLane: Object.freeze(byLane), total, exact })
+  return Object.freeze(sellableOf !== undefined || reference !== undefined
+    ? { byLane: Object.freeze(byLane), total, exact, rounds, fixedPoint }
+    : { byLane: Object.freeze(byLane), total, exact })
 }
 
 /** A legal assignment of the sorted candidates to rooms, maximum size,
@@ -308,7 +429,17 @@ export function honestHeld(
  *  The node budget still caps the whole thing.
  *  ⚠ IT IS BLIND TO SELLABILITY: a price-0 row's earlier 枠 beats a sellable
  *  row's later one for the same room. Physically honest; a sellability-aware
- *  comparator is one line and it is a product ruling, not this module's. */
+ *  comparator is one line and it is a product ruling, not this module's.
+ *
+ *  ⚖ DECISIONS.md R4 (S4 PR-B) — THE RULING ARRIVED: with a `HeldPreference`
+ *  the leaf order is the tuple (size, sellable, kept) and THEN the earlier held
+ *  set (`tupleOrder` then `earlierHeld`, the leaf test in `assign`). The
+ *  bound is the same tuple's admissible ceiling — 「hold everything left」 adds
+ *  at most the remainder's size, its sellable count and its kept count — and
+ *  when that ceiling EQUALS best's tuple the only leaf that can reach it holds
+ *  everything left, so fix 3's earlier-start argument applies unchanged.
+ *  Without a preference both extra tiers are 0 on every side and the tuple is
+ *  today's size bound + fix 3, byte for byte. */
 /** Is `a` the earlier held set? Candidate order is the sorted order, so the
  *  first position where one holds and the other does not decides it, and
  *  holding beats not holding. Equal vectors are not 「earlier」 — `best` stands. */
@@ -321,43 +452,150 @@ function earlierHeld(a: readonly (string | null)[], b: readonly (string | null)[
   return false
 }
 
-function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: boolean } {
+/** ⚖ DECISIONS.md R4 (S4 PR-B) — the tuple order: size, then sellable, then
+ *  kept. Negative = `a` below `b`, 0 = a tie on all three, positive = above. */
+function tupleOrder(aSize: number, aSell: number, aKept: number, bSize: number, bSell: number, bKept: number): number {
+  if (aSize !== bSize) return aSize - bSize
+  if (aSell !== bSell) return aSell - bSell
+  return aKept - bKept
+}
+
+/** ⚖ R4 (S4 PR-B) — THE ONE DEFINITION OF LEGAL for adding `c` on room `r`:
+ *  the room's last 枠 in this component finished by the time `c` starts. The
+ *  walk and the seed both ask it. */
+const fits = (lastEnd: ReadonlyMap<string, number>, r: string, c: Candidate) => (lastEnd.get(r) ?? -1) <= c.span.start
+
+/** ⚖ R4 (S4 PR-B) — one room per 枠 of `ks` (positions in `part`, ascending)
+ *  such that every 枠 `fits`, or null when none exists. The first assignment in
+ *  the walk's own room order. Every node it visits is charged to `spend`, the
+ *  component's ONE budget (the walk's own): when `spend` says stop, the set is
+ *  treated as not seatable and the caller stops seeding. */
+function seatAll(flat: readonly Candidate[], part: readonly number[], ks: readonly number[], spend: () => boolean): string[] | null {
+  const lastEnd = new Map<string, number>()
+  const out: string[] = []
+  const go = (j: number): boolean => {
+    if (!spend()) return false
+    if (j === ks.length) return true
+    const c = flat[part[ks[j]]]
+    for (const r of c.rooms) {
+      const was = lastEnd.get(r) ?? -1
+      if (!fits(lastEnd, r, c)) continue
+      lastEnd.set(r, c.span.end)
+      out[j] = r
+      if (go(j + 1)) return true
+      lastEnd.set(r, was)
+    }
+    return false
+  }
+  return go(0) ? out : null
+}
+
+function assign(flat: readonly Candidate[], budget: number, seeded: boolean): { room: (string | null)[]; exact: boolean } {
   const room: (string | null)[] = flat.map(() => null)
   let exact = true
   for (const part of components(flat)) {
     const best: (string | null)[] = part.map(() => null)
     let bestSize = -1
+    let bestSell = -1
+    let bestKept = -1
     let nodes = 0
     let stopped = false
     // Max END per room inside this component, so the room test stays sufficient
     // even if a later round ever clips a span to a different length.
     const lastEnd = new Map<string, number>()
     const picked: (string | null)[] = part.map(() => null)
+    // ⚖ R4 (S4 PR-B) — what the undecided remainder from position i can still
+    // add on each extra tier: the ceiling of 「hold everything left」.
+    const remSell: number[] = part.map(() => 0)
+    const remKept: number[] = part.map(() => 0)
+    for (let k = part.length - 1, s = 0, t = 0; k >= 0; k -= 1) {
+      s += flat[part[k]].sell
+      t += flat[part[k]].kept
+      remSell[k] = s
+      remKept[k] = t
+    }
 
-    const walk = (i: number, size: number) => {
+    // ⚖ R4 (S4 PR-B) — THE SEED: 「the reference-seeded assignment stands, never
+    // a phantom loss」. The reference's LEGAL SUBSET, walked in the search's own
+    // (start, laneKey) order (start === windowStart, reserved-mask.ts:65): each
+    // reference 枠 joins if the set STAYS LEGAL — some room assignment of the
+    // whole set exists by `fits`, the walk's own test. INCREMENTAL: the room
+    // assignment so far is kept and the new 枠 (the latest start so far) takes
+    // the first room it `fits`; only when none fits is the whole set re-seated
+    // by `seatAll` (a first-free-room greedy alone would drop a 枠 a legal set
+    // can seat). Those re-seating nodes are charged to THIS component's one
+    // budget, the walk's own; if it trips while seeding, the seed is what was
+    // seated so far and `exact` is false. The seed's tuple is the starting
+    // best; the search only replaces it with a strictly better leaf, and a
+    // budget trip leaves it standing.
+    if (seeded) {
+      bestSize = 0
+      bestSell = 0
+      bestKept = 0
+      const chosen: number[] = []
+      let seedEnd = new Map<string, number>()
+      const spend = () => {
+        nodes += 1
+        if (nodes > budget) stopped = true
+        return !stopped
+      }
+      for (let k = 0; k < part.length && !stopped; k += 1) {
+        const c = flat[part[k]]
+        // not in the reference, or no free room at all (booked over): never seatable, costs nothing
+        if (c.kept === 0 || c.rooms.length === 0) continue
+        const quick = c.rooms.find((r) => fits(seedEnd, r, c))
+        if (quick !== undefined) {
+          seedEnd.set(quick, c.span.end)
+          best[k] = quick
+        } else {
+          const seat = seatAll(flat, part, [...chosen, k], spend)
+          if (seat === null) continue
+          seedEnd = new Map<string, number>()
+          for (let j = 0; j <= chosen.length; j += 1) {
+            const at = j < chosen.length ? chosen[j] : k
+            best[at] = seat[j]
+            seedEnd.set(seat[j], Math.max(seedEnd.get(seat[j]) ?? -1, flat[part[at]].span.end))
+          }
+        }
+        chosen.push(k)
+        bestSize += 1
+        bestSell += c.sell
+        bestKept += 1
+      }
+    }
+
+    const walk = (i: number, size: number, sell: number, kept: number) => {
       if (stopped) return
       nodes += 1
-      if (nodes > HONEST_SEARCH_BUDGET) {
+      if (nodes > budget) {
         stopped = true
         return
       }
       if (i === part.length) {
-        if (size > bestSize || (size === bestSize && earlierHeld(picked, best))) {
+        const order = tupleOrder(size, sell, kept, bestSize, bestSell, bestKept)
+        if (order > 0 || (order === 0 && earlierHeld(picked, best))) {
           bestSize = size
+          bestSell = sell
+          bestKept = kept
           for (let k = 0; k < picked.length; k += 1) best[k] = picked[k]
         }
         return
       }
       // The bound: even holding everything left cannot MATCH what we have.
-      if (size + (part.length - i) < bestSize) return
+      // ⚖ R4 (S4 PR-B) — on the whole tuple, each tier's admissible ceiling.
+      const bound = tupleOrder(size + (part.length - i), sell + remSell[i], kept + remKept[i], bestSize, bestSell, bestKept)
+      if (bound < 0) return
       // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
       // …and an equal-size branch is dead too unless it can still win the
       // TIE-BREAK. The best it can reach is 「this prefix + hold everything
       // left」; compared against `best` position by position, the first
       // disagreement decides, holding wins, equal is not earlier.
+      // ⚖ R4 (S4 PR-B) — generalised: a ceiling EQUAL to best's tuple is
+      // reached only by holding everything left (the size tier is tight), so
+      // the same vector is the only one that could still win.
       // ponytail: the walk, not the answer — the node budget still caps a
       // pathological tangle and `exact: false` still says so when it trips.
-      if (size + (part.length - i) === bestSize) {
+      if (bound === 0) {
         let canWin = false
         for (let k = 0; k < part.length; k += 1) {
           const ph = k < i ? picked[k] !== null : true
@@ -375,17 +613,17 @@ function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: b
         // key is invisible; the Business data-access guard, which reads any
         // `.delete(` in territory as a write call, stays green.
         const was = lastEnd.get(r) ?? -1
-        if (was > c.span.start) continue
+        if (!fits(lastEnd, r, c)) continue
         lastEnd.set(r, c.span.end)
         picked[i] = r
-        walk(i + 1, size + 1)
+        walk(i + 1, size + 1, sell + c.sell, kept + c.kept)
         picked[i] = null
         lastEnd.set(r, was)
         if (stopped) return
       }
-      walk(i + 1, size)
+      walk(i + 1, size, sell, kept)
     }
-    walk(0, 0)
+    walk(0, 0, 0, 0)
     if (stopped) exact = false
     for (let k = 0; k < part.length; k += 1) room[part[k]] = best[k]
   }

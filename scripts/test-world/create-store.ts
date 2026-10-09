@@ -1,5 +1,5 @@
 // create-store.ts — ONE-OFF: makes one Dev Salon test store for a new test-world type (run once per store, on Liam's
-// word). Its id goes into registry.json `stores`. Never wired into an npm script.
+// word). Its id goes into registry.json `stores`; its entry also needs a fresh identityIndex (0-6 are taken). Never wired into an npm script.
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/create-store.ts --name <店名> --address <住所> --phone <電話>
 // Same pin as fill.ts: the client is built on the hard Dev Salon id, and core must resolve that business and hold
 // the dev@karute.test card before anything is written. A store of that name already there → its id, no write.

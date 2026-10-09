@@ -175,12 +175,16 @@ export const MENUS: Menu[] = [
   menu(MENU.body, STORE.laEstro, '見本 ボディケア 60分', 8800, 60), // no twin
 ]
 
+// Fields @synqed-kk/client >=1.37.0 requires on Customer/Appointment, spread from per-call factories
+// so the fixture type-checks on 1.36.0 and after the bump, and no two rows share an array.
+const customerExtras = () => ({ staff_badges: [] as string[] })
+const bookingExtras = () => ({ requires_private_room: false })
 const customer = (id: string, name: string, member_number: string | null): Customer => ({
   id, business_id: TENANT, name, furigana: null, email: null, phone: null, date_of_birth: null, gender: null,
   guardian_customer_id: null, payer_note: null, occupation: null, member_number, postal_code: null, prefecture: null,
   address: null, phone2: null, dm_opt_in: false, comment: null, remarks2: null, total_sales: 0, installment_outstanding: 0,
   has_ticket_pack: false, first_visit_at: null, last_visit_at: null, locale: 'ja', notes: null, contact_info: null,
-  assigned_staff_id: null, is_existing_customer: true, visit_count: 0, karute_number: null, ...stamp,
+  assigned_staff_id: null, is_existing_customer: true, visit_count: 0, karute_number: null, ...customerExtras(), ...stamp,
 })
 export const KOBAYASHI = '0bb0a261-b23b-4670-90d3-c72a3c1674d0'
 export const AKARI = '6f771283-c430-48ad-9770-af2ce6848808'
@@ -232,7 +236,7 @@ const booking = (
     duration_minutes: minutes, title: null, notes: null, menu_id, resource_id: null, occupied_until: null,
     booked_price_amount: price, booked_price_currency: 'JPY', status, source: 'MANUAL', external_refs: {}, cancelled_at: null,
     status_source: 'STAFF', status_set_by: null, status_reason: null, status_set_at: null, rebooked_from_appointment_id: null,
-    ...stamp, ...extra,
+    ...stamp, ...bookingExtras(), ...extra,
   }
 }
 const S = { hanako: '088f928a-552b-4068-8ecc-9bc2d9d19cd7', taro: '17af2de2-c716-425d-9bd4-ea9a6b445aee', azusa: 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5', mio: '75e26903-953c-4e74-bc6b-ec791b5e82f1' }
@@ -396,6 +400,10 @@ export interface RecordedOptions {
   backwardsBlock?: boolean
   /** Adds a gym booking wholly after the gym's close + one after テスト横浜店's sample close (⚖ §v11 V11-15(i), B2). */
   outOfHours?: boolean
+  /** ⚖ PKT-S29-B1 — this actor holds a live HQ_ADMIN grant (businessGrants.check answers `granted: true`). */
+  hqGranted?: boolean
+  /** ⚖ PKT-S29-B1 — the store's 臨時休業 rows, by store id (default: none anywhere). */
+  closedDays?: Record<string, { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }[]>
 }
 
 function paged<T>(rows: T[], q: { page?: number; page_size?: number } | undefined, force?: number) {
@@ -449,5 +457,12 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
       if (!p) throw new Error(`recorded: no store policy for ${id}`)
       return p
     },
+    // ⚖ PKT-S29-B1 — the store's 臨時休業 rows; `range` is accepted (matching
+    // the SDK signature) but not applied — no recorded fixture needs it yet.
+    storePolicyListClosedDays: async (id) => ({ closed_days: o.closedDays?.[id] ?? [] }),
+    // ⚖ PKT-S29-B1 R2(c) — false unless the test opts in (`hqGranted: true`);
+    // an OWNER-role actor never calls this at all (isHqAdmin short-circuits).
+    businessGrantsCheck: async () => ({ granted: o.hqGranted ?? false }),
+    auditList: async () => ({ events: [], total: 0, page: 1, page_size: 20 }),
   }
 }

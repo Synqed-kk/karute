@@ -6,6 +6,8 @@
 // Pure + Jest-safe: no imports from next/*, no clock reads — the caller
 // supplies todayJst. The loader (reconcile.ts) gathers inputs.
 
+import { isRecordingTarget } from '@/lib/appointments/by-date'
+
 export interface ReconcileAppointment {
   id: string
   customerId: string
@@ -18,6 +20,9 @@ export interface ReconcileAppointment {
   isImport: boolean
   /** A karute record exists for this appointment (appointment.karute_record_id). */
   hasKarute: boolean
+  /** The booking's core staff id; null = 担当未定 (core imports a booking whose
+   *  staff it cannot match with none). */
+  staffId: string | null
 }
 
 export interface UnprocessedVisit {
@@ -75,6 +80,12 @@ export function findUnprocessedVisits(i: FindUnprocessedInput): ReconcileResult 
   const out: UnprocessedVisit[] = []
   for (const a of i.appointments) {
     if (a.isCancelled || a.isImport) continue
+    // A 担当未定 booking is never a recording target (isRecordingTarget, THE one
+    // rule): nobody could have recorded it, so with no karute it is not 記録なし
+    // work. It shows again here the moment a staff is assigned. A staff-less
+    // visit that DOES have a karute still falls through to 消化のみ: the ticket
+    // is owed either way, so only the 記録なし kind is skipped.
+    if (!a.hasKarute && !isRecordingTarget({ staff_profile_id: a.staffId })) continue
     if (a.visitDayJst < floor || a.visitDayJst > i.todayJst) continue
     // Same-day grace applies ONLY to full misses (no karute yet — staff may be
     // mid-flow). A visit recorded today with no burn is a finished flow whose

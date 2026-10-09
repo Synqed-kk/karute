@@ -26,8 +26,10 @@ import {
   listStaff,
   listStoreOptions,
   renderNow,
+  sampleDateline,
   type StoreLens,
   readShellIdentity,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import { attachSample } from '@/business/lib/practice-door/sample-facade'
 import { type FixtureAppointment } from '@/business/lib/fixtures'
@@ -127,6 +129,7 @@ export interface KarutePropsResult {
 /** Resolve everything KaruteScreen is handed. Server-only by construction:
  *  every read goes through `@/business/lib/data`'s store-clamped fixture door. */
 export async function karuteProps({ locale, store, world }: KarutePropsInput): Promise<KarutePropsResult> {
+  const doorOn = await practiceDoorOn() // R50 — this business's door, once
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
   const clamped = storeId !== null
@@ -164,7 +167,7 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
   const models = buildRecords({
     // SAMPLE record plane, attached through the facade (ON: its appointment ids and
     // by_staff_id become the live twins, so it joins the live bookings; OFF unchanged).
-    records: attachSample(world?.records ?? recordPlane, null),
+    records: attachSample(doorOn, world?.records ?? recordPlane, null),
     appointments,
     customers,
     menus,
@@ -312,7 +315,7 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
   })
 
   const props: KaruteProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
     lensLabel,
     // Canon's own subtitle (MOCK-karute-list.html:348), and it KEEPS the mock's
     // ＋新規カルテ sentence again (⚖ Liam 8/31, K-5 overturned — the argument is

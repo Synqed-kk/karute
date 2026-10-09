@@ -27,8 +27,20 @@ import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color', 'booking_colors'] as const
 /** ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — and every key that STARTS with one of these: 予約の色分け keeps one
  *  top-level key per store (`booking_colors:<storeId>`), so Karute never replays any of them either.
+ *  ⚖ S49 R86 (Liam 10/1) — お店ページ's switches the same way, one key per store
+ *  (`reserve_store_capabilities:<storeId>`, the temporary home until CORE-47).
  *  Karute's own literal (this module may not import Business); the Business leaf pins its twin. */
-const BUSINESS_OWNED_SETTINGS_KEY_PREFIXES = ['booking_colors:'] as const
+const BUSINESS_OWNED_SETTINGS_KEY_PREFIXES = ['booking_colors:', 'reserve_store_capabilities:'] as const
+/** ⚖ S51 R116 — the ONE answer to 「is this settings key Business-owned?」 (the exact keys and every
+ *  key under a prefix above). Both legs of Karute's writer read it: the replay filter (never send a
+ *  Business key back from a read) and the caller refusal (never let a caller's patch write one).
+ *  Not exported — a 'use server' module may export async functions only. */
+function isBusinessOwnedSettingsKey(key: string): boolean {
+  return (
+    (BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key) ||
+    BUSINESS_OWNED_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+  )
+}
 
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'
@@ -338,6 +350,19 @@ export async function writeOrgSettingsBlobWithClient(
   synqed: Pick<SynqedClient, 'orgSettings'>,
   settings: Partial<OrgSettings>,
 ) {
+  // ⚖ S51 R116 (F0 SF-3 = GPT-6 F0 #1) — a caller's patch may never carry a Business-owned key: it would
+  // reach core past the Business door. REFUSED, never silently stripped (a strip hides the caller's bug),
+  // and refused before core is read or written. Only the caller's keys are judged; the replay below
+  // already leaves Business's own stored keys out of the PUT, so they survive by core's merge.
+  const businessOwnedKey = Object.keys(settings).find(isBusinessOwnedSettingsKey)
+  if (businessOwnedKey !== undefined) {
+    return {
+      error: `Settings key ${businessOwnedKey} is owned by SYNQED Business and cannot be written here.`,
+      reason: 'business_owned_key' as const,
+      key: businessOwnedKey,
+    }
+  }
+
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
@@ -353,11 +378,7 @@ export async function writeOrgSettingsBlobWithClient(
     const existing = await synqed.orgSettings.get()
     const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
     const replayed = Object.fromEntries(
-      Object.entries(existingSettings).filter(
-        ([key]) =>
-          !(BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key) &&
-          !BUSINESS_OWNED_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
-      ),
+      Object.entries(existingSettings).filter(([key]) => !isBusinessOwnedSettingsKey(key)),
     )
 
     // salon_name maps to the top-level `name` column; everything else lives in

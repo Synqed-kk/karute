@@ -114,6 +114,18 @@ export const COMPACT_ROW = 'relative flex w-full items-center gap-2.5 px-4 py-2 
 export const COMPACT_ROW_TAG =
   'ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium'
 
+/** The 担当未定 mark — a booking with no staff yet. The same muted text on
+ *  the expanded card and the collapsed past row (one mark, one component).
+ *  Not a pill: it is not a warning, and there is no staff, so no colour. */
+function UnassignedMark({ className }: { className?: string }) {
+  const tUnassigned = useTranslations('unassignedStaff')
+  return (
+    <span className={cn('block truncate text-[12px] text-muted-foreground', className)}>
+      {tUnassigned('mark')}
+    </span>
+  )
+}
+
 export function CompactRowContent({
   reservation: r,
   tag,
@@ -256,10 +268,15 @@ export function ReservationMobileAgenda({
       {/* Bottom-pinned mid-day bar — the two numbers staff glance for
        *  between sessions. Today only; hidden once the day is done.
        *  position:fixed (NOT sticky) so it stays pinned to the viewport
-       *  bottom instead of riding up with the list on scroll: the scroll
-       *  container is <main> and the tab bar is a flex sibling below it
-       *  (h-16 + safe-area), which the bottom offset clears. The in-flow
-       *  spacer lets the last card scroll clear of the now-floating bar. */}
+       *  bottom instead of riding up with the list on scroll. In the thin
+       *  shell the DOCUMENT scrolls and the tab bar is itself a fixed z-40
+       *  overlay at the viewport bottom (thin/shell.tsx); this strip is
+       *  z-30, and its bottom offset (4rem + safe-area + 0.5rem) clears the
+       *  bar's h-16 tab row, leaving a ~0.5rem band (less the bar's 1px top
+       *  border) where rows scroll past between strip and bar. (The web
+       *  layout keeps the bar as a flex sibling below an inner-scrolling
+       *  <main>; the same offset clears it there.) The in-flow spacer lets
+       *  the last card scroll clear of the now-floating strip. */}
       {SHOW_MIDDAY_BAR && nowHm && remaining > 0 && (
         <>
           <div aria-hidden className="h-20" />
@@ -370,7 +387,9 @@ function AgendaRow({
   }
 
   if (isCompleted && !expanded) {
-    const showUnrecorded = !r.isCancelled && !r.karuteRecordId
+    // A 担当未定 row (no staff) is never a recording target: no 未録音. It
+    // carries the 担当未定 mark instead, collapsed too (the one mark component).
+    const showUnrecorded = !r.isCancelled && !r.karuteRecordId && !!r.staffId
     return (
       <button
         type="button"
@@ -384,6 +403,8 @@ function AgendaRow({
               <span className={cn(COMPACT_ROW_TAG, BADGE_COLORS.amber.bg, BADGE_COLORS.amber.text, BADGE_COLORS.amber.border)}>
                 {t('unrecorded')}
               </span>
+            ) : r.staffId === null ? (
+              <UnassignedMark className="ml-auto shrink-0" />
             ) : null
           }
         />
@@ -480,6 +501,9 @@ function AgendaRow({
             </span>
           </div>
         )}
+        {/* 担当未定 — a booking with no staff yet: the same muted line, no
+         *  staff dot (no staff, no colour). Not a pill: it is not a warning. */}
+        {r.staffId === null && <UnassignedMark className="mt-0.5" />}
       </div>
 
       {/* Status + 更新案内 — pinned to the TOP-RIGHT corner (self-start) and
@@ -507,8 +531,12 @@ function AgendaRow({
         )}
         {/* Done-but-unrecorded: the forgot-to-record failure mode caught the
          *  same day, on the page staff already stare at. Cancelled rows have
-         *  nothing to record — excluded. */}
-        {r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId && (
+         *  nothing to record — excluded. A 担当未定 row (no staff) is never a
+         *  recording target — excluded too; it carries the 担当未定 mark only. */}
+        {r.displayStatus === 'completed' &&
+          !r.isCancelled &&
+          !r.karuteRecordId &&
+          !!r.staffId && (
           <span
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
           >
@@ -536,8 +564,11 @@ function AgendaRow({
   }`
 
   if (interactive) {
-    // No onClick: the hold hook's onShortTap carries the tap (and swallows the
-    // click that trails a completed hold). touch-action pan-y keeps vertical
+    // The tap opens on the row's CLICK — holdHandlers carries the hook's
+    // onClick, which runs onShortTap and swallows the click that trails a
+    // completed hold or a drag. A pointerup alone opens nothing, so a touch
+    // that only stops a scroll glide (iOS sends it no click) cannot open a
+    // booking; Enter/Space still do. touch-action pan-y keeps vertical
     // scrolling native — a scroll fires pointercancel and aborts the hold
     // (the hook's own move tolerance covers the fits-on-one-screen case where
     // no scroll ever starts). select-none + touch-callout keep iOS's native

@@ -170,6 +170,18 @@ const build = (store: string | null, override: Partial<ThreadInput> = {}) =>
   buildThreads(inputFor(store, override))
 const byId = (rows: ThreadModel[], id: string) => rows.find((t) => t.id === id)!
 
+describe('S86 R5 — 期限 for a booking with and without a 予約一覧 row', () => {
+  const booking = appointments().find((a) => a.status !== 'cancelled' && a.settlement !== 'awaiting' && !reservations.some((r) => r.appointment_id === a.id))!
+  const template = threadPlane.find((t) => t.category === 'change')!
+  const thread = { ...template, id: 's86-unit', appointment_id: booking.id, customer_id: booking.customer_id, due: 600 }
+  const run = (over: Partial<ThreadInput>) => byId(buildThreads(inputFor(null, { threads: [thread], decisions: [], reservations: [], ...over })), 's86-unit').dueMinute
+  it('no record → the thread\'s own due; awaiting settlement → 閉店; a record with a null deadline → null', () => {
+    expect(run({})).toBe(600)
+    expect(run({ appointments: [{ ...booking, settlement: 'awaiting' }] })).toBe(operatingHours.close)
+    expect(run({ reservations: [{ ...reservations[0], appointment_id: booking.id, pending: false, deadline: null }] })).toBeNull()
+  })
+})
+
 beforeEach(() => {
   supabase.mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
@@ -1007,8 +1019,9 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
       if (!sel.includes('pg-inbox')) continue
       for (const c of classesIn(sel)) if (c !== 'pg-inbox') styled.add(c)
     }
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')).toContain('.biz .sample-mark {')
     // Shell-owned names the room renders and does not restyle.
-    for (const c of ['pill', 'indigo', 'alert', 'warn', 'good']) styled.add(c)
+    for (const c of ['pill', 'indigo', 'alert', 'warn', 'good', 'sample-mark']) styled.add(c)
     const rendered = new Set<string>()
     for (const m of SRC.matchAll(/className="([^"]*)"/g)) for (const c of m[1].split(/\s+/)) if (c) rendered.add(c)
     for (const m of SRC.matchAll(/className=\{`([^`]*)`\}/g)) {
@@ -1032,7 +1045,7 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // shapes are untouched) because every element this room owns carries an
     // `ib-` name that exists nowhere else in the family — a fence that cannot
     // rot as the neighbours change shape underneath it.
-    const styled = new Set<string>(['pill', 'indigo', 'alert', 'warn', 'good'])
+    const styled = new Set<string>(['pill', 'indigo', 'alert', 'warn', 'good', 'sample-mark'])
     for (const sel of selectorsOf(CSS)) {
       if (!sel.includes('pg-inbox')) continue
       for (const c of classesIn(sel)) if (c !== 'pg-inbox') styled.add(c)

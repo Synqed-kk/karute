@@ -6,6 +6,7 @@
 
 import { cache } from 'react'
 import type { CoreReads } from './core-reach'
+import { doorFor, practiceTenant } from './switch'
 
 type Staff = Awaited<ReturnType<CoreReads['staffList']>>['staff'][number]
 type Sheet = Awaited<ReturnType<CoreReads['answerSheet']>>
@@ -52,6 +53,15 @@ export async function pageAll<T>(
   }
   throw new Error(`practice door: ${label} exceeded ${MAX_PAGES} pages`)
 }
+
+/** R50 — is the door ON for THIS request's admitted business? Once per request (React cache). Switch
+ *  unset: false, and admission is never loaded (the lazy rule below). Every READ asks this; the write
+ *  guards and clientFor keep refusing another business ('tenant'). */
+export const doorOn = cache(async (): Promise<boolean> => {
+  if (practiceTenant() === null) return false
+  const { requireBusinessAdmission } = await import('../admission')
+  return doorFor((await requireBusinessAdmission()).businessId)
+})
 
 export const practiceActor = cache(async (): Promise<PracticeActor> => {
   // Both imports are LAZY on purpose: data.ts imports the door statically, so a

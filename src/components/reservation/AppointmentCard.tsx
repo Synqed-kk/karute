@@ -85,6 +85,9 @@ interface GridProps {
   ppm: number
   /** Business-hours start hour (e.g. 10 for 10:00). */
   startHour: number
+  /** Sub-row inside the lane when it packs overlapping bookings side by side
+   *  (packOverlapping: the 担当未定 lane only). Omitted → the full lane. */
+  slot?: { col: number; cols: number }
   onSelect?: (view: ReservationView) => void
 }
 
@@ -185,6 +188,12 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
   })()
   const width = view.durationMin * props.ppm
   const tight = width < 100
+  // The lane's card band (top 4, height 80) is shared equally by a packed
+  // cluster: sub-row col of cols. No slot → the whole band, as before.
+  const cols = props.slot?.cols ?? 1
+  const bandHeight = 80 / cols
+  const top = 4 + (props.slot?.col ?? 0) * bandHeight
+  const height = cols > 1 ? bandHeight - 2 : bandHeight
 
   return (
     <div
@@ -196,8 +205,8 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
       style={{
         left: left + 3,
         width: width - 6,
-        top: 4,
-        height: 80,
+        top,
+        height,
         background: tone.bg,
         borderColor: tone.border,
         borderStyle: tone.borderStyle,

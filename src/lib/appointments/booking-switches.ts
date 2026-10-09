@@ -74,16 +74,14 @@ export const BOOKING_SWITCHES = {
    *  rides the wire from this packet; the surfaces read it in the wiring
    *  round, so flipping it changes nothing until they do. */
   percentBands: true,
-  /** Beds as lanes. OFF and reserved — C1 §4 found zero Resource rows and
+  /** Beds as lanes. OFF — C1 §4 found zero Resource rows and
    *  Karute never writes resource_id, so no store can be identified as
    *  bed-bound at all; nothing reads this key yet. When beds arrive, OFF must
    *  mean `laneKind: 'none'` for a bed-having store (the count table), NEVER a
    *  fall-through to staff lanes (C4 §3) — a bed store's staff count is not
    *  its capacity. Flip: when bookings actually claim beds. */
   bedLanes: false,
-  /** Per-staff shift minutes as the lane time, replacing roster × hours.
-   *  OFF and reserved — it needs core's shift data (CORE-8). Until then a
-   *  rostered staffer who is off today still counts, which is the recorded
-   *  limitation behind the lead's 空き ruling. Flip: when CORE-8 lands. */
-  shiftLanes: false,
+  /** Per-staff receivable time replaces roster × hours (稼働 PR-1).
+   *  ON since PR-2; guess mode until SYNQED Business writes shift rows. */
+  shiftLanes: true,
 } as const

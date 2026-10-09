@@ -174,6 +174,20 @@ const getCustomerWithClient = jest.fn(async (_c: unknown, id: string) => {
 })
 jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: (c: unknown, id: string) => getCustomerWithClient(c, id) }))
 jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [{ id: 'cust-1', name: '山田 花子' }], total: 1 })) }))
+// G-4 (S71 fix round 7, RULING-S71-G3-G4; LAUNCH-S71-PRO-FIX7 F-7): the REAL
+// guard, counted — a requireActual passthrough, never a blanket mock (every
+// other test in this file runs the real guard). Reset in beforeEach.
+const returningGuardCalls = { n: 0 }
+jest.mock('@/lib/karute/revisit-guard', () => {
+  const actual = jest.requireActual<typeof import('@/lib/karute/revisit-guard')>('@/lib/karute/revisit-guard')
+  return {
+    ...actual,
+    isReturningCustomerServerSide: (...args: Parameters<typeof actual.isReturningCustomerServerSide>) => {
+      returningGuardCalls.n += 1
+      return actual.isReturningCustomerServerSide(...args)
+    },
+  }
+})
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/karute/[id]/route'
 import { KaruteDetailScreenDTO } from '@/lib/app-api/karute-detail-screen-dto'
@@ -200,6 +214,7 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
   DISCARDED_KAR.current = null
+  returningGuardCalls.n = 0
   synqedStaffRosterRejects.current = false
   KAR.current = { id: '00000000-0000-4000-8000-000000000008', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
@@ -1612,5 +1627,78 @@ describe('staffCanEditRecord — the DTO half of the store lock', () => {
     capabilities.current = new Set(['customers.view', 'records.write'])
     staffStoresGet.mockRejectedValue(new Error('core down'))
     expect((await dtoFor()).staffCanEditRecord).toBe(false)
+  })
+})
+
+// S3 + V7 (PR-O commit 3): the detail carries the customer's truth for the 結果
+// card from the SAME guard every write runs (R-O7's prior-visit rule included).
+// The guard's own reads are attached per test and removed after, so every
+// pre-existing case above keeps its reads (and its exact DTO) unchanged.
+describe('GET screens/karute/[id] — S3 isReturningCustomer', () => {
+  const KID = '00000000-0000-4000-8000-000000000008'
+  const guardReads = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const attach = (customer: object, rows: object[]) => {
+    guardReads.customers.get = jest.fn(async () => customer)
+    guardReads.packs = { listPacks: jest.fn(async () => []) }
+    guardReads.karuteRecords.list = jest.fn(async () => ({ karute_records: rows }))
+    REC.current = { ...REC.current, created_at: '2026-06-01T02:50:00Z' } as typeof REC.current
+  }
+  afterEach(() => {
+    delete guardReads.customers.get
+    delete guardReads.packs
+    delete guardReads.karuteRecords.list
+  })
+  const own = { id: KID, status: 'DRAFT', recording_session_id: 'sess-1', created_at: '2026-06-01T03:00:00Z' }
+  const sameDayPlaceholder = { id: 'draft-1', status: 'DRAFT', recording_session_id: null, session_date: '2026-06-01', created_at: '2026-06-01T02:49:00Z' }
+  const get = async () => (await GET(req({ headers: auth }), routeFor(KID))).json()
+
+  it('V7-1 at the DTO: a first-timer whose only other karute is a same-day 仮カルテ → false', async () => {
+    attach({ is_existing_customer: false, visit_count: 0, has_ticket_pack: false }, [own, sameDayPlaceholder])
+    expect((await get()).isReturningCustomer).toBe(false)
+  })
+  it('V7-2 at the DTO: a real regular with the same placeholder → true (既存のお客様 never hidden)', async () => {
+    attach({ is_existing_customer: false, visit_count: 4, has_ticket_pack: false }, [own, sameDayPlaceholder])
+    expect((await get()).isReturningCustomer).toBe(true)
+  })
+  it('a guard that cannot tell → the field is absent (the card keeps today\'s rule), never a 502', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KID))
+    expect(res.status).toBe(200)
+    expect(await res.json()).not.toHaveProperty('isReturningCustomer')
+  })
+
+  // G-4 (S71 fix round 7, RULING-S71-G3-G4 § G-4 item 4): the returning read
+  // sits behind the discarded-record door by a status split — a LIVE record
+  // reads it in the fan-out, a DISCARDED one only after the door allows it.
+  const G4_DISCARDED = '00000000-0000-4000-8000-000000000099'
+  const discarded = (staffId: string) => {
+    DISCARDED_KAR.current = {
+      id: G4_DISCARDED, created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1', customer_id: 'cust-1', staff_id: staffId, recording_session_id: 'sess-1', status: 'DISCARDED', entries: [],
+    }
+  }
+  const regular = { is_existing_customer: false, visit_count: 4, has_ticket_pack: false }
+
+  it('G-4 T1: a DISCARDED record + a refused viewer → the missing-id 404 body, and the guard is read 0 times', async () => {
+    attach(regular, [{ ...own, id: G4_DISCARDED }])
+    discarded('other-staff')
+    const refusedRes = await GET(req({ headers: auth }), routeFor(G4_DISCARDED))
+    expect(returningGuardCalls.n).toBe(0)
+    const missingRes = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000404'))
+    expect(refusedRes.status).toBe(404)
+    expect(await refusedRes.text()).toBe(await missingRes.text())
+  })
+  it('G-4 T2: a DISCARDED record + an allowed viewer (discardView) → the guard is read once, after the door, and answers', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    attach(regular, [{ ...own, id: G4_DISCARDED }])
+    discarded('other-staff')
+    const res = await GET(req({ headers: auth }), routeFor(G4_DISCARDED))
+    expect(res.status).toBe(200)
+    expect(returningGuardCalls.n).toBe(1)
+    expect((await res.json()).isReturningCustomer).toBe(true)
+  })
+  it('G-4 T3: a LIVE record → the guard is read once, in the fan-out; the reply is unchanged', async () => {
+    attach(regular, [own, sameDayPlaceholder])
+    expect((await get()).isReturningCustomer).toBe(true)
+    expect(returningGuardCalls.n).toBe(1)
   })
 })

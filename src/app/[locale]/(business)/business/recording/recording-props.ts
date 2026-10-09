@@ -34,8 +34,10 @@ import {
   listStaff,
   listStoreOptions,
   renderNow,
+  sampleDateline,
   type StoreLens,
   readShellIdentity,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import { attachSample, sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
@@ -198,6 +200,7 @@ export async function recordingProps({
   discardFail,
   world,
 }: RecordingPropsInput): Promise<RecordingPropsResult> {
+  const doorOn = await practiceDoorOn() // R50 — this business's door, once
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
   const clamped = storeId !== null
@@ -224,9 +227,9 @@ export async function recordingProps({
   // SAMPLE planes, attached through the facade: OFF the planes themselves; ON their
   // appointment / customer / store / staff ids become the live twins, so they join
   // the live bookings and customers above. Card ids (by_staff_card_id) have no twin.
-  const grants = attachSample(world?.grants ?? grantPlane, null)
-  const takePlaneAttached = attachSample(world?.takes ?? takePlane, null)
-  const recordPlane = attachSample(recordFixture, null)
+  const grants = attachSample(doorOn, world?.grants ?? grantPlane, null)
+  const takePlaneAttached = attachSample(doorOn, world?.takes ?? takePlane, null)
+  const recordPlane = attachSample(doorOn, recordFixture, null)
   // The operator is the DOOR's (readShellIdentity: the admitted person under the
   // practice switch, the fixture operator when it is off) — never the fixture read directly.
   const { operator } = await readShellIdentity()
@@ -235,7 +238,7 @@ export async function recordingProps({
   // The operator is LIVE under the practice switch; the take plane is SAMPLE and
   // card-keyed, so the join runs through the operator's FIXTURE twin (the
   // `byUser` tier links p-06 → c-06 without the roster). OFF: the same id.
-  const selfTwin = sampleSelfId('staff', operator.staff_id)
+  const selfTwin = sampleSelfId(doorOn, 'staff', operator.staff_id)
   const selfCardId = cardIdOfStaff(selfTwin, staffCards, staff)
 
   const models = buildTakes({
@@ -577,7 +580,7 @@ export async function recordingProps({
   const attentionNote = recoverable === null ? null : daysLeftLine(recoverable.dayKey, todayKey)
 
   const props: RecordingProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
     lensLabel,
     operatorName: operator.name,
     // Canon's own subtitle (fable-record-session.html:404), amended for the two

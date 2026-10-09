@@ -12,7 +12,7 @@
 // サンプルデータ dateline and ONE footnote per store section carry that fact;
 // 自分の表示設定 is the single exception and it is a designed one, saving to this
 // browser for this reader, because a self-scoped preference is nobody else's
-// permission. ⚖ A2 (Liam 9/24): with the practice door ON, カードの見た目 is the
+// permission. ⚖ A2 (Liam 9/24): with the practice door ON, お店ページ (its カードの見た目 block) is the
 // one section whose 保存 reaches core (the /api/business/card-color route) — the
 // screen is told so only then.
 //
@@ -32,9 +32,10 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { practiceDoorOn, readBookingColors, readCanManageCardColor } from '@/business/lib/data'
+import { practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
+import { storeDaysLockedNote } from './settings-props'
 import './settings.css'
 
 export default async function SettingsPage({
@@ -56,7 +57,8 @@ export default async function SettingsPage({
   //
   // ⚖ PKT-S38 R7 — 予約の色分け is LIVE while the door is ON: its raw org-settings value is read ONCE here and
   // the props file resolves the lens store's four (the clamp's one home). OFF: nothing is read.
-  const live = practiceDoorOn() ? { raw: await readBookingColors() } : undefined
+  const doorOn = await practiceDoorOn() // R50 — this business's answer, once
+  const live = doorOn ? { raw: await readBookingColors() } : undefined
   const { props, storePolicy, storeKey, bookingColors } = await settingsProps({ locale, store: query.store, section: query.section, ...(live ? { bookingColors: live } : {}) })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen
@@ -68,9 +70,15 @@ export default async function SettingsPage({
   // ⚖ A2 — OFF: no prop, today's page-local commit byte for byte. ON: the one real save, for the
   // ADMITTED business (the route's X-Expected-Business check compares against it), and whether core's
   // sheet lets this operator save at all (G5: the writer's own check, asked once — no 保存する it would refuse).
-  const saveCardColor = practiceDoorOn() ? { businessId: admitted.businessId, canSave: await readCanManageCardColor() } : undefined
+  const saveCardColor = doorOn ? { businessId: admitted.businessId, canSave: await readCanManageCardColor() } : undefined
   // ⚖ PKT-S38 R7 — and 予約の色分け's save, for the lens store: the SAME canSave answer (settings.manage is one
   // truth; no second sheet read). OFF, or no store / a shut gate (bookingColors null): no prop, today's render.
   const saveBookingColors = saveCardColor && bookingColors ? { businessId: saveCardColor.businessId, storeId: storeKey, canSave: saveCardColor.canSave, colors: bookingColors } : undefined
-  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} />
+  // ⚖ PKT-S29-B1 — 臨時休業・特別営業日's save, for the lens store: LIVE while the door is ON and a
+  // store is selected; R2's own answer (store visibility + settings.manage + HQ_ADMIN), asked once here
+  // rather than per add/remove press — ⚖ PKT-S31 R9: three states, mapped to a line by settings-props.ts.
+  const saveStoreDays = doorOn && storeKey !== 'all-stores'
+    ? { businessId: admitted.businessId, storeId: storeKey, lockedNote: storeDaysLockedNote(await readCanWriteStoreDays(storeKey)) }
+    : undefined
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} />
 }

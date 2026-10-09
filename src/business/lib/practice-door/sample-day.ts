@@ -90,10 +90,17 @@ export function serveDay(input: {
   dayKey: number
 }): { shifts: FixtureShift[]; absence: FixtureAbsence | null } {
   const wd = weekdayOfKey(input.dayKey)
-  const pair = input.hours.weeklyHours[wd] ?? usualPairOf(input.hours.weeklyHours) ?? input.hours.operatingHours
+  // ⚖ S81 R7 — the day the hours were READ for answers for itself: its 臨時休業 closes it, its 臨時営業日 opens it with its
+  // own window; every other day of the range keeps its weekday's answer, exactly as before.
+  const shown = input.dayKey === input.hours.shownDayKey
+  const pair = (shown && input.hours.shownDayClosed === null ? input.hours.operatingHours : null) ?? input.hours.weeklyHours[wd] ?? usualPairOf(input.hours.weeklyHours) ?? input.hours.operatingHours
   const core = input.hours.hoursSource === 'core'
-  const closed = core && input.hours.closedWeekdays.includes(wd)
-  const seated = !core ? input.shifts : closed ? [] : input.shifts.map((s) => ownHours(s, input.sample, pair)).filter((s) => s.start < s.end)
+  // ⚖ S81 F2 — a 'sample' week with a REAL fact on the day (a 臨時休業, or a 臨時営業日's own window): the day's fact wins
+  // over the sample fiction — nobody seated on the closed date, the sample shifts clipped to the special window. The sample
+  // set's own 定休日 stays fiction, as before (a 'weekday' closure on a 'sample' plane is the fixture's).
+  const real = !core && shown && (input.hours.shownDayClosed === 'closed_date' || (input.hours.shownDayClosed === null && (pair.open !== input.sample.open || pair.close !== input.sample.close)))
+  const closed = (core || real) && (shown ? input.hours.shownDayClosed !== null : input.hours.closedWeekdays.includes(wd))
+  const seated = !core && !real ? input.shifts : closed ? [] : input.shifts.map((s) => ownHours(s, input.sample, pair)).filter((s) => s.start < s.end)
   const absence = closed ? null : input.absence
   const people = [...new Set([...seated.map((s) => s.staff_id), ...input.roster.filter((id) => input.rows.some((r) => r.staff === id))])]
   const days = people.map((id) =>

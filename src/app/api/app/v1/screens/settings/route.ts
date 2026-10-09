@@ -38,6 +38,8 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { qrConfigForStore } from '@/lib/sync/qr-config'
+import { resolveSyncRunStore } from '@/lib/sync/resolve-run-store'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
@@ -165,7 +167,18 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     let syncStatus: SettingsScreenDTOType['syncStatus'] = null
     if (canViewSync) {
       try {
-        const config = await synqed.sync.getConfig('QUICKRESERVE')
+        // CORE-43: the row of the store 今すぐ同期 would crawl — resolved by
+        // the run's own helper from the run's own input (the store-id header,
+        // already verified by the clamp above), never sync.getConfig's own
+        // default. Any resolver error lands in the catch below: the card shows
+        // its unconfigured state, never another store's row.
+        const { storeId: syncStoreId } = await resolveSyncRunStore({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          requestedStoreId: ctx.req.headers.get('store-id') || null,
+        })
+        const { config } = await qrConfigForStore(synqed, syncStoreId)
         if (config) {
           syncStatus = {
             enabled: config.enabled,

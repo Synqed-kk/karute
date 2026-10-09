@@ -136,7 +136,9 @@ import { buildLanes, dayBookings, minuteOf, place, yen, type BoardItem, type Boa
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
 // operator acts on has to be provable without a renderer.
-import { bedDoor, bedViewsFor, nextVisitCategory } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bedDoor, bedViewsFor, nextVisitCategory, settleUnstagedHeld } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { heldReferenceFor, identitiesOf, resetHeldReferenceForTests } from '@/app/[locale]/(business)/business/today/held-reference'
+import { honestHeld as honestHeldS6, type HonestHeld as HonestHeldS6 } from '@/app/[locale]/(business)/business/today/honest-held'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -478,6 +480,21 @@ describe('drag wiring — a pointer event becomes canon geometry', () => {
     expect(slotStartAt(track, 460, HOURS)).toBe(870) // still 14:30 — snapped
     // A click on the far right cannot create a booking that starts at closing.
     expect(slotStartAt(track, 899, HOURS)).toBe(1110) // 18:30
+  })
+
+  it('Q-25 — empty-slot clicks floor on the supplied booking step and clamp before closing', () => {
+    const hours = { open: 420, close: 1320 } // 07:00–22:00
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    const clientX = 25 // 25 px = 25 min on this 900 px / 900 min track → 07:25
+    expect(slotStartAt(track, clientX, hours, hours, 20)).toBe(440)
+    expect(slotStartAt(track, clientX, hours)).toBe(420)
+    expect(slotStartAt(track, 25, hours, hours, 0)).toBe(420)
+    expect(slotStartAt(track, 25, hours, hours, Number.NaN)).toBe(420)
+    // documents the midnight lattice; pre-existing: Math.floor(445 / 45) * 45 = 405, clamped to open 420.
+    expect(slotStartAt(track, 25, hours, hours, 45)).toBe(420)
+    expect(slotStartAt(track, 900, hours, hours, 20)).toBe(1300)
+    expect(slotStartAt(track, 900, hours, hours, 15)).toBe(1305)
   })
 
   it('⚖ 62 — the whole half hour floors to its own start, canon-style', () => {
@@ -1880,7 +1897,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
@@ -2147,13 +2164,13 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
       'open: business.open,',
       'close: business.close,',
-      'stepMin: 30,',
+      '...railDay,', // S25-15 (1): the strip's axis + grid step, one source with inputOn (the pin read the stepMin 30 literal)
       'dur: railDur,',
       'protectedDur: props.guard.protectedDurationMin,',
       'nowMinute: props.sell.nowMinute,',
@@ -2182,7 +2199,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       '? guardVerdictAt(lanes, laneKey, start, {',
       'open: business.open,',
       'close: business.close,',
-      'stepMin: 30,',
+      // ⚖ S27 — DISCLOSED PIN MOVE: the verdict snaps on the rails' step (railDay, opsConfig.bookingStepMin).
+      'stepMin: props.guard.bookingStepMin,',
       'dur,',
       'protectedDur: props.guard.protectedDurationMin,',
       'nowMinute: props.sell.nowMinute,',
@@ -2204,7 +2222,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
     // which is why the number is smaller than the array — both are measured.
     for (const [where, code, want] of [
-      ['rail', rail.code, 12],
+      ['rail', rail.code, 11], // S25-15 (1): the stepMin key became the ...railDay spread (pin flipped from 12)
       ['verdict', verdict.code, 10],
     ] as const) {
       expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
@@ -2304,16 +2322,17 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "landingVerdict,",
       "lossOf,",
       // ⚖ NEW-WINDOW (2026-09-12) — the day family. One walk answers 「how many
-      // 新規 windows does this board hold, and whose」 (`windowsOn`), one names the
-      // lanes that lost between two settled boards (`lostOn`), and the two empty
-      // shapes are what the guard-off arm and the memo's own early returns answer
-      // with. `DayLoss` is the field's type, for the memo's return annotation.
-      // Added, nothing renamed or removed.
+      // 新規 windows does this board hold, and whose」 (`windowsOn`); the empty
+      // shape is what the guard-off arm answers with. R1/R2 (DECISIONS.md
+      // today-impact-2026-09-30): the delta between two settled boards is
+      // `heldDelta` (./held-delta); the screen imports its price closure and the
+      // day-only cell for a landing the rail cannot judge (fix round 1 X-A).
       "windowsOn,",
-      "lostOn,",
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the day family now reads `heldDelta`; the screen
+      // imports the price closure and no longer the per-lane loss rows or their empty shape.
+      "heldPriceOf,",
+      "dayOnlyCell,",
       "EMPTY_WINDOWS,",
-      "EMPTY_DAY,",
-      "type DayLoss,",
       "bedClassCell,",
       "nearestFreeStarts,",
       "offerableCell,",
@@ -2373,7 +2392,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // 確保 count needs at the screen: the sale-filter lane set it narrows
       // the drawn half with, the two JP lines of the shared box, and the day
       // layer adapter that reads the netting in `windowsOn`'s own shape.
-      "sellStaffLanes,",
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the screen reads the ONE sellable predicate
+      // (`sellableLaneKeysOf`, which wraps `sellStaffLanes`) instead of re-spelling it.
+      "sellableLaneKeysOf,",
       "sharedRoomSub,",
       "sharedRoomTitle,",
       // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.2. Six lines of Japanese, in the one
@@ -2410,6 +2431,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type LandingFloor,",
       "type LandingQuestion,",
       "type LandingVerdict,",
+      "DRAG_EDGE_STEP_PX,", // S25-15 (4): the edge auto-scroll's step and zone test (pin flipped: two names added)
+      "edgeScrollDir,",
       "type Move,",
       "type Moves,",
       "type OverrideLevel,",
@@ -5352,8 +5375,15 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // either one is the half-undo the two-sided snapshot exists to stop — a
     // person put back into a room the booking has already left, or the reverse.
     const restore = SRC.slice(SRC.indexOf('function restoreSides('), SRC.indexOf('function revertPending()'))
-    expect(restore).toContain('if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))')
-    expect(restore).toContain('if (home.bed) return { ...was, [id]: home.bed }')
+    // DISCLOSED PIN MOVE — S27 Q-23: restoreSides now puts the staged entries back as they were on BOTH sides —
+    // put(was, staged.staff) / put(was, staged.bed); the two-sided law of flag 45 is unchanged, the body text moved.
+    // The same move carries the call sites below: `ctx.staged` (the pointerdown entries) replaces `from` / `ctx.home`.
+    expect(restore).toContain('setMoves((was) => put(was, staged.staff))')
+    expect(restore).toContain('setBedMoves((was) => put(was, staged.bed))')
+    expect(restore).toContain('if (!(id in was)) return was')
+    // ⚖ Round 4 (FIX-2) — and both branches of `put`: a pointerdown value is written back, an absent key is deleted.
+    expect(restore).toContain('{ ...was, [id]: m }')
+    expect(restore).toContain('delete next[id]')
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
     // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
     // abandoned landing and restores the pair for the same reason the other
@@ -5365,11 +5395,11 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // ADDED a no-op `moves` entry that then survived a day flip. A refusal now
     // writes nothing at all. The card is still drawn at its origin the moment
     // the advice clears, because `moves` is where it is drawn from.
-    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
+    expect(finish.match(/restoreSides\(ctx\.id, ctx\.staged\)/g)).toHaveLength(3)
     expect(finish).not.toContain('setMoves(')
     expect(finish).not.toContain('setBedMoves(')
     const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
-    expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
+    expect(cancel).toContain('restoreSides(ctx.id, ctx.staged)')
     // …and 元に戻す answers for the room as well as the person.
     const revert = SRC.slice(SRC.indexOf('function revertPending()'), SRC.indexOf('function confirmPending()'))
     expect(revert).toContain('if (bedOrigin) next[id] = bedOrigin')
@@ -6020,7 +6050,8 @@ describe('BATCH-7 ⚖ 48 — the confirm prefers to leave the landing’s rail c
     // 30-minute lattice: an off-lattice landing (canon's dual lattice can put a
     // card on 14:05) belongs to the cell it starts inside, so the start is
     // floored — never rounded, which would name the next chip along.
-    expect(SRC).toContain('const start = Math.floor(minuteOf(at.x, hours) / 30) * 30')
+    // ⚖ Q-25 (2026-10-07) — the lattice unit is the store's booking step (opsConfig.bookingStepMin), not a fixed 30; the floor-not-round rule this pin guards is unchanged.
+    expect(SRC).toContain('const start = Math.floor(minuteOf(at.x, hours) / step) * step')
     expect(SRC).toContain('`.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`')
     // Measured in the same frame as the popover's own box, never cached.
     expect(SRC).toContain('boardRef.current?.querySelector(holdRailSel)?.getBoundingClientRect() ?? null')
@@ -6468,7 +6499,8 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect((SRC.match(/aimed\?\.laneKey === rail\.laneKey/g) ?? [])).toHaveLength(1)
     // Floored to the rail's own 30-minute lattice, never rounded: an off-lattice
     // landing belongs to the cell it starts INSIDE (flag 48's rule).
-    expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
+    // ⚖ Q-25 (2026-10-07) — the lattice unit is the store's booking step (opsConfig.bookingStepMin), not a fixed 30; the floor-not-round rule this pin guards is unchanged.
+    expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / step) * step')
     expect(SRC).not.toContain('start: Math.round(minuteOf(landing.x, hours) / 30) * 30')
   })
 })
@@ -7041,7 +7073,8 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // The batch-4 row is present on the placement path — it is not missing.
     // ⚖ flag 92: the memo returns `{ row, cell }` now, so the surface reads
     // `.row`. Same row, same source, still never a gate.
-    expect(SRC).toContain('guardRow: pendingGuardRow.row,')
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the clean face's pocket row is the one warnFaceFor kept BY KIND.
+    expect(SRC).toContain('guardRow: pendingWarnModel ? pendingWarnModel.guardRow : pendingGuardRow.row,')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
   })
 
@@ -9513,6 +9546,8 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       impact: { head: '', yen: null, tail: '' },
       provenance: null, lock: null, safePrimary: null, commit: null,
       rows: GREENS, greensLine: null,
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the model carries the day rows and the kept pocket row; both empty here.
+      dayRows: [], guardRow: null,
     })
     // The rows come back UNTOUCHED — the clean face renders them exactly as it
     // did before this round existed.
@@ -9903,7 +9938,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // pocket-only offers. Every other field is unchanged.
     expect(SRC).toContain(`: warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
+        cell: pendingGuardRow.cell == null
+          ? dayOnlyCell(pendingGuardRow.day, pendingGuardRow.dayHeld)
+          : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -9914,7 +9951,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
         depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
+        resourceNoun: props.words.resourceNoun,
       })`)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): `day` is the HeldDelta + the lane's held starts; the room noun feeds G2.
     // ⚖ 92 fix round 5 V1 (breaker #4) — `frame` and `depth` are the SELL LAYER'S
     // own levers, composed once on this screen and handed to both. A second
     // spelling here would be a second basis for the same ¥, which is the defect
@@ -10147,7 +10186,8 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       + '      }),')
     // …and the level leaves the dep list with the arm that read it: nothing in
     // the memo asks the dial any more.
-    expect(SRC).toContain('props.guard.bookingStepMin])')
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the memo now prices the delta, so its deps add the price levers.
+    expect(SRC).toContain('props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])')
     expect(SRC).not.toContain("if (props.overrideLevel === 'refuse')")
     // …and the RAW engine list the split reads is threaded out of the memo, for
     // the press to mirror it with (⚖ 92 fix round 6 X2).
@@ -10542,9 +10582,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // three readers and ONE definition (⚖ 54); the screen still holds none.
     expect(INT).toContain("export const pocketLossOf = (c: RailCell | null): number =>\n"
       + "  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)")
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the day loss is the STORE's counted or sellable drop, 0 when
+    // not exact; where a day exists it is the whole trigger, else the pocket (byte-identical).
     expect(INT).toContain('export const dayLossOf = (c: RailCell | null): number =>\n'
-      + '  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)')
-    expect(INT).toContain('export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))')
+      + '  c?.day == null\n    ? 0\n    : !c.day.exact\n      ? 0\n'
+      + '      : Math.max(c.day.countedBefore - c.day.countedAfter, c.day.sellableBefore - c.day.sellableAfter, 0)')
+    expect(INT).toContain('export const lossOf = (c: RailCell | null): number => (c?.day != null ? dayLossOf(c) : pocketLossOf(c))')
     expect(INT.match(/const lossOf = /g)).toHaveLength(1)
     expect(SRC).not.toContain('const lossOf = ')
     expect(SRC).toContain('  lossOf,\n')
@@ -11769,7 +11812,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FRAME-SEAM (2026-09-12) — `type Hours` joins it: `handBoardFor` is a
     // module-level exported pure function now (the re-landing rule, spelled once
     // so the strip can ask it too) and its signature names the day's hours.
-    "import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
+    "import { boardCells, bookingColorHex, familyNameOf, floorSlots, hhmm, minPxPer30, minuteOf, place, stripColumns, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
     // `from '…'` across every file in its own territory, this test file
@@ -11781,6 +11824,8 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
     "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
     "} from './today-interactions'",
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta module.
+    "import { heldDelta, type HeldDelta } from './held-delta'",
     // ⚖ ROUND 2 (2026-09-13) — the bed-aware sales layer: the sellability test
     // and the ONE spelling of an offer's identity (⚖ ADDENDUM 4 item 3, the key
     // the row's boxes carry as `data-key`). Pure, every import of its own a TYPE
@@ -11802,6 +11847,8 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // frame for the rail) — `demoteShared` is deleted: the board world is netted
     // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
     "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
+    // DISCLOSED PIN MOVE (PR-B): the held-reference import — the settled held set is the allocator's reference (DECISIONS.md R4, S4 PR-B).
+    "import { heldReferenceFor, identitiesOf, settleHeldReference } from './held-reference'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
     "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
     // ⚖ ROUND 2 (2026-09-13) — the timed release of a kept 新規用 枠. Pure, every
@@ -12512,7 +12559,11 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     const code = codeOnly(SRC)
     // ONE `.e-time` author on this board, and it prints what it is handed.
     expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
-    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // S25-15 (7) — DISCLOSED PIN MOVE: the BLOCK card's time line now wears .e-time (its tier class). It prints a
+    // block's own time, never a booking's, so the booking card still has ONE .e-time author; that block site is the
+    // only `{item.time}` one.
+    expect(code.split('<small className="e-time">{item.time}</small>').length - 1).toBe(1)
+    expect(code).toContain('{!item.micro && <small className="e-time">{item.time}</small>}')
     // The proxy is the ONE caller that hands it anything else, and what it
     // hands is the live landing.
     // ⚖ D-53 (n) — DISCLOSED PIN MOVE: `cardFace` gained a `words` parameter
@@ -12549,7 +12600,7 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
     // The branch reads the BLOCK's own landing — the one its dashed ghost is
     // drawn from — and the pre-fix spelling is gone from the file.
-    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small className="e-time">{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
     expect(code).not.toContain('<small>{proxy.item.time}</small>')
     expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
     // The two ways a decoy could make the block's label stand still.
@@ -15261,11 +15312,13 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
   // `heldBoardHonest`/`boardLanes` site is already pinned whole in
   // selling-engine-doors.test.ts; not duplicated here.
   it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
+    // DISCLOSED PIN MOVE (PR-B): the preference argument — `honest` and `honestOrigin` now pass a sixth argument (sellable + the settled reference, DECISIONS.md R4, S4 PR-B) after the mixed-board predicate.
     expect(SRC).toContain(
       `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
+          { sellable: (l) => sellableLaneKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
         )`,
     )
     expect(SRC).toContain(
@@ -15280,6 +15333,8 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
+      // ⚖ R4 (S4 PR-B) — the origin reads the same settled reference, never \`honest\`.
+      { sellable: (l) => originSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
     )`,
     )
   })
@@ -15391,9 +15446,9 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
 
   // Fix round 4 — P20, the render half: no suite renders TodayScreen here (the renderer fence, header :5-9), so the ruler's
   // JSX and CSS are pinned as TEXT; the arithmetic is P20 in today-board.test.ts, the render is the byte-id harness's.
-  it('§v11 V11-15 P20 — the ruler spans sit at rulerLabels() minute positions, the off rule unchanged, the labels out of flow', () => {
+  it('§v11 V11-15 P20 + ⚖ S25-2 — the ruler spans sit at rulerLabels() minute positions, the closing edge tick has no column, the off rule unchanged, the labels out of flow', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}")
+    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={l.edge ? undefined : { left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={`${band && ((l.hour + 1) * 60 <= business.open || (l.edge ? l.hour * 60 > business.close : l.hour * 60 >= business.close)) ? 'off' : ''}${l.edge ? ' edge' : ''}`.trim() || undefined}>{l.text}</span>)}")
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')).toContain('const hourLabels = rulerLabels(drawn)')
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     expect(css).toContain('.biz .hours { position: relative; }\n.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box;')
@@ -15406,5 +15461,80 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
     expect(css).toContain('  --grid-x: calc(var(--hour-lead, 0) * var(--hours, 9) / (var(--hours, 9) - 1) * 1%);\n  background-position-x: var(--grid-x);\n')
     expect(css).toContain('  background-position: var(--grid-x) 0, left top, right top;\n')
     expect(css).toContain('  background-position: var(--grid-x) 0, var(--grid-x) 0, left top, right top;\n')
+  })
+})
+
+// ⚖ S6 read round (lead ruling 1, Greptile thread today-held-reference.test.ts:66–69)
+// — THE SETTLE LIFECYCLE, on the screen's REAL settle function. No suite renders
+// TodayScreen (the renderer fence stays closed), so the effect's whole body —
+// the guard AND the holder write — is ONE exported function, and the effect is
+// exactly one call to it (pinned in today-held-reference.test.ts). This drives
+// that function across a drag, a stage, a pending landing and a clear, reading
+// the REAL session holder after every step: nothing is written until the
+// un-staged final state, and StrictMode's double effect writes the same set.
+describe('⚖ S6 — the settle lifecycle: stage → land (pending) → clear', () => {
+  beforeEach(() => resetHeldReferenceForTests())
+
+  const lane = (key: string) => ({ key, label: key, group: 'staff', stores: ['st'] } as unknown as Parameters<typeof honestHeldS6>[1][number])
+  const book = (rooms: (start: number) => readonly string[]) => ({ freeBedKeys: (s: number) => rooms(s) } as never)
+  const mask = (laneKey: string, start: number) => ({ laneKey, spans: [{ start, end: start + 90, windowStart: start }], protectedCount: 1 })
+  const rows = [lane('la'), lane('lb')]
+  const cands = [mask('la', 600), mask('lb', 615)]
+  const origin = book(() => ['bed-01']) // both 枠 can use bed-01, not both at once
+  const staged = book((s) => (s === 600 ? [] : ['bed-01'])) // the staged move takes la's only room
+  const run = (b: never): HonestHeldS6 => honestHeldS6(cands, rows, b, true, undefined, { sellable: () => true, reference: heldReferenceFor('store-A', '0|d') })
+  const ids = (h: HonestHeldS6) => [...identitiesOf(h)].sort()
+  type Step = { name: string; honest: HonestHeldS6 | null | undefined; dayStaged: boolean; pendingId: string | null; live: unknown }
+  const lifecycle = (): Step[] => [
+    { name: 'drag in flight', honest: run(origin), dayStaged: false, pendingId: null, live: { id: 'bk-1' } },
+    // ⚖ S6 round 2 (Sonnet C2 / Opus F2) — the states the mutants showed missing
+    { name: 'staged-only (no pending, no drag)', honest: run(staged), dayStaged: true, pendingId: null, live: null },
+    { name: 'stage (staff move staged)', honest: run(staged), dayStaged: true, pendingId: 'bk-1', live: null },
+    { name: 'land (bed-row-only, pending)', honest: run(staged), dayStaged: false, pendingId: 'bk-1', live: null },
+    { name: 'no board (honest undefined)', honest: undefined, dayStaged: false, pendingId: null, live: null },
+    { name: 'no board (honest null, the bed-less store)', honest: null, dayStaged: false, pendingId: null, live: null },
+    { name: 'clear, NOT proven (fixedPoint:false)', honest: { ...run(origin), fixedPoint: false }, dayStaged: false, pendingId: null, live: null },
+    { name: 'clear (un-staged)', honest: run(origin), dayStaged: false, pendingId: null, live: null },
+  ]
+  const drive = (invokes: number) => {
+    const seen: Array<{ step: string; holder: string[] | null }> = []
+    for (const st of lifecycle()) {
+      for (let k = 0; k < invokes; k += 1) settleUnstagedHeld(st.honest, st.dayStaged, st.pendingId, st.live, 'store-A', '0|d')
+      const held = heldReferenceFor('store-A', '0|d')
+      seen.push({ step: st.name, holder: held ? [...held].sort() : null })
+    }
+    return seen
+  }
+
+  it('the holder is written ONLY at the un-staged final state, with the un-staged answer; StrictMode double-invoke writes the same content', () => {
+    const steps = lifecycle()
+    expect(ids(steps[2].honest!)).toEqual(['lb|615']) // the staged answer differs from the un-staged one
+    expect(ids(steps[7].honest!)).toEqual(['la|600'])
+    expect(steps[7].honest?.fixedPoint).toBe(true) // the final answer is a proven fixed point
+    const once = drive(1)
+    expect(once).toEqual([
+      { step: 'drag in flight', holder: null },
+      { step: 'staged-only (no pending, no drag)', holder: null },
+      { step: 'stage (staff move staged)', holder: null },
+      { step: 'land (bed-row-only, pending)', holder: null },
+      { step: 'no board (honest undefined)', holder: null },
+      { step: 'no board (honest null, the bed-less store)', holder: null },
+      { step: 'clear, NOT proven (fixedPoint:false)', holder: null },
+      { step: 'clear (un-staged)', holder: ['la|600'] },
+    ])
+    resetHeldReferenceForTests()
+    const twice = drive(2)
+    expect(twice).toEqual(once)
+    // no staged content ever reached the holder, in either mode
+    expect([...once, ...twice].some((x) => x.holder?.includes('lb|615'))).toBe(false)
+  })
+
+  it('an answer WITHOUT fixedPoint (the no-preference path) at the final state settles as before; the same answer with fixedPoint:false does not', () => {
+    const plain = honestHeldS6(cands, rows, origin, true) // no preference: no rounds/fixedPoint fields
+    expect(plain.fixedPoint).toBeUndefined()
+    settleUnstagedHeld({ ...plain, fixedPoint: false }, false, null, null, 'store-A', '0|d')
+    expect(heldReferenceFor('store-A', '0|d')).toBeUndefined()
+    settleUnstagedHeld(plain, false, null, null, 'store-A', '0|d')
+    expect([...(heldReferenceFor('store-A', '0|d') ?? [])].sort()).toEqual(['la|600'])
   })
 })

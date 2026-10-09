@@ -82,7 +82,12 @@ import {
   composeTakeKey,
   parseRecordingKey,
 } from '@/lib/recording/key-grammar'
-import { UploadUrlMintSchema, type AttachOutcome } from '@/lib/app-api/record-schemas'
+import {
+  flattenTakeDiag,
+  UploadUrlMintSchema,
+  type AttachOutcome,
+  type TakeDiag,
+} from '@/lib/app-api/record-schemas'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   assertRecorderOwnsRow,
@@ -98,6 +103,7 @@ import {
   type StartRecordingSessionResult,
 } from '@/lib/recording/session-mint'
 import { settleUnboundBind } from '@/lib/recording/unbound-bind'
+import { markStagedCopy, markTake, type MarkTakeResult } from '@/lib/recording/take-mark'
 
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's legacy write needs the karute
 // probe (the retired session-cleanup's idiom) — widened here rather than passed as
@@ -203,6 +209,13 @@ export interface MintTakeUrlInput {
   /** The take's length in whole seconds (S35 C1) — see record-schemas.ts.
    *  Written only onto the row the server-named arm creates. */
   durationSeconds?: number
+  /** S60 A4b — the phone knows this blob is not the whole take (build 32;
+   *  build 31 omits it). Server-named or staged bodies only (the schema
+   *  refuses it anywhere else). See markPartialAtMint. */
+  partial?: boolean
+  /** S60 A5 — the phone's numbers-and-flags account of the blob. Same doors
+   *  as `partial`; folded into this door's log line, read by nothing else. */
+  diag?: TakeDiag
 }
 
 export type MintTakeUrlResult =
@@ -688,6 +701,92 @@ async function commitReservation(
 
 type SignedUpload = { path: string; url: string; token: string; contentType: string }
 
+/**
+ * ⚖ THE `partial` MARK AT THE MINT (S60 A4b; REV 2.3 A1 + A5; PR-K). A blob the
+ * phone knows is not the whole take reaches the server through a door with no
+ * post-PUT server step — the server-named door or the staged door — so the
+ * create-only `partial` mark (take-mark.ts) is written HERE, after the door's
+ * answer is settled (signed, or the staged object already there) and before
+ * the PUT. A mark whose object never arrives is harmless: PR-R treats a mark
+ * with no object as nothing.
+ *
+ * ⚖ A MARK NAMES AN OBJECT THE SERVER NAMED (PR-K, A1/A3). `target` is the key
+ * THIS door signed (or found) and which writer owns it: the server-named door
+ * marks its take key through markTake; the staged door marks the STAGED key it
+ * composed for that copy through markStagedCopy — never a take key recomposed
+ * from the request. Null when there is nothing to name (a staged copy whose
+ * slot is the random fallback) — then NO mark, and the answer says so for the
+ * log line. `RECORDING_SWITCHES.finalizeProbe` OFF gates this storage call like
+ * every other S60 one: the fields still reach the log line, nothing is
+ * written. Never throws (neither writer does). `null` = the body did not say
+ * `partial`.
+ */
+async function markPartialAtMint(
+  businessId: string,
+  target: { door: 'take' | 'staged'; key: string } | null,
+  input: { partial?: boolean; diag?: TakeDiag },
+): Promise<MarkTakeResult | 'switch_off' | 'no_take_key' | null> {
+  if (!input.partial) return null
+  if (!RECORDING_SWITCHES.finalizeProbe) return 'switch_off'
+  if (target === null) return 'no_take_key'
+  const facts = {
+    bytes: input.diag?.blob_bytes ?? null,
+    first_byte: input.diag?.first_byte ?? null,
+  }
+  return target.door === 'staged'
+    ? markStagedCopy(createServiceClient(), businessId, target.key, facts)
+    : markTake(createServiceClient(), businessId, target.key, 'partial', facts)
+}
+
+/** The log fields `partial`/`diag` add — NOTHING when the body carried neither,
+ *  so a build-31 body's log line is the line it always was. Flags, numbers and
+ *  one short code only; never a key. */
+function diagLogFields(
+  input: { partial?: boolean; diag?: TakeDiag },
+  mark: Awaited<ReturnType<typeof markPartialAtMint>>,
+): Record<string, unknown> {
+  if (input.partial == null && !input.diag) return {}
+  return { partial: input.partial ?? null, mark, ...flattenTakeDiag(input.diag) }
+}
+
+/**
+ * The staged door's half of the above (PR-K, A1 + A6 — supersedes REV 2.3
+ * A1's take-key home). The mark goes on the STAGED key this door composed for
+ * THIS copy (`composed.key`: the row's session, the slot's uuid, the container
+ * the client declared for the copy) in both sub-branches, row pointer or not —
+ * the one object the server named here and the one that can actually arrive.
+ * The slot is the take the door asked for (`rowTake ?? stagedTake`) or, when
+ * that was no take uuid, composeStagedKey's random fallback: a copy nobody can
+ * find again, so no mark, and the line says `slot: 'random_fallback'`. Reached
+ * only when the body carried `partial` or `diag`, so a build-31 staging logs
+ * nothing new.
+ */
+async function notePartialAtStagedMint(
+  businessId: string,
+  input: {
+    stagedFor?: string | null
+    stagedTake?: string | null
+    partial?: boolean
+    diag?: TakeDiag
+  },
+  composed: { key: string; uuid: string },
+  rowTake: string | null,
+): Promise<void> {
+  if (input.partial == null && !input.diag) return
+  const slot = composed.uuid === (rowTake ?? input.stagedTake) ? 'staged' : 'random_fallback'
+  const mark = await markPartialAtMint(
+    businessId,
+    slot === 'staged' ? { door: 'staged', key: composed.key } : null,
+    input,
+  )
+  console.info('[mint-take-url] staged upload', {
+    businessId,
+    recordingSessionId: input.stagedFor ?? null,
+    slot,
+    ...diagLogFields(input, mark),
+  })
+}
+
 /** The signing leg, shared by both paths. Hands back the FENCED key, never the
  *  upstream echo — `data.path` is Supabase's own report of what it signed, not
  *  a second source of truth to trust. Carries no `recordingSessionId` — the
@@ -847,8 +946,18 @@ export async function mintTakeUploadUrl(
   const businessId = actor.businessId
 
   // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). It is still
-  // ROW-LESS — nothing is reserved, nothing is written, nothing is audited —
-  // but it is no longer ANONYMOUS: the key carries the session, so the
+  // ROW-LESS — nothing is reserved and nothing is audited; since A4b it writes
+  // ONE create-only `partial` mark (`notePartialAtStagedMint` →
+  // `markPartialAtMint` → `markStagedCopy`), ON THE STAGED KEY composed below
+  // (PR-K, A1 — never a take key), and only when ALL of these hold: the door's
+  // own refusals passed and its arm settled (an existing object whose size it
+  // answers, or a successful sign — a sign error writes nothing); the body
+  // says `partial: true` (a `diag` alone only logs); the
+  // `RECORDING_SWITCHES.finalizeProbe` switch is ON (else `switch_off`,
+  // nothing written); and the slot holds the take the door asked for,
+  // `rowTake ?? stagedTake` (a random-fallback slot names no findable copy:
+  // `no_take_key`, nothing written). It is no longer ANONYMOUS: the key
+  // carries the session, so the
   // transcribe door can check the binding rather than accept any same-tenant
   // key as that discard's audio. The row is read only to prove the caller may
   // record onto it — and since fix round 4 (G2) that proof is STRICTER than the
@@ -954,6 +1063,7 @@ export async function mintTakeUploadUrl(
     // same posture the take mint's own exists check takes.
     if (existing === 'unknown') return { error: 'upstream' }
     if (existing.exists) {
+      await notePartialAtStagedMint(businessId, input, composed, rowTake)
       return {
         path: composed.key,
         contentType: composed.contentType,
@@ -963,6 +1073,7 @@ export async function mintTakeUploadUrl(
     }
     const signed = await signUpload(composed, 'staged')
     if ('error' in signed) return signed
+    await notePartialAtStagedMint(businessId, input, composed, rowTake)
     return { ...signed, recordingSessionId: input.stagedFor }
   }
 
@@ -1022,13 +1133,19 @@ export async function mintTakeUploadUrl(
     // The per-business count of in-tab fallbacks (S33) — ids and flags only,
     // never a customer and never a key. Counted only when an upload is really
     // handed out: the ON arm's `exists` answers an error (settleUnboundBind).
-    if (!('error' in minted))
+    // S60 A4b + A5: a `partial` mark on this very key once the upload is
+    // really handed out, and the diag folded into the same count line — keys
+    // added only when the body carried them, so a build-31 line is unchanged.
+    if (!('error' in minted)) {
+      const mark = await markPartialAtMint(businessId, { door: 'take', key: composed.key }, input)
       console.info('[mint-take-url] unbound upload', {
         businessId,
         attachOutcome: input.attachOutcome ?? null,
         switchOn: RECORDING_SWITCHES.bindUnboundUploads,
         bound: 'recordingSessionId' in minted && Boolean(minted.recordingSessionId),
+        ...diagLogFields(input, mark),
       })
+    }
     return minted
   }
 

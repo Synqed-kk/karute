@@ -10,7 +10,6 @@ import { storeDials, type StoreDials } from '../fixtures-settings'
 import type { WordOverride } from '../resource-words'
 import type { SampleMark } from '../settings'
 import { fixtureIdOf, liveIdOf, samplePolicyFor, type StoreSamplePolicy } from './registry'
-import { practiceTenant } from './switch'
 
 export type TwinKind = 'stores' | 'staff' | 'menus' | 'customers' | 'appointments'
 
@@ -235,8 +234,8 @@ export const isMarked = (s: StoreSample): boolean => s.state === 'no-sample-poli
  *  made — including defaultKindOf's throw on an unknown id (OFF is
  *  byte-identical, not "improved"). ON: by the store's sample policy; a live
  *  uuid never throws. */
-export function storeSample(storeId: string): StoreSample {
-  if (practiceTenant() === null) return { state: 'sample', words: defaultKindOf(storeId).words, dials: storeDials[storeId] ?? null, marked: false, planes: ALL_LIVE }
+export function storeSample(doorOn: boolean, storeId: string): StoreSample {
+  if (!doorOn) return { state: 'sample', words: defaultKindOf(storeId).words, dials: storeDials[storeId] ?? null, marked: false, planes: ALL_LIVE }
   const policy = samplePolicyFor(storeId)
   if (policy.kind === 'twin') {
     const planes = planesOf(storeId)
@@ -284,6 +283,7 @@ export type PlaneKey =
   // 設定 — 組織・管理
   | 'staffSettings' | 'rolePolicy' | 'connectors' | 'export' | 'auditLog' | 'language'
   | 'bookingColors' | 'colorTokens' | 'billing'
+  | 'inboxThreads' | 'registerLedger'
 
 export type PlaneState = 'sample' | 'live'
 
@@ -295,6 +295,7 @@ const PLANE_KEYS: readonly PlaneKey[] = [
   'coaching', 'sync', 'bookingPolicy', 'priceLock', 'notify',
   'staffSettings', 'rolePolicy', 'connectors', 'export', 'auditLog', 'language',
   'bookingColors', 'colorTokens', 'billing',
+  'inboxThreads', 'registerLedger',
 ]
 const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k, state])) as Record<PlaneKey, PlaneState>
 
@@ -320,6 +321,7 @@ const anySample = (planes: Readonly<Record<PlaneKey, PlaneState>>) => Object.val
  *  exists) while Business still reads the fixture — sample ON SCREEN until the
  *  read is connected. The lane's harness reads the map itself against this. */
 export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
+  inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id',
   operatingHours: 'operatingHours.open', shifts: 'FixtureShift.staff_id', absence: 'FixtureAbsence.staff_id',
   sellSlots: 'FixtureSellSlot.id', decisions: 'FixtureDecision.id', recoverySteps: 'recoverySteps',
   storeProfile: 'profile.photo', closures: 'closures[].dayOffset', opsConfig: 'opsConfig.bookingStepMin',
@@ -365,8 +367,8 @@ export type LabeledPlaneKey = keyof typeof PLANE_LABEL
  *  OFF, when no store is in view (a storeless 設定, F-6), or when every named
  *  plane is live in every store in view; a plane counts as sample if it is
  *  sample in ANY store in view (a business-wide board shows several). */
-function markOf(storeIds: readonly string[], planes: readonly PlaneKey[]): PlaneKey[] {
-  if (practiceTenant() === null || storeIds.length === 0) return []
+function markOf(doorOn: boolean, storeIds: readonly string[], planes: readonly PlaneKey[]): PlaneKey[] {
+  if (!doorOn || storeIds.length === 0) return []
   const tables = storeIds.map(planesOf)
   return planes.filter((k) => tables.some((t) => t[k] === 'sample'))
 }
@@ -374,13 +376,13 @@ const inView = (storeIds: string | readonly string[] | null): readonly string[] 
   storeIds === null ? [] : typeof storeIds === 'string' ? [storeIds] : storeIds
 
 /** Whole form: every value the region shows comes from these planes. */
-export function sampleWhole(storeIds: string | readonly string[] | null, ...planes: [PlaneKey, ...PlaneKey[]]): SampleMark | undefined {
-  return markOf(inView(storeIds), planes).length > 0 ? { form: 'whole' } : undefined
+export function sampleWhole(doorOn: boolean, storeIds: string | readonly string[] | null, ...planes: [PlaneKey, ...PlaneKey[]]): SampleMark | undefined {
+  return markOf(doorOn, inView(storeIds), planes).length > 0 ? { form: 'whole' } : undefined
 }
 
 /** Part form: live rows + these sample planes; names only the planes still sample. */
-export function samplePart(storeIds: string | readonly string[] | null, ...planes: [LabeledPlaneKey, ...LabeledPlaneKey[]]): SampleMark | undefined {
-  const still = markOf(inView(storeIds), planes) as LabeledPlaneKey[]
+export function samplePart(doorOn: boolean, storeIds: string | readonly string[] | null, ...planes: [LabeledPlaneKey, ...LabeledPlaneKey[]]): SampleMark | undefined {
+  const still = markOf(doorOn, inView(storeIds), planes) as LabeledPlaneKey[]
   const labels = [...new Set(still.flatMap((k): readonly string[] => PLANE_LABEL[k]))]
   return labels.length > 0 ? { form: 'part', labels } : undefined
 }
@@ -397,8 +399,8 @@ export const historyOperatorName = (): string => operator.name
  *  and menus (PR-2b). OFF: the id is already a fixture id
  *  and passes through unchanged. ON: the twin, or null when there is none — no
  *  twin, no sample attached (honest), never a borrowed person. */
-export function sampleSelfId(kind: TwinKind, liveId: string | null): string | null {
-  if (practiceTenant() === null) return liveId
+export function sampleSelfId(doorOn: boolean, kind: TwinKind, liveId: string | null): string | null {
+  if (!doorOn) return liveId
   return liveId === null ? null : fixtureIdOf(kind, liveId)
 }
 
@@ -406,6 +408,6 @@ export function sampleSelfId(kind: TwinKind, liveId: string | null): string | nu
  *  plane itself, same reference — byte-identical; ON `sampleFor` rewrites its
  *  typed ids to the live twins, so the plane joins the LIVE rows it sits beside.
  *  `sampleFor` stays the pure rewrite the door itself uses. */
-export function attachSample<T>(plane: T, ownKind: TwinKind | null): T {
-  return practiceTenant() === null ? plane : sampleFor(plane, ownKind)
+export function attachSample<T>(doorOn: boolean, plane: T, ownKind: TwinKind | null): T {
+  return !doorOn ? plane : sampleFor(plane, ownKind)
 }

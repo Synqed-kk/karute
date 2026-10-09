@@ -337,7 +337,20 @@
 .biz .board-main { min-width: 0; }
 .biz .timeline-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .biz .timeline-scroll:focus-visible { outline-offset: -3px; }
-.biz .timeline { position: relative; min-width: 0; --label: 112px; }
+.biz .timeline { position: relative; --label: 112px; }
+.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--floor-slots, 0) * var(--cell-floor, 0px)); }
+/* ⚖ 10/7 S25-1 — fit to width first; the track never goes below minPxPer30 (today-board.ts) per grid cell, so only a day
+   that cannot fit makes .timeline-scroll scroll sideways; the name column (.lane-label / .time-head > span) is sticky-left
+   and the ruler scrolls with the schedule. --floor-slots / --cell-floor are set by TodayScreen from the day model.
+   S25-15 (2): the floor is a time density, minPxPer30 per 30 minutes of the day (floorSlots) whatever the grid step;
+   --board-cells (the step's cells) feeds the strip only. Amended by the lead's ruling S25-15 (2): 「per grid cell」 above
+   now reads 33 px per 30 minutes of the day whatever the grid step (--floor-slots). S25-15 (10): .timeline's own
+   min-width: 0 went — the one .timeline on this screen sits in .timeline-scroll, and this child rule sets its min-width.
+   S26 (FIX 2, measured on the real gym page 07–22, 1280 sidebar open): --label is NOT the 112 px above on this page —
+   the reskin layer's `.page-today .timeline { --label: 142px }` (136 px at max-width 1320px, below) wins, so min-width
+   = 136 + 30 × 33 = 1126 = scrollWidth; the box is 978 wide, clientWidth 972 (6 px is the scrollbar-gutter), so the
+   overflow is 1126 − 972 = 154 = 990 − (972 − 136): the 「24 px」 is 136 − 112, no bug (no node reaches past the
+   track, the track is exactly 990). 1180: 1126 − 872 = 254. trackOverflows (today-board.ts) takes the track alone. */
 .biz .time-head, .biz .lane { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); }
 .biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }
 .biz .time-head > span {
@@ -480,6 +493,43 @@
 .biz .timeline .time-head > span.off-caption.before { left: var(--label); width: calc((100% - var(--label)) * var(--off-before, 0)); }
 .biz .timeline .time-head > span.off-caption.after { left: auto; right: 0; width: calc((100% - var(--label)) * var(--off-after, 0)); }
 .biz .hours span.off, .biz .page-today .hours span.off { color: #a1a1aa; }
+/* ⚖ 10/7 S25-2 (D2) — the closing EDGE TICK: the closing hour printed at the track's right edge (rulerLabels' `edge`),
+   right-aligned against the edge instead of starting a column. */
+.biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
+
+/* ⚖ 10/7 S25-2 (D5) + round 2 item 4 — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A
+   container query measures the CONTENT box (width − CARD_PAD_PX 18), so: below WIDE 95 → 77 · below MID 53 → 35 ·
+   SLIVER below 20 → 2 (the lines stack, so a tier needs its widest line, not the sum; WIDE's is the menu/price line). Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
+   (left 4, right 1: −6 / −5 px on the text lines, never on the absolute resize grips); below MID the time line goes
+   too (NARROW: the family name); SLIVER keeps only the coloured bar (the full text stays in the hover/tap detail).
+   CSS ellipsis stays as the last-resort overflow. Round 3, the name line (TodayScreen cardFace: .e-fam · .e-given ·
+   .tg): the room tag prints at WIDE only (below WIDE it goes, the detail view carries it). Round 4: the given name is
+   WIDE-only too, so MID and NARROW print the family name alone (familyNameOf, today-board.ts) — MID prints the family
+   name because any fixed boundary would chop some full names (a chopped name never beats a whole shorter one). */
+.biz .page-today .event { container-type: inline-size; }
+@container (width < 77px) {
+  .biz .page-today .event > .e-tkt, .biz .page-today .event > strong > .e-given, .biz .page-today .event > strong > .tg { display: none; }
+  .biz .page-today .event:not(.micro) > strong, .biz .page-today .event:not(.micro) > small { margin-left: -6px; margin-right: -5px; }
+}
+@container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }
+/* S25-15 (7), the lead's ruling over S25-14 — a BLOCK card (休憩 · 勤務不可 · 終業 / 開店前 · booth: no data-book) prints its
+   「HH:MM〜HH:MM」 line (.e-time) from WIDE only — 72 px of time never fits MID's content box; below WIDE the label
+   alone, and 勤務不可 ellipsises at NARROW (known limit, no new tier). S25-15 (9): the give-back above skips .micro, so
+   a micro block (18–30 px, padding 0 2px) keeps the base's 3 px inset.
+   S26 Round E (E2): the selector names the block classes (blockChrome's cls) positively, so a booking's drag proxy
+   never matches it and a block's proxy (which carries its class and .e-time) hides its time line like the card. */
+@container (width < 77px) { .biz .page-today .event:is(.block, .absence, .cleanup) > .e-time { display: none; } }
+@container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
+/* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
+   詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer
+   has no time or menu line, so WIDE · MID · NARROW keep today's kind word + price (clipped as today); SLIVER (below
+   20 px drawn = content box below 20 − OFFER_PAD_PX 10) keeps only the coloured bar. No price `title` on 販売可能枠 /
+   詰め込み / スキマ枠 (pointer-events: none, aria-hidden, and 価格を隠す must hold); only the pressable 確保 keeps its title. */
+.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) { container-type: inline-size; }
+@container (width < 10px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }
+/* S25-15 (7) — the offers CLIP: a kind word or a price never spills past its own box (33 px at the floor). 確保 keeps
+   its ellipsis (「確…」, S25-13) and the bar alone at SLIVER, as above. */
+.biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill) { overflow: hidden; }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep
@@ -1146,7 +1196,8 @@
    decide when it is painted, so hiding the guide can never weaken the rule. */
 .biz .guard-placement-rail { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); height: 18px; min-height: 18px; border-bottom: 1px solid var(--row); background: #fff; }
 .biz .guard-rail-label { position: sticky; left: 0; z-index: 7; display: flex; align-items: center; padding: 0 8px 0 11px; border-right: 1px solid var(--section); background: #fafafb; color: #666670; font-size: 9px; font-weight: 800; white-space: nowrap; }
-.biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
+/* S26 Round E (E1): --strip-cols (stripColumns, today-board.ts) sizes each cell by its real share of the day. */
+.biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-columns: var(--strip-cols, none); gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
 /* ⚖ flag 44 (3) — THE CHIPS ARE BUTTONS NOW. They were `role="img"` spans
    carrying their explanation where only a screen reader could reach it; every
    one of them answers a press with that sentence. `appearance`/`margin` are the

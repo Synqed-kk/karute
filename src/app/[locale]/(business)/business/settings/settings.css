@@ -44,8 +44,8 @@
       「‹ 設定」 back control, and the back control returns focus to the row it was
       opened from. このページの中身 rides under the head as a short list; the save
       state sticks to the bottom of the screen, where a thumb already is. Touch
-      targets ≥44px from 1023 down, because 744–1023 is a finger on glass exactly
-      as 743 is (room 8's C8-7).
+      targets ≥44px wherever the pointer is coarse (⚖ R70: a hit area, never a
+      width rule; room 8's C8-7).
 
    ② STRIP (`.st-body` < 960 and viewport ≥ 900 — narrow laptops, an iPad in
       landscape, any window with the shell's rail open at 1024–1272)
@@ -259,7 +259,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-eyebrow { color: var(--quiet); font-size: 11.5px; letter-spacing: .02em; }
 .biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
 /* ⚖ S17 fix round 4 · L3 — 28, NOT 22. WCAG 2.5.8 asks 24 CSS px of any
-   pointer target, and the ≤1023 band's 44px floor does not reach a desk. The ?
+   pointer target, and the coarse-pointer 44px floor does not reach a desk. The ?
    is this room's ONLY entry to 画面の説明, and it was the smallest thing on the
    page. */
 .biz .pg-settings .st-help {
@@ -297,7 +297,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
 .biz .pg-settings .st-save:not(:disabled):active,
 .biz .pg-settings .st-act:active,
-.biz .pg-settings .st-link:active,
+.biz .pg-settings .st-link:not([aria-disabled="true"]):active,
 /* ⚠ AND THE FIVE THIS LIST FORGOT (⚖ S17 fix round 1 · F18). 取り消す, the ?
    that opens the walk, 詳細設定's own summary and the walk's three footer
    buttons are pressables like every other one here — a control that answers only
@@ -311,6 +311,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-spot-prev:active,
 .biz .pg-settings .st-spot-next:active,
 .biz .pg-settings .st-spot-done:active,
+.biz .pg-settings .cl-viewbtn:active,
 .biz .pg-settings .st-search-clear:active { transform: scale(.97); }
 .biz .pg-settings .st-rail-item,
 .biz .pg-settings .st-back,
@@ -325,10 +326,10 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-opt,
 .biz .pg-settings .st-pick,
 .biz .pg-settings .st-swatch,
-.biz .pg-settings .st-switch,
 .biz .pg-settings .st-save,
 .biz .pg-settings .st-act,
 .biz .pg-settings .st-link,
+.biz .pg-settings .cl-viewbtn,
 .biz .pg-settings .st-search-clear { transition: transform 100ms cubic-bezier(0, 0, .2, 1), background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
 
 /* ── the body: THE CONTAINER, and the grid inside it ───────────────────────── */
@@ -645,7 +646,19 @@ html:has(.biz .page.pg-settings) {
    checked), round and painted from the port's satin — one colour math. */
 /* `:has()` (the shell's own opt-in selector, same support note): the panel is the
    grid, and only this section puts a phone in it. */
-.biz .pg-settings .st-panel:has(.cl-phone) { --st-side-w: 393px; --st-main-min: 0px; }
+/* ⚖ S46/S47 — THE SIDE COLUMN HOLDS THE PHONE *AND* ITS OWN SCROLLBAR. The fit reads the strip's width; if the
+   column's auto scrollbar could take that width away, the fit and the bar fed each other (a per-frame loop in
+   Chromium/WebKit with classic bars). Two rules, two jobs:
+   - THE RESERVE keeps the phone at full size: the column is 393 + 17, so the strip (`.cl-preview`, max 393) is
+     393 for any bar up to 17px. 17 is the widest classic OS default (Windows): Firefox ignores globals.css's 6px
+     `::-webkit-scrollbar` and no rule sets `scrollbar-width` on the side column (settings.css sets it to `none`
+     only on .cl-phone and .st-jump-list), so Firefox draws the OS bar; Chromium/WebKit draw globals.css's 6px.
+   - THE GUTTER (⚖ S47 R77) keeps the strip's width the same whether the bar shows or not, for ANY bar width, in
+     the engines that honour it (Chromium, Firefox): the bar's room is always taken, so its presence never moves
+     the strip (a bar wider than 17 gives a constant 410 − bar, never a flip). WebKit ignores the gutter for the
+     app's styled bar, which is always the app's 6px (globals.css) and inside the reserve. */
+.biz .pg-settings .st-panel:has(.cl-phone) { --cl-bar-reserve: 17px; --st-side-w: calc(393px + var(--cl-bar-reserve)); --st-main-min: 0px; }
+.biz .pg-settings .st-panel:has(.cl-phone) .st-side { scrollbar-gutter: stable; }
 .biz .pg-settings .cl-state { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-settings .cl-dot { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); border-radius: 999px; background: var(--satin-base); }
 .biz .pg-settings .cl-swatches { display: grid; grid-template-columns: repeat(4, max-content); gap: 10px; margin-top: 12px; }
@@ -664,50 +677,71 @@ html:has(.biz .page.pg-settings) {
 }
 .biz .pg-settings .cl-preview { max-width: 393px; }
 .biz .pg-settings .cl-preview .sp-seg { margin-bottom: 12px; }
-/* ⚖ R-A1b-1b — THE STRIP IS A SCROLL CONTAINER AT 1:1, AND IT NEVER SCROLLS.
-   A 393px phone in a 393px strip has nothing to pan. The pair below is there to
-   give the card its own paint layer: that is how Reserve's own page paints it
-   (the card sits in a scrolling page), and without it Chrome draws the rounded
-   corners' edge pixels a shade differently from Reserve's.
+/* ⚖ S62 R230 — the sheet's opener: always in the DOM, shown by CSS alone inside the ONE ≤ 899 block (the first
+   render, before `narrow` is known, is right too). R13's wash + accent text + accent line; the room's button
+   metrics (.st-act: padding, radius, type), never the mock's 15px/700/12px; the mock's own gap / width / margin. */
+.biz .pg-settings .cl-viewbtn {
+  display: none; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  margin: 18px 0 4px; padding: 6px 15px; border: 1px solid var(--st-accent); border-radius: 9px;
+  background: var(--st-accent-wash); color: var(--st-accent);
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+/* ⚖ S62 R233 — the sheet's close button sits at the end of the preview's head row */
+.biz .pg-settings .cl-preview .st-sec-h > .st-link { margin-left: auto; }
+/* ⚖ R-A1b-1b — THE STRIP IS A CLIP BOX, NEVER A SCROLLER (S46; it was a 1:1
+   scroll container before). A 393px phone in a 393px strip has nothing to pan,
+   and the 1:1 paint is unchanged by the switch (the strip's 1280 screenshot is
+   byte-identical before and after).
    WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
-   393/440), THE PHONE SCALES DOWN TO FIT and `is-scaled` turns the scroller into
-   a clip — never a pan, and nothing is cut, because the scaled card fits the
-   strip. A transform, not `zoom`: the layout stays 393px, so the port's own
-   measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
-   are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
-   phone's height × that), so the strip's height follows the painted card. The phone's own type
+   393/440), THE PHONE SCALES DOWN TO FIT — never a pan, and nothing is cut,
+   because the scaled card fits the strip. A transform, not `zoom`: the layout
+   stays 393px, so the port's own measure effects see Reserve's geometry.
+   `--cl-scale` is set by one ResizeObserver in the section (min(1, strip ÷ 393))
+   and is PAINT ONLY. The strip's HEIGHT is CSS (its width × 760/393, capped at
+   760), so the engine settles it in the same layout pass as the width: a script
+   that wrote a height would change whether the side column needs a scrollbar,
+   which changes the width again — a loop (S46). `overflow: clip` at every
+   width: never a scroller (nothing to pan, not even by script, never a bar),
+   and it clips the scaled frame's sub-pixel edge. The phone's own type
    is the port's: it resets what the room hands down (reserve-card.css), and the
    two inherited values it does not name are reset HERE, at the host:
    `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
-.biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
-.biz .pg-settings .cl-phone {
-  width: 393px; overflow-wrap: normal; color-scheme: normal;
+/* `min-height: 0`: a clip box is not a scroller, so aspect-ratio would otherwise floor it at the frame's 760 */
+.biz .pg-settings .cl-strip { aspect-ratio: 393 / 760; min-height: 0; max-height: 760px; overflow: clip; }
+/* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport. The 1px ring is drawn
+   INSIDE (::after, an inset shadow over the app): an outside ring is clipped by the strip, which has no room
+   around the frame and must not gain any (padding would change fitScale's input), so the mock's soft drop
+   shadow is dropped for the same reason. The app scrolls INSIDE it (.cl-phone = the mock's
+   .pv :311 / .phonescroll :382), page-local; the frame, not the app, is what fitScale scales. */
+.biz .pg-settings .cl-frame {
+  position: relative; width: 393px; height: 760px; border-radius: 34px; overflow: clip;
   /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
   transform: scale(var(--cl-scale)); transform-origin: top left;
 }
+.biz .pg-settings .cl-frame::after {
+  content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--line); pointer-events: none;
+}
+.biz .pg-settings .cl-phone {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  overflow-wrap: normal; color-scheme: normal;
+  /* a phone's scrollbar is an overlay: a classic one must never narrow Reserve's 393 ground under the port's measure */
+  scrollbar-width: none;
+}
+/* …and the same for WebKit/Blink before scrollbar-width (Safari < 18.2, Chromium < 121) */
+.biz .pg-settings .cl-phone::-webkit-scrollbar { display: none; }
+/* the app's ground fills the frame when the page is shorter than the phone (Reserve's page does) */
+.biz .pg-settings .cl-phone > .member-ground { min-height: 100%; }
+/* the honest slot (mock .honest :383-385) in the room's amber note colours; the TYPE is the note's
+   neighbour .st-pv-cap (11.5px / 1.75), never the mock's px */
+.biz .pg-settings .cl-honest { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.biz .pg-settings .cl-honest p {
+  margin: 0; padding: 8px 12px; border: 1px solid #f1cba9; border-radius: 9px;
+  background: var(--amber-soft); color: var(--amber); font-size: 11.5px; line-height: 1.75; text-wrap: pretty;
+}
 
-/* a switch, with a thumb that rides the same spring */
-.biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
-.biz .pg-settings .st-state { color: var(--ink-3); font-size: 12px; line-height: 1.5; white-space: nowrap; }
-.biz .pg-settings .st-state.is-on { color: var(--ink); font-weight: 600; }
-.biz .pg-settings .st-switch {
-  position: relative; flex: none;
-  width: 42px; height: 24px; padding: 0;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: #e6e8ee; cursor: pointer;
-  transition: background-color 200ms ease, border-color 200ms ease;
-}
-.biz .pg-settings .st-switch[aria-checked="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); }
-.biz .pg-settings .st-switch-thumb {
-  position: absolute; top: 2px; left: 2px;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .18);
-  pointer-events: none; will-change: transform;
-}
-.biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
-.biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
+/* the switch's own rules live in switch.css, beside Switch.tsx (⚖ R93) */
 /* ⚖ S17 fix round 4 · M5 — 予約と確保's 保存 is REFUSED, not disabled: it keeps
    its place in the tab order so its reason is reachable, and it still LOOKS
    refused. The shell paints `button:disabled` (`.biz button:disabled { cursor:
@@ -730,6 +764,10 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-input { max-width: 320px; }
 .biz .pg-settings .st-input.is-num { width: 120px; text-align: right; }
 .biz .pg-settings .st-input.is-time { width: 128px; }
+/* ⚖ S34 act 0 — 特別営業日's fixed 24:00 close: the same box as .is-time, greyed (MOCK-S34-ACT0 v1),
+   and the 24:00閉店 switch sits on the fields' 30px line. */
+.biz .pg-settings .st-input.is-fixed { background: var(--st-soft); color: var(--ink-3); cursor: default; }
+.biz .pg-settings .st-coll-field > .st-switchline { min-height: 30px; }
 .biz .pg-settings .st-input.is-empty { border-color: var(--orange); }
 .biz .pg-settings .st-textline { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; max-width: 320px; }
 .biz .pg-settings .st-textline .st-input { width: 100%; }
@@ -810,6 +848,8 @@ html:has(.biz .page.pg-settings) {
   font: inherit; font-size: 11.5px; font-weight: 700; line-height: 1.5; cursor: pointer;
 }
 .biz .pg-settings .st-link:hover { background: var(--select-bg, var(--st-accent-wash)); border-color: var(--st-accent-dark); color: var(--st-accent-dark); }
+/* S60 P7A-R2d (R212) — a disabled door looks disabled: .st-save:disabled's own values (below). R216 (R3): the selector is aria-disabled — 元に戻す stays focusable; only it sets aria-disabled on .st-link. */
+.biz .pg-settings .st-link[aria-disabled="true"] { border-color: var(--line); background: #dfe3ea; color: var(--muted); cursor: default; }
 
 .biz .pg-settings .st-action { margin-top: 9px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 /* ⚖ R13 — the two solid fills on this page are COMMITS, and this is one. */
@@ -820,8 +860,13 @@ html:has(.biz .page.pg-settings) {
   font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
 }
 .biz .pg-settings .st-act:hover { background: var(--st-accent-dark); border-color: var(--st-accent-dark); }
+/* ⚖ PKT-S29-B1 — a pending store-days write (追加中/取り消し中): `aria-disabled`, never
+   `disabled` (the room's own law — the reason/state stays reachable by keyboard). */
+.biz .pg-settings .st-act[aria-disabled="true"] { cursor: default; background: var(--muted); border-color: var(--muted); }
 .biz .pg-settings .st-act-error { color: var(--orange); font-size: 11.5px; font-weight: 600; line-height: 1.6; }
 .biz .pg-settings .st-act-result { color: var(--green-dark); font-size: 11.5px; line-height: 1.6; }
+.biz .pg-settings .st-coll-readonly { margin: 4px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-settings .st-chip { margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--st-current-bg); color: var(--st-current-ink); font-size: 10.5px; font-weight: 600; }
 .biz .pg-settings .st-audit { margin: 8px 0 0; color: var(--quiet); font-size: 11px; line-height: 1.6; }
 
 /* ── the boundary ──────────────────────────────────────────────────────────── */
@@ -1398,6 +1443,10 @@ html:has(.biz .page.pg-settings) {
   font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
 }
 .biz .pg-settings .st-coll-del:hover { border-color: var(--orange); color: var(--orange); background: var(--orange-soft); }
+/* ⚖ PKT-S29-B1 — a pending store-days write: `aria-disabled`, never `disabled`. */
+.biz .pg-settings .st-coll-del[aria-disabled="true"] { cursor: default; color: var(--muted); }
+.biz .pg-settings .st-coll-del[aria-disabled="true"]:hover { border-color: var(--line); color: var(--muted); background: #fff; }
+.biz .pg-settings .st-input[aria-disabled="true"] { cursor: default; color: var(--muted); background: var(--st-soft); }
 .biz .pg-settings .st-coll-add { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
 .biz .pg-settings .st-coll-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .biz .pg-settings .st-coll-field > span { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
@@ -1578,6 +1627,13 @@ html:has(.biz .page.pg-settings) {
 
 @media (max-width: 1023px) {
   .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
+}
+
+/* ⚖ R70 (Liam 9/29) — 44px is a HIT AREA for a finger, never a width rule: a
+   fine pointer at any width draws the room's normal sizes, and a coarse one
+   gets the 44px floor at every width. (The switch's own coarse size is in
+   switch.css.) */
+@media (pointer: coarse) {
   .biz .pg-settings .st-opt,
   .biz .pg-settings .st-pick,
   .biz .pg-settings .st-jump-item,
@@ -1613,6 +1669,7 @@ html:has(.biz .page.pg-settings) {
      (⚖ F14's own lesson). A floor costs nothing on a control that is taller. */
   .biz .pg-settings .st-pcard,
   .biz .pg-settings .st-adv > summary,
+  .biz .pg-settings .cl-viewbtn,
   .biz .pg-settings .st-spot-foot button { min-height: 44px; }
   /* the stepper is a bordered group, so the group has to grow with its buttons */
   .biz .pg-settings .st-step-g { height: 44px; }
@@ -1629,14 +1686,15 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .pg-settings .st-search-field { min-height: 44px; }
   .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
-  .biz .pg-settings .st-switch { width: 68px; height: 44px; }
-  .biz .pg-settings .st-switch-thumb { top: 4px; left: 4px; width: 34px; height: 34px; }
   .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
+  /* このページの中身's head is a control only at ①; its touch height lives here too */
+  .biz .pg-settings .st-jump-head { min-height: 44px; }
 }
 
 /* ═══ ① ≤899 — LIST IS THE PAGE. ⚖ ALL-SCREEN's device clause: the rail IS the
    page, and a chosen section replaces it with a way back. This is the ONE
    media-driven composition swap in the room — see the header. ═══ */
+
 @media (max-width: 899px) {
   /* ⚖ S17 fix round 1 · F19 — AT ① このページの中身 IS A DISCLOSURE, CLOSED.
      Rendered open it is four items plus a two-line note between the section head
@@ -1647,7 +1705,7 @@ html:has(.biz .page.pg-settings) {
      `aria-expanded`, and the band's own touch height. */
   .biz .pg-settings .st-jump-head {
     display: flex; align-items: center; justify-content: space-between;
-    min-height: 44px; padding: 0 2px; cursor: pointer;
+    padding: 0 2px; cursor: pointer;
   }
   .biz .pg-settings .st-jump-head .st-det-caret { display: inline-block; }
   .biz .pg-settings .st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
@@ -1777,6 +1835,10 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-coll-add > .st-act { width: 100%; }
   /* ⚖ A1b — the phone sits centred under the picker (list-is-the-page). */
   .biz .pg-settings .cl-preview { margin-inline: auto; }
+  /* ⚖ S62 R230 / R226 — the phone opens in the sheet here: the button shows, and an inline preview (the first
+     render, before `narrow` is known) never paints */
+  .biz .pg-settings .cl-viewbtn { display: flex; }
+  .biz .pg-settings .st-side-card:has(> .cl-preview) { display: none; }
 }
 
 /* ═══ ≥900 — the rail and the panel share the page, and a data table earns its
@@ -1800,10 +1862,10 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-opt,
   .biz .pg-settings .st-pick,
   .biz .pg-settings .st-swatch,
-  .biz .pg-settings .st-switch,
   .biz .pg-settings .st-save,
   .biz .pg-settings .st-act,
   .biz .pg-settings .st-link,
+  .biz .pg-settings .cl-viewbtn,
   .biz .pg-settings .st-search-clear { transition: background-color 120ms linear, border-color 120ms linear, color 120ms linear; }
   .biz .pg-settings .st-rail-item:active,
   .biz .pg-settings .st-back:active,
@@ -1827,7 +1889,8 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
   .biz .pg-settings .st-save:not(:disabled):active,
   .biz .pg-settings .st-act:active,
-  .biz .pg-settings .st-link:active,
+  .biz .pg-settings .st-link:not([aria-disabled="true"]):active,
+  .biz .pg-settings .cl-viewbtn:active,
   .biz .pg-settings .st-search-clear:active { transform: none; }
   .biz .pg-settings .st-det-caret,
   .biz .pg-settings .st-det-inner,

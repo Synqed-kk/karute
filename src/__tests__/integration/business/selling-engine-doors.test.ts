@@ -847,7 +847,8 @@ describe('1 — the round gate', () => {
       // keeps the netting's cost — candidates × compatible rooms `allocateBed`
       // searches — off the drag path, and an edit that adds a per-frame value
       // here reds this line rather than being measured later by someone else.
-      '[heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],',
+      // DISCLOSED PIN MOVE (PR-B): the deps line — + the settled sellable Set and the store/day key of the reference (DECISIONS.md R4, S4 PR-B); all settled values, none per-frame.
+      '[heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk, sellableLaneKeys, heldRefStore, heldRefDate],',
       // …and the netting's input is the CHIP's own lane set: staff rows with a
       // window, minus the locked ones. A locked row sells nothing, so its 枠 may
       // not take a room from one that will; a price-0 row's 枠 IS protected and
@@ -872,8 +873,11 @@ describe('1 — the round gate', () => {
       // ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — DISCLOSED PIN MOVE: the call now carries
       // the mixed-board predicate as a fifth argument; re-pinned with the new
       // exact text (PKT-FIX-R3-C-F4.md item 11).
-      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)',
-      '[heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],',
+      // DISCLOSED PIN MOVE (PR-B): the preference argument — the rail's call now carries the settled reference on its next line (DECISIONS.md R4, S4 PR-B).
+      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores),',
+      "{ sellable: (l) => boardSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) }).byLane.map(heldMaskOf)",
+      // DISCLOSED PIN MOVE (PR-B): the deps line — + the board's sellable Set and the reference key.
+      '[heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds, boardSellableKeys, heldRefStore, heldRefDate],',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }
@@ -1020,7 +1024,7 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, railDay, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],

@@ -37,6 +37,8 @@
 // here, so those three are fenced in register.css — a list of three.
 
 import Link from 'next/link'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
+import type { SampleMark } from '@/business/lib/settings'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
@@ -125,6 +127,7 @@ export interface RegisterTerminalProps {
 
 export interface RegisterProps {
   dateline: string
+  sample?: SampleMark
   lensLabel: string
   subtitle: string
   permissionNotice: string | null
@@ -604,7 +607,7 @@ export function RegisterScreen(props: RegisterProps) {
         data-guide-title="売上・レジ"
         data-guide="その日のお金をひとつの台帳で照合する画面です。上の帯はその日ぜんぶに当てはまる事実で、その下は「取引」と「閉店」の2つの仕事に分かれています。金額はすべて記録された取引から計算していて、この画面が独自に持っている数字はありません。"
       >
-        <div className="rg-eyebrow">{props.dateline}</div>
+        <div className="rg-eyebrow">{props.dateline}{props.sample && <> <span className="sample-mark" title={sampleMarkLines(props.sample).pop1}>{businessStrings.sampleMark.chip}</span></>}</div>
         <div className="rg-titleline">
           <h1>売上・レジ</h1>
           {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR, the same one 今日の運営

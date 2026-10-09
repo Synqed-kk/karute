@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs'
+import { sentryScrubOptions } from './lib/observability/sentry-scrub'
 
 if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
   Sentry.init({
@@ -9,6 +10,7 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     replaysOnErrorSampleRate: 0,
     sendDefaultPii: false,
     integrations: [],
+    ...sentryScrubOptions,
   })
 }
 

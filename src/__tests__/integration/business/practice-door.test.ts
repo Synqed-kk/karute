@@ -17,7 +17,7 @@ jest.mock('@synqed-kk/client', () => ({
 }))
 
 import { practiceTenant } from '@/business/lib/practice-door/switch'
-import { clientFor, orgSettingsWriterFor, PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
+import { auditWriterFor, clientFor, orgSettingsWriterFor, PracticeTenantMismatch, storeDaysWriterFor } from '@/business/lib/practice-door/core-reach'
 import { parseManifest } from '@/business/lib/practice-door/registry-manifest'
 import { PRACTICE_REGISTRY } from '@/business/lib/practice-door/registry.generated'
 import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
@@ -26,6 +26,7 @@ import { appointments, customers, menus, staff, stores, STORE_A, STORE_B } from 
 import { businessProfiles, storeDials } from '@/business/lib/fixtures-settings'
 import * as door from '@/business/lib/practice-door/door'
 import * as doorBookingColors from '@/business/lib/practice-door/door-booking-colors'
+import * as storeHours from '@/business/lib/practice-door/store-hours'
 import * as data from '@/business/lib/data'
 import { renderNow as clockRenderNow } from '@/business/lib/clock'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -73,6 +74,9 @@ describe('the switch', () => {
 const READS = [
   'answerSheet',
   'appointmentsList',
+  // ⚖ PKT-S29-B1 — three new bound reads for the store-days door.
+  'auditList',
+  'businessGrantsCheck',
   'customerVisits',
   'customersList',
   'menusList',
@@ -81,10 +85,21 @@ const READS = [
   'staffList',
   'staffStoresList',
   'storePolicyGet',
+  'storePolicyListClosedDays',
   'storesList',
 ]
 
 describe('core-reach: the tenant throw comes before the client', () => {
+  // ⚖ R50 F2 — ONE tenant match (doorFor): the upper-cased tenant passes every guard (the factory then
+  // fails on the unset core env — proof the guard let it through); another id is still a mismatch.
+  it('R50 F2 — every guard: the upper-cased tenant passes, another id is PracticeTenantMismatch', () => {
+    setEnv({ BUSINESS_PRACTICE_TENANT: u })
+    for (const guard of [clientFor, orgSettingsWriterFor, storeDaysWriterFor, auditWriterFor]) {
+      expect(() => guard({ businessId: u.toUpperCase() })).not.toThrow(PracticeTenantMismatch)
+      expect(() => guard({ businessId: u.toUpperCase() })).toThrow()
+      expect(() => guard({ businessId: 'other' })).toThrow(PracticeTenantMismatch)
+    }
+  })
   it('switch unset → refuses', () => {
     setEnv({})
     expect(() => clientFor({ businessId: u })).toThrow('practice door called with the switch unset')
@@ -306,10 +321,10 @@ describe('the sample facade', () => {
   })
   it('sampleSelfId: OFF passes the id through; ON a live uuid → its fixture twin, an unknown uuid → null', () => {
     setEnv({})
-    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    expect(sampleSelfId(false, 'staff', 'p-06')).toBe('p-06')
     setEnv({ BUSINESS_PRACTICE_TENANT: u })
-    expect(sampleSelfId('staff', 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5')).toBe('p-06')
-    expect(sampleSelfId('staff', '00000000-0000-4000-8000-000000000000')).toBeNull()
+    expect(sampleSelfId(true, 'staff', 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5')).toBe('p-06')
+    expect(sampleSelfId(true, 'staff', '00000000-0000-4000-8000-000000000000')).toBeNull()
   })
   it('leaves unknown ids alone, walks nested planes, keeps Date instances', () => {
     const when = new Date()
@@ -346,23 +361,29 @@ describe('the sample facade', () => {
 })
 
 const DOOR_READERS = [
-  'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'listMenus',
+  'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'readShellViewer', 'listMenus',
   'readUnresolvedCounts', 'listResources', 'listShiftsByDay', 'listAbsenceByDay', 'listBlocksByDay',
-  'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
+  'readDayPlanes', 'readReservationPlanes', 'readInboxPlanes', 'readRegisterPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
   'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
   'readCanManageCardColor', // ⚖ A2 · G5 — may this operator save the card colour (core's sheet)
   'readBookingColors', // 予約の色分け — org settings `booking_colors`, raw (no lens; today's board reads it)
   'readStoreHours', // ⚖ §v11 V11-4 — a store's 営業時間 · 定休日 for one day (設定's read; lens first)
+  'listHoursByDay', // ⚖ S81 F1 + S82 G5 — each calendar day's OWN closure and window (臨時休業 / 臨時営業日 included), the one shared hours read
 ] as const
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
 /** ⚖ R-S39-1 — exported for door-booking-colors.ts only (the once-per-actor org read, the one settings.manage truth). */
-const DOOR_HELPERS = ['canManageSettings', 'orgSettingsOf'] as const
+const DOOR_HELPERS = ['canManageSettings', 'firstToken', 'orgSettingsOf'] as const // ⚖ R53 — firstToken: data.ts's door-OFF card mark reuses the ONE splitter
 
 describe('the door', () => {
-  it('exports exactly the twenty-one readers and the one writer, and two helpers', () => {
+  it('exports exactly the twenty-five readers and the one writer, and three helpers', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS, ...DOOR_HELPERS].sort())
+  })
+  // ⚖ S81 N3 — store-hours.ts is the ONE Business file the fence lets reach src/lib/operating-hours: it exports its own
+  // adapters only, never the resolver re-exported (a re-export would launder the import for every territory file).
+  it('⚖ S81 N3 + S82 G2 — store-hours.ts exports exactly its own eight names (seven adapters + the board reach), never the resolver', () => {
+    expect(Object.keys(storeHours).sort()).toEqual(['BOARD_REACH_DAYS', 'closedDaysRange', 'closedWeekdaysOf', 'resolveStoreHours', 'sampleHours', 'usualPairOf', 'weekFromPair', 'weekdayOfKey'])
   })
   it('⚖ R-S39-1 — door-booking-colors.ts exports exactly the one writer', () => {
     expect(Object.keys(doorBookingColors)).toEqual(['writeBookingColors'])
@@ -370,6 +391,21 @@ describe('the door', () => {
 })
 
 describe('the data.ts seam', () => {
+  // ⚖ S81 F4 (M17) — OFF: the shown day's closure is the fixture 定休日's, and each calendar day's the same answer.
+  it('S81 — OFF: shownDayClosed + listHoursByDay name the fixture 定休日 only, each day the fixture pair', async () => {
+    setEnv({})
+    const { closedWeekday } = await import('@/business/lib/fixtures-today')
+    const { weekdayOfKey } = await import('@/business/lib/practice-door/store-hours')
+    const { jstDayKey } = await import('@/business/lib/clock')
+    const today = jstDayKey(clockRenderNow())
+    const off = today + ((closedWeekday - weekdayOfKey(today) + 7) % 7)
+    expect([(await data.readDayPlanes(STORE_A, off)).shownDayClosed, (await data.readDayPlanes(STORE_A, off + 1)).shownDayClosed]).toEqual(['weekday', null])
+    const byDay = await data.listHoursByDay(STORE_A, { from: off, to: off + 7 })
+    expect([byDay.get(off)?.closed, byDay.get(off + 1)?.closed, byDay.get(off + 7)?.closed]).toEqual(['weekday', null, 'weekday'])
+    const { operatingHours } = await import('@/business/lib/fixtures-today')
+    expect([...byDay.values()].every((h) => h.window === operatingHours)).toBe(true)
+    expect(data.BOARD_REACH_DAYS).toBe(45) // ⚖ S82 G2 — the board's reach, the page's WINDOW
+  })
   it('OFF: the fixture path answers, unchanged', async () => {
     setEnv({})
     const off = await data.listMenus('store-test-ginza')
@@ -444,5 +480,31 @@ describe('PR-2b — the rooms read ROW data only through the door', () => {
     // The scan is reading real imports: the rooms' OTHER fixture reads (staffCards, bedSecuredProof …) are seen.
     expect(taken.length).toBeGreaterThan(0)
     expect(forbidden(taken)).toEqual([])
+  })
+})
+
+
+describe('S84 — one sample dateline home', () => {
+  it('keeps the OFF text exactly, removes the ON prefix, and preserves analytics span wording', () => {
+    const now = new Date('2026-09-14T04:24:00Z')
+    expect(data.sampleDateline(now, '店舗', false)).toBe('サンプルデータ 9月14日 / 店舗')
+    expect(data.sampleDateline(now, '店舗', true)).toBe('9月14日 / 店舗')
+    for (const door of [false, true]) expect(data.sampleDateline(now, '', door, '9月（9月14日時点）'))
+      .toBe(`${door ? '' : 'サンプルデータ '}9月（9月14日時点）`)
+  })
+  it('all seven sites use the helper; no props assembly retains a sample-prefix literal', () => {
+    const root = join(process.cwd(), 'src/app/[locale]/(business)/business')
+    for (const room of ['inbox', 'register', 'analytics', 'ask-ai', 'karute', 'recording']) {
+      const src = readFileSync(join(root, room, `${room}-props.ts`), 'utf8')
+      expect(src.match(/dateline: sampleDateline\(/g)).toHaveLength(room === 'ask-ai' ? 2 : 1)
+    }
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) walk(path)
+        else if (entry.name.endsWith('-props.ts')) expect(readFileSync(path, 'utf8')).not.toContain('サンプルデータ ${')
+      }
+    }
+    walk(root)
   })
 })

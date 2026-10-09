@@ -43,8 +43,10 @@ export function ReservationTotals({ reservations }: ReservationTotalsProps) {
       )}
       {(() => {
         const renewal = reservations.filter((r) => r.needsRenewal).length
+        // 担当未定 (no staff) is never a recording target: it never counts as 未録音.
         const unrecorded = reservations.filter(
-          (r) => r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId,
+          (r) =>
+            r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId && !!r.staffId,
         ).length
         return (
           <>

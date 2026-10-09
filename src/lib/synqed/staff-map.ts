@@ -1,6 +1,7 @@
 import { unstable_cache, updateTag } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 import { createServiceClient } from '@/lib/supabase/service'
 
 // profiles.id → synqed staff.id. synqed-core's appointments.staff_id FKs to
@@ -37,40 +38,45 @@ const PAGE_SIZE = 200
  *  truncation only ever costs a NAME, never the read itself. */
 const MAX_PAGES = 25
 
-const synqedStaffListByBusiness = unstable_cache(
-  async (businessId: string): Promise<StaffEntry[]> => {
-    const baseUrl = process.env.SYNQED_CORE_URL
-    const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) {
-      throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
-    }
-    const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const staff: StaffEntry[] = []
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const result = await client.staff.list({ page, page_size: PAGE_SIZE })
-      const batch = result.staff.map((s) => ({
-        id: s.id,
-        user_id: (s as { user_id?: string | null }).user_id ?? null,
-        email: (s as { email?: string | null }).email ?? null,
-        name: (s as { name?: string | null }).name ?? null,
+/** The core roster read itself, UNCACHED — one home for the cached list below
+ *  and the resolver's one live re-read on a cache miss (⚖ 10/3). Same client,
+ *  same businessId scoping, same paging. */
+async function readSynqedStaffRoster(businessId: string): Promise<StaffEntry[]> {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  const staff: StaffEntry[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const result = await client.staff.list({ page, page_size: PAGE_SIZE })
+    const batch = result.staff.map((s) => ({
+      id: s.id,
+      user_id: (s as { user_id?: string | null }).user_id ?? null,
+      email: (s as { email?: string | null }).email ?? null,
+      name: (s as { name?: string | null }).name ?? null,
+    }))
+    staff.push(...batch)
+    // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
+    // fixture/response with no `total` field defaults to 0, so a non-empty
+    // first batch still terminates the loop after one call — the existing
+    // single-page callers keep their exactly-one-call contract.
+    if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
+    if (page === MAX_PAGES) {
+      console.warn(JSON.stringify({
+        msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
+        businessId,
+        pages: MAX_PAGES,
+        cardsRead: staff.length,
       }))
-      staff.push(...batch)
-      // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
-      // fixture/response with no `total` field defaults to 0, so a non-empty
-      // first batch still terminates the loop after one call — the existing
-      // single-page callers keep their exactly-one-call contract.
-      if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
-      if (page === MAX_PAGES) {
-        console.warn(JSON.stringify({
-          msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
-          businessId,
-          pages: MAX_PAGES,
-          cardsRead: staff.length,
-        }))
-      }
     }
-    return staff
-  },
+  }
+  return staff
+}
+
+const synqedStaffListByBusiness = unstable_cache(
+  readSynqedStaffRoster,
   // Mirrors the staff-list cache TTL in src/lib/staff.ts — staff churn is
   // a once-in-a-while admin event, and every staff mutation already bumps
   // the 'staff-list' tag, so the day-long TTL is just a backstop.
@@ -103,8 +109,11 @@ export async function lookupSynqedStaffId(
 export async function lookupSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
+  /** The roster the caller already read (the resolver checks it for a core id
+   *  first) — one roster read per resolve. Omitted = read here. */
+  roster?: StaffEntry[],
 ): Promise<string | null> {
-  const staff = await synqedStaffListByBusiness(businessId)
+  const staff = roster ?? (await synqedStaffListByBusiness(businessId))
 
   // Primary: synqed staff.user_id directly set to this profile id.
   const direct = staff.find((s) => s.user_id === staffProfileId)
@@ -113,12 +122,17 @@ export async function lookupSynqedStaffIdForBusiness(
   // Fallback: match by email (handles teammates created via Settings, where
   // createStaff doesn't populate user_id).
   const service = createServiceClient()
-  const { data: profile } = await service
+  const { data: profile, error } = await service
     .from('profiles')
     .select('email')
     .eq('id', staffProfileId)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // A failed read is an outage, never "no such profile": typed upstream_unavailable
+  // (the house pattern, src/lib/staff.ts staffListCore) so the facade answers 502
+  // and a web action the localized failure line; the detail rides `cause` only
+  // (Greptile pass 1 P2, B2 #1143; fix round 6 F2).
+  if (error) throw new AppApiError('upstream_unavailable', 'profiles read failed', undefined, error)
   const profileEmail = (
     profile as { email?: string | null } | null
   )?.email?.toLowerCase()
@@ -248,13 +262,58 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
   return resolveSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
 }
 
+/** The one refusal resolveSynqedStaffIdForBusiness owns: the profile does
+ *  not exist in THIS business (the read is scoped by customer_id). A facade
+ *  maps only this to a 4xx; every other throw (core/SDK, network, env) is an
+ *  upstream failure and stays one (PR-B fix round 2, X3). */
+export class StaffProfileNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StaffProfileNotFoundError'
+  }
+}
+
 /** Bearer-safe twin of resolveSynqedStaffId — businessId from the verified
- *  token, never the cookie session. Same create-on-miss contract. */
+ *  token, never the cookie session. Same create-on-miss contract.
+ *
+ *  ⚖ Greptile pass 1 P1 (B2 #1143): the roster every staff picker offers
+ *  (staffListCore in src/lib/staff.ts) carries an owner-created teammate who
+ *  has not signed up under its CORE staff id — it has no profile id yet. Such
+ *  an id is taken as-is only when it IS a staff card of THIS business's own
+ *  roster: an explicit membership check against the same cached core roster,
+ *  never a guess from the id's shape. A core id of another business is not in
+ *  this roster, so it falls to the profile path and is refused there. Active
+ *  and store are still judged by the write gate on the row returned. */
 export async function resolveSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
 ): Promise<string> {
-  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId)
+  let roster = await synqedStaffListByBusiness(businessId)
+  if (roster.some((s) => s.id === staffProfileId)) return staffProfileId
+
+  // ⚖ 10/3 (fix round 6 F1): the phone picker reads the roster UNCACHED
+  // (staffListByBusinessOrThrow), this one is the 24h cache. A card added in
+  // core by a path that never bumps 'staff-list' is offered at once and would be
+  // refused here for up to a day. So on a miss, read the roster ONCE live — the
+  // same call, same businessId — before the profile path. Skipped when the id is
+  // a profile the cached roster already links (the common booking case), so a
+  // profile id costs no extra core read.
+  if (!roster.some((s) => s.user_id === staffProfileId)) {
+    roster = await readSynqedStaffRoster(businessId)
+    if (roster.some((s) => s.id === staffProfileId)) {
+      // Refill the stale cache. Best-effort: updateTag throws outside a Server
+      // Action (a Route Handler — the phone facade), and a refresh that cannot
+      // run must never fail the resolve; the next miss re-reads live again.
+      try {
+        updateTag('staff-list')
+      } catch (err) {
+        console.warn('[staff-map] staff-list refresh after a live roster hit failed', err)
+      }
+      return staffProfileId
+    }
+  }
+
+  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId, roster)
   if (found) return found
 
   // No synqed staff record yet. Staff seeded directly into Supabase profiles
@@ -265,17 +324,22 @@ export async function resolveSynqedStaffIdForBusiness(
   // (Re-fetches the profile for name+email — only reached on the rare
   // create path, and the roster list above is already unstable_cache'd.)
   const service = createServiceClient()
-  const { data: profile } = await service
+  const { data: profile, error } = await service
     .from('profiles')
     .select('full_name, email')
     .eq('id', staffProfileId)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // An outage is thrown BEFORE the null check: only a read that succeeded and
+  // found nothing is StaffProfileNotFoundError (the facade's 400). Every other
+  // failure is upstream_unavailable: the facade's 502, the web failure line
+  // (Greptile pass 1 P2; fix round 6 F2 — typed, as in the email read above).
+  if (error) throw new AppApiError('upstream_unavailable', 'profiles read failed', undefined, error)
   const typedProfile = profile as
     | { full_name?: string | null; email?: string | null }
     | null
   if (!typedProfile) {
-    throw new Error(
+    throw new StaffProfileNotFoundError(
       `Could not link Supabase profile ${staffProfileId} to a synqed-core ` +
         `staff record: no such profile.`,
     )
@@ -291,6 +355,14 @@ export async function resolveSynqedStaffIdForBusiness(
     email: typedProfile.email ?? null,
     user_id: staffProfileId,
   })
-  updateTag('staff-list')
+  // Best-effort, like the self-heal above (fix round 6 F5): updateTag throws
+  // outside a Server Action (a Route Handler — the phone facade), and the card
+  // is already written; a refresh that cannot run must never turn that write
+  // into a 500.
+  try {
+    updateTag('staff-list')
+  } catch (err) {
+    console.warn('[staff-map] staff-list refresh after create-on-miss failed', err)
+  }
   return createdStaff.id
 }

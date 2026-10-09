@@ -40,6 +40,14 @@ export const DISCARD_LEDGER_UNREADABLE = 'discard ledger row unreadable — refu
  *  recording.transcribe_failed for the same event. */
 export const TRANSCRIPTION_LEDGER_UNAVAILABLE = 'transcription ledger unavailable'
 
+/** The word an unreadable audio is refused with (S60 A3) — the facade code,
+ *  the web route's flat `error`, the job's `last_error` sentinel
+ *  (process-recording.ts JOB_SENTINELS) AND, on the round that exhausts the
+ *  job, the recording.transcribe_failed row's `reason` (audit-labels.ts
+ *  TRANSCRIBE_FAILED_REASONS) all read this one string. Lives here, not in the
+ *  server-only transcribe.ts, so the audit page can read it too. */
+export const AUDIO_UNREADABLE = 'audio_unreadable'
+
 /** Which of the worker's three paid-or-saving stages refused (the recording
  *  hole, PR-1, 2026-09-23): the job's `last_error` becomes
  *  `${code}: ${cause}` so 録音履歴 can name the step instead of a bare

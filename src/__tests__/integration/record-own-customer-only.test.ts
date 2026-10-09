@@ -38,7 +38,15 @@ const THEIRS = appt({
 
 async function screenFor(
   todayAppts: AppointmentRow[],
-  extra: { requestedAppointmentId?: string; activeStaffId?: string | null } = {},
+  {
+    resolveExplicitAppointment,
+    ...extra
+  }: {
+    requestedAppointmentId?: string
+    requestedCustomerId?: string
+    activeStaffId?: string | null
+    resolveExplicitAppointment?: (id: string) => Promise<AppointmentRow | null>
+  } = {},
 ) {
   return buildRecordScreen({
     locale: 'ja',
@@ -53,8 +61,9 @@ async function screenFor(
     orgSettings: null,
     statusLabel: () => '',
     deps: {
-      resolveExplicitAppointment: async (id) =>
-        todayAppts.find((a) => a.id === id) ?? null,
+      resolveExplicitAppointment:
+        resolveExplicitAppointment ??
+        (async (id) => todayAppts.find((a) => a.id === id) ?? null),
       resolveWalkInCustomer: async () => null as CustomerWithStaff | null,
       getTargetCustomer: async () => null,
       getConsent: async () => null,
@@ -113,5 +122,46 @@ describe('録音 implicit target resolution — own customers only', () => {
       requestedAppointmentId: 'a-theirs',
     })
     expect(screen.nextAppointment).toMatchObject({ id: 'a-theirs' })
+  })
+})
+
+// R9 (fix round 3, S55): an EXPLICIT ?appointmentId that resolves to no row —
+// a typed/stale deep link to a 担当未定 booking (both resolvers return null for
+// a staff-less row on purpose), or a booking core no longer has — opens NO
+// recorder. It must never fall through to the implicit pick and bind the
+// viewer's own next booking (another customer).
+describe('録音 explicit target that cannot be resolved — no substitute', () => {
+  const NOSTAFF = appt({ id: 'a-nostaff', staff_profile_id: null as unknown as string, client_id: 'c-nostaff' })
+
+  it('(a) unresolvable ?appointmentId (staff-less, resolver null) → no target, not the own booking', async () => {
+    const screen = await screenFor([NOSTAFF, MINE], {
+      requestedAppointmentId: 'a-nostaff',
+      resolveExplicitAppointment: async () => null,
+    })
+    expect(screen.nextAppointment).toBeNull()
+    expect(screen.brief).toBeNull()
+    expect(screen.consentDate).toBeNull()
+    expect(screen.recentRecordings).toEqual([])
+    // The empty state still lists the own booking for an explicit choice.
+    expect(screen.nearbyBookings.map((b) => b.id)).toEqual(['a-mine'])
+  })
+
+  it('(b) an explicit id of a staffed row in today`s list still binds that row', async () => {
+    const screen = await screenFor([THEIRS, MINE], { requestedAppointmentId: 'a-theirs' })
+    expect(screen.nextAppointment).toMatchObject({ id: 'a-theirs', customerId: 'c-theirs' })
+  })
+
+  it('(c) no explicit id → the implicit own pick as today', async () => {
+    const screen = await screenFor([NOSTAFF, THEIRS, MINE])
+    expect(screen.nextAppointment).toMatchObject({ id: 'a-mine', customerId: 'c-mine' })
+  })
+
+  it('an unresolvable id with an explicit ?customerId keeps the customer entry', async () => {
+    const screen = await screenFor([NOSTAFF, MINE], {
+      requestedAppointmentId: 'a-gone',
+      requestedCustomerId: 'c-mine',
+      resolveExplicitAppointment: async () => null,
+    })
+    expect(screen.nextAppointment).toMatchObject({ id: 'a-mine', customerId: 'c-mine' })
   })
 })

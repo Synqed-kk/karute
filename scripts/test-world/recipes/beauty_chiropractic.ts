@@ -158,6 +158,7 @@ const REQUESTS: RequestLine[] = [
 ]
 
 export const recipe: RecipeData = {
+  profile: { menuMinutes: [45, 60], cadence: [14, 21], hourWeights: { 10: 3, 11: 3, 12: 2, 13: 1, 14: 1, 15: 3, 16: 3, 17: 3, 18: 2 } },
   policy: {
     // 火曜定休, 10:00–19:00 (the hours the Reserve pin for this store already shows).
     weekly_hours: {
