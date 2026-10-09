@@ -414,7 +414,7 @@ import {
 import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
 import { maxDuration as JOB_ROUTE_MAX_DURATION_S } from '@/app/api/jobs/process/route'
 import { readTranscriptMemo, takeTranscriptLease, transcriptLeaseLive } from '@/lib/recording/transcript-memo'
-import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
+import { TRANSCRIPT_LEASE_CLOCK_SKEW_MS, TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
@@ -3651,17 +3651,18 @@ describe('charge once — the durable transcript memo', () => {
       expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     })
 
-    it('s58 m2 — m2c′ a lease 30 s past the TTL (inside the clock-skew allowance) is still a live lease → 409, nothing paid', async () => {
-      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: Date.now() + TRANSCRIPT_LEASE_TTL_MS + 30_000 }))
+    // ⚖ S115 round 3 (S3): the allowance is derived under the TTL's margin (29 s, was 60 s).
+    it('s58 m2 — m2c′ a lease 1 s inside the clock-skew allowance past the TTL is still a live lease → 409, nothing paid', async () => {
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: Date.now() + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS - 1_000 }))
       const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
       expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })
       expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
     })
 
-    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + 60 s → busy; one ms past → unreadable (unknown, warned)', async () => {
+    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + the allowance → busy; one ms past → unreadable (unknown, warned)', async () => {
       const { warn } = quiet()
       const NOW = 1_700_000_000_000
-      const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + 60_000
+      const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS
       leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
       expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
       expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
