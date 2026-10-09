@@ -307,7 +307,20 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       if (theirs === undefined) theirs = await readLease(key, now)
       if (theirs !== null && theirs.until > now) return { state: 'busy', until: theirs.until }
       const winner = await readClaim(claimKey)
-      if (winner === null || winner.at + TRANSCRIPT_LEASE_TTL_MS > now) return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      if (winner === null) {
+        // ⚖ S115 round 3 (S2) — AN UNREADABLE CLAIM FALLS OPEN TOO. Its body cannot
+        // say its age, so storage's own created_at for the object does (the storage
+        // server's clock, not the writer's). Past one TTL the caller pays unleased
+        // ('unknown', warned). Never a next link named from this key: callers that
+        // can and cannot read the claim would chain to two links and both pay.
+        const born = await claimCreatedAt(claimKey)
+        if (born !== null && born + TRANSCRIPT_LEASE_TTL_MS <= now) {
+          warnStorageUnknown('transcript-lease.claim-unreadable', null)
+          return { state: 'unknown' }
+        }
+        return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      }
+      if (winner.at + TRANSCRIPT_LEASE_TTL_MS > now) return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       // ⚖ S115 round 3 (S1) — PAST THE CAP A DEAD CHAIN FALLS OPEN. The cap only bounds
       // one call's walk (each call wins at most one link, each next link is named by
       // the one winner before it, so the chain cannot loop). Past it, with the last
@@ -374,6 +387,24 @@ async function readClaim(key: string): Promise<{ at: number; nonce: string } | n
 }
 
 const CLAIM_GENERATION_RE = /^[0-9a-f-]{8,64}$/i
+
+/** ⚖ S115 round 3 (S2) — when storage created a claim object: its own
+ *  created_at (storage-js info() → createdAt, declared string), or null when
+ *  storage will not say. Read only for a claim whose body cannot be read. */
+async function claimCreatedAt(key: string): Promise<number | null> {
+  try {
+    const { data, error } = await createServiceClient().storage.from('recordings').info(key)
+    if (error || !data) {
+      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.claim-info', error)
+      return null
+    }
+    const at = Date.parse(data.createdAt)
+    return Number.isFinite(at) ? at : null
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.claim-info', err)
+    return null
+  }
+}
 
 /** The claim object for one lease generation: the lease's own key with the
  *  generation (its nonce; a pre-S114 lease has none, so its expiry) before
