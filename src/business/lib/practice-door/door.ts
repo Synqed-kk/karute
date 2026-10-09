@@ -629,9 +629,12 @@ function servedSlots(seats: RosterSeats[], busy: Busy, live: LiveSpan[]): Fixtur
  *  and is not served; a slot decision is served with its slot. Rendered on Dev Salon (fix
  *  round): 担当変更 · レジ · 担当不在 and a Reserve販売 about a booking drop; the Reserve販売
  *  about a served slot stays. An exact twin is served all of its own, as before. */
-function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], busy: Busy, live: LiveSpan[]): FixtureDecision[] {
-  const slots = new Set(servedSlots(seats, busy, live).map((s) => s.id))
-  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null && slots.has(d.sell_slot_id))
+// ⚖ FOLD-GREPTILE-1 F1 — ONE definition, twin or borrower: a Reserve販売 card is served iff its slot is among `slots`, the
+// slots the day FINALLY serves (the generated ones when the day is generated, else the served fixture ones).
+function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], slots: readonly FixtureSellSlot[]): FixtureDecision[] {
+  const ids = new Set(slots.map((s) => s.id))
+  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null)
+    .filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id))
 }
 
 /** ⚖ §v11 V11-12 — the live rows a server WITHOUT them in hand reads for the give-way: ONE read per call (a range for
@@ -654,8 +657,8 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const busy = roomsBusy(rows, dayKey) // ⚖ R10 — the rows this read already holds
   const live = liveSpans(rows, dayKey)
   const slots = servedSlots(seats, busy, live)
-  const served = servedDecisions(today ? decisions : [], seats, busy, live)
-  const carried = new Set(served.flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
+  // `carried` reads the booking cards only, which no slot decides (F1)
+  const carried = new Set(servedDecisions(today ? decisions : [], seats, slots).flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
   const roster = seats.flatMap((s) => s.roster.map((p) => p.id))
   const seated = { shifts: rekeyRows(shifts, seats, 'identity'), absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null }
   const policy = seats.length === 1 ? samplePolicyFor(seats[0].store) : null
@@ -665,8 +668,8 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const prices = type ? SAMPLE_SLOT_PRICES[type] ?? null : null // ⚖ R16: the store's own menu prices, never the 整体 fixture's
   const result = serveDay({ ...seated, type, names, roles, prices, pin: boardNow, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
     sellSlots: slots, slotTemplates: rekeyRows(sellSlots, seats, 'attribute'), roomsBusy: busy })
-  const ids = new Set(result.sellSlots?.map((s) => s.id))
-  return { ...result, sellSlots: result.sellSlots ?? slots, decisions: served.filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id)) }
+  const final = result.sellSlots ?? slots
+  return { ...result, sellSlots: final, decisions: servedDecisions(today ? decisions : [], seats, final) }
 }
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {

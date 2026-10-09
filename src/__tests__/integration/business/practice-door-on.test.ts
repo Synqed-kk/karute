@@ -1827,6 +1827,35 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(counts.byStore[STORE.devSalon]).toBeGreaterThan(0)
   })
 
+  // The Q3 store-day (Dev Salon, a GENERATED 10:00–20:00 hair day), with optional extra live rows on today.
+  const generatedSalon = (rows: ReadonlyArray<typeof APPOINTMENTS[number]> = []) => {
+    const spy = withRooms()
+    const day = { open: '10:00', close: '20:00' }
+    const week = { sun: day, mon: day, tue: day, wed: day, thu: day, fri: day, sat: day }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.devSalon ? { ...POLICIES[id], source: 'custom', weekly_hours: week } : POLICIES[id]))
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+  }
+
+  it('F1 (Greptile #1153 P1) — a Reserve販売 card is served iff its slot is among the slots the day FINALLY serves: the fixture slot gives way to a live row, the generated slot (same id) is free → card served and counted', async () => {
+    // slot-01's FIXTURE person on Dev Salon is Invite Probe (16:00–17:00); a live row of hers at 16:30 blocks that fixture slot,
+    // while the generated slot-01 (same id, 16:00) seats another person and stands free.
+    const at = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
+    generatedSalon([{ ...APPOINTMENTS[0], id: '00000000-0000-4000-8000-0000000000f1', store_id: STORE.devSalon, staff_id: CARD.probe, menu_id: MENU.zenten, resource_id: null, starts_at: at('16:30'), ends_at: at('17:00'), status: 'SCHEDULED' as const }])
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const slot = planes.sellSlots.find((x) => x.start === 16 * 60)!
+    expect(slot).toBeDefined()
+    expect(slot.staff_id).not.toBe(CARD.probe) // precondition: the generated slot is a different, free person
+    const cards = planes.decisions.filter((d) => d.sell_slot_id === slot.id)
+    expect(cards.map((d) => d.kind)).toEqual(['Reserve販売']) // the card is served on the final slot
+    const counts = await data.readUnresolvedCounts()
+    expect(counts.byStore[STORE.devSalon]).toBe(planes.decisions.filter((d) => d.state === 'open').length) // and the badge counts it
+  })
+
   it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
     // Dev Salon with its two rooms (slot-01 → Invite Probe, slot-02 → perry) and 東京 (slot-01 → 見本 しろう): each slot-01's person
     // holds a live booking inside the slot's window, on NO room — the room rule alone would serve both.
