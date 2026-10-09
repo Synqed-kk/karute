@@ -87,8 +87,8 @@ export function maskPhones(s: string): string {
  *  case-insensitive scheme) → non-ASCII free text (upstream messages carry
  *  no ASCII-pattern secrets the later rules would catch, so this runs right
  *  after the URL step, before anything else can see it) → Bearer token →
- *  labelled credentials (token/apikey/api_key/key/secret/password/
- *  authorization = value — this also catches a secret embedded in a URL
+ *  labelled credentials (LABELLED_CRED_RE: the label list is there, label
+ *  `:`/`=` value — this also catches a secret embedded in a URL
  *  PATH, which the URL step above only strips the QUERY of) → JWT → email
  *  (bounded quantifiers — no nested/overlapping-quantifier ambiguity, paired
  *  with `preBound` above) → opaque 32+-char blobs (base64 / API keys; a run

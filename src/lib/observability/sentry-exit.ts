@@ -13,9 +13,15 @@
 //   `+ _ , /`, ・ or 〜, gaps of up to 3 such characters, +81 or 0), an
 //   unbroken run of 10+ digits, a `Bearer` value, a credential-looking
 //   `Basic` / `Token` value, anything after `Authorization:` or
-//   `authorization=`, a value after a credential label (`password=`,
-//   `token:`, `api_key=`, `secret:` …; one rule at every position, Greptile
-//   #1159 G1), a JWT, or a Base64-looking run (24+ characters mixing
+//   `authorization=`, a value after a credential label followed by `:` or
+//   `=` (one rule at every position, Greptile #1159 G1; R-S115-1 S1). The
+//   labels: token, api key, key, secret, pass, password, passwd, passcode,
+//   passphrase, pwd, pw, psw, auth, authorization, session, session id,
+//   credential(s), pin — also as the end of a longer name (`access_token`,
+//   `dbPass`, `userPin`), as a quoted JSON key (`"password":"x"`), with a
+//   quoted value read to its closing quote (`password="a b"`), and inside a
+//   cookie (`Cookie: session=x`). Also a JWT (even glued to a word,
+//   `wordeyJ…`), or a Base64-looking run (24+ characters mixing
 //   upper case, lower case and digits). In a web address, file path or code
 //   field such a value drops the whole field; in the error text it is
 //   replaced by a marker.
@@ -31,8 +37,17 @@
 // - In the error text only: a romanised address or a date of birth
 //   (「150-0001 Jingumae 1-2-3」, 「dob 1990-04-12」), an email written
 //   without an @ sign or with spaces around it (「tanaka(at)gmail.com」), an
-//   address with no dot-suffix (「tanaka@example」), and a secret after a
-//   label the masks do not know (「Cookie: sid=…」, 「SECRET_KEY abc」).
+//   address with no dot-suffix (「tanaka@example」), a secret after a
+//   label the list above does not hold (「Cookie: sid=…」, `otp=`, `cvv=`),
+//   a label with no `:` or `=` (「SECRET_KEY abc」, 「password x」), a secret
+//   in prose (「password is x」, 「the PIN was 1234」 — four digits are not a
+//   phone), and the part after `&` in an unquoted value (`password=a&b`
+//   leaves `&b`).
+//   Error-text eats from the label rule (masked in the text, the field
+//   dropped at code positions): `missing env key: X` → `missing env
+//   <label>=<redacted>`, `invalid token: expired`, `session: expired`,
+//   `OAuth: …`, and any word that merely ENDS in a label before `:`/`=`
+//   (`bypass=`, `compass:`, `oauth=`, `spin=`, `monkey:banana`).
 //   Over-masking the other way: a date-plus-id route inside the error text
 //   (「/api/2026/10/08/12345」) becomes `<phone>`, and the label rule turns
 //   「Invalid Refresh Token: Refresh Token Not Found」 into 「Invalid Refresh
@@ -68,8 +83,12 @@
 // - Lost, never leaked (Greptile #1159 G2: nothing is cut before it is
 //   masked): an alarm message over 120 characters, a fingerprint over 100
 //   and an alarm tag over 100 are dropped by the hook, never cut; error text
-//   over 2000 characters loses its cut word and the digits and separators
-//   before it (all of it when it has no whitespace and is ASCII). Also: a
+//   over 2000 characters loses its cut word and a SEPARATE run of digits and
+//   separators before it (all of it when it has no whitespace and is ASCII
+//   once normalised; look-alikes such as ․ ﹐ and math-bold letters or digits
+//   are normalised before the cut is judged, R-S115-1 S2). Still possible
+//   at that cut: a phone whose separators are outside the phone rule's list
+//   (「090·1234·5678」 with U+00B7) is not masked whole, cut or not. Also: a
 //   16-digit chunk hash drops its frame field; a
 //   user-agent whose version has a 4-digit build AND a 4-digit patch
 //   (「130.0.6723.1000」) drops at spaced positions and masks to `<phone>` in
