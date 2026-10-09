@@ -97,7 +97,6 @@ const daysInput = () => document.getElementById('st-blk-reserve.window')!.queryS
 const saveBtn = () => [...document.querySelectorAll('button.st-save')].find((b) => /保存する/.test(b.textContent ?? '')) as HTMLButtonElement
 const alertLine = () => document.querySelector('.st-act-error[role="alert"]')?.textContent ?? null
 const press = async () => { await act(async () => { saveBtn().click() }); await settle() }
-const B0 = policyHash(SIX)
 const DRAFT = { ...SIX, booking_open_days: 22 }
 const STALE_LINE = 'この店舗のReserve 受付の設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更していない項目は最新の内容に置き換えました。もう一度保存すると、変更した項目が保存されます。'
 
