@@ -102,3 +102,18 @@ describe('R4 N2 — the Japanese dash and comma family are phone separators', ()
     expect(maskSensitive('100、200、300、400')).toBe('<phone>')
   })
 })
+
+describe('R4 N4 — err.name is bounded before it is masked', () => {
+  it('no normalise call on the log line sees more than the bound', () => {
+    const e = new Error('x')
+    e.name = 'N'.repeat(1_000_000)
+    const spy = jest.spyOn(String.prototype, 'normalize')
+    try {
+      describeUnknownThrow(e)
+      const lens = spy.mock.contexts.map((c) => String(c).length)
+      expect(Math.max(0, ...lens)).toBeLessThanOrEqual(2000)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})

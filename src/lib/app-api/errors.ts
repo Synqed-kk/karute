@@ -126,7 +126,8 @@ const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${Stri
 export function describeUnknownThrow(err: unknown): { errName: string; errStatus?: number; errMessage: string } {
   try {
     const rawName = err instanceof Error ? err.name : typeof err
-    const errName = capWithEllipsis(maskSensitive(typeof rawName === 'string' ? rawName : typeof err), 60)
+    // Bounded first (R-S115-10 N4), like the message: a 1 MB name cost 21 ms.
+    const errName = capWithEllipsis(maskSensitive(preBound(typeof rawName === 'string' ? rawName : typeof err)), 60)
 
     const rawMessage = err instanceof Error ? err.message : String(err)
     const message = typeof rawMessage === 'string' ? rawMessage : ''
