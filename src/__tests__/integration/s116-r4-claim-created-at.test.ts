@@ -136,7 +136,7 @@ const inZone = (tz: string, inputs: string[]) => {
   const src = readFileSync(join(process.cwd(), 'src/lib/recording/storage-time.ts'), 'utf8')
   const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
   const run = `const exports = {}; ${js}; process.stdout.write(JSON.stringify([new Date(Date.UTC(2027, 0, 15)).getTimezoneOffset(), ...${JSON.stringify(inputs)}.map((s) => [Date.parse(s), exports.parseStorageTime(s)])]))`
-  return JSON.parse(execFileSync(process.execPath, ['-e', run], { env: { PATH: process.env.PATH ?? '', TZ: tz } as NodeJS.ProcessEnv, encoding: 'utf8' })) as [number, ...Array<[number, number | null]>]
+  return JSON.parse(execFileSync(process.execPath, ['-e', run], { env: { PATH: process.env.PATH ?? '', TZ: tz } as unknown as NodeJS.ProcessEnv, encoding: 'utf8' })) as [number, ...Array<[number, number | null]>]
 }
 
 describe('N1 — a created_at with no offset is UTC under a non-UTC server zone', () => {
