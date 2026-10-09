@@ -1,6 +1,6 @@
 import 'server-only'
 import { parseStorageTime } from '@/lib/recording/storage-time'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isDuplicateRefusal } from '@/lib/recording/storage-duplicate'
 import { isStorageNotFound, warnStorageUnknown } from '@/lib/recording/take-binding'
@@ -259,7 +259,7 @@ export function transcriptLeaseKey(memoKey: string): string {
 
 /**
  * Try to hold the lease. `held` = this call may pay (it wrote the lease, or
- * took over one that had expired or been released); `busy` = another call is
+ * took over one that had expired, been released or was unusable); `busy` = another call is
  * transcribing this audio now, until `until` (epoch ms); `unknown` = storage
  * would not say — the caller pays, exactly as before the lease existed (the
  * memo read's own fail-open rule). Never throws.
@@ -281,9 +281,14 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // that stalled past the skew bound read a live holder's fresh lease as too far
     // ahead and paid beside it, so every judgement from here uses the clock after it.
     now += Date.now() - startedAt
-    const seen = await readLease(key, now)
-    if (seen === null) return { state: 'unknown' }
-    if (seen.until > now) return { state: 'busy', until: seen.until }
+    // ⚖ S120 (G5) — A PRESENT BUT UNUSABLE LEASE IS TAKEN OVER LIKE AN EXPIRED ONE. A
+    // body no call could have written (or an impossible expiry) used to answer unknown
+    // for ever: never rewritten, every call paid unleased. It now goes through the same
+    // claim, keyed by a generation read off its own bytes, so its takers still meet one
+    // winner. A read that FAILED (no bytes) still answers unknown, as before.
+    const seen = await readLeaseOutcome(key, now)
+    if (seen.kind === 'none' || seen.kind === 'error') return { state: 'unknown' }
+    if (seen.kind === 'lease' && seen.until > now) return { state: 'busy', until: seen.until }
     // Expired or released: CLAIM this generation first (create-only), so two
     // callers meeting one expired lease cannot both take it over (S114 F-CT-5a).
     // ⚖ S115 (B1) — A DEAD CLAIM CHAINS, IT NEVER STRANDS. A claim whose winner
@@ -302,7 +307,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // whose write storage refuses answers 'unknown' and pays, as before. It goes
     // through the takeover's own write below (one lease write site).
     let rerooting = false
-    let claimKey = transcriptLeaseClaimKey(memoKey, seen)
+    let claimKey = transcriptLeaseClaimKey(memoKey, seen.kind === 'lease' ? seen : { until: 0, nonce: seen.generation })
     let theirs: { until: number; nonce?: string } | null | undefined
     for (let link = 0; ; link++) {
       let claim: { error: unknown }
@@ -516,19 +521,23 @@ const LEASE_CLOCK_SKEW_MS = TRANSCRIPT_LEASE_CLOCK_SKEW_MS
 /** The lease's expiry, or null when it cannot be read (missing, garbage, error).
  *  ⚖ S58 — an expiry no call could have written (not a finite number, or past
  *  `now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS`) is unreadable too,
- *  warned: it falls open to paying, never busy forever. */
+ *  warned: never busy forever (the take takes it over — S120 G5). */
 async function readLease(key: string, now: number): Promise<{ until: number; nonce?: string } | null> {
   const read = await readLeaseOutcome(key, now)
   return read.kind === 'lease' ? { until: read.until, ...(read.nonce !== undefined ? { nonce: read.nonce } : {}) } : null
 }
 
-/** ⚖ S116 round 5 (SF-A) — readLease, telling WHY there is no lease: `none` = a 404,
- *  or a body this code could not have written; `error` = a download error that is not
- *  a 404, a throw, or a body that is not JSON (a truncated read). */
+/** ⚖ S116 round 5 (SF-A) — readLease, telling WHY there is no lease: `none` = a 404;
+ *  `error` = a download error that is not a 404, or a throw.
+ *  ⚖ S120 (G5): `unusable` = the download SUCCEEDED but its bytes are no lease this code
+ *  could have written (not JSON — storage-js buffers the whole body before it answers,
+ *  so these are the stored bytes, not a cut read — not v 1, an expiry that is not a
+ *  number or is impossible). Its `generation` is the body's own nonce when it carries
+ *  one (the key an expired read of it would claim), else a hash of the bytes. */
 async function readLeaseOutcome(
   key: string,
   now: number,
-): Promise<{ kind: 'lease'; until: number; nonce?: string } | { kind: 'none' } | { kind: 'error' }> {
+): Promise<{ kind: 'lease'; until: number; nonce?: string } | { kind: 'none' } | { kind: 'error' } | { kind: 'unusable'; generation: string }> {
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').download(key)
     if (error || !data) {
@@ -538,11 +547,22 @@ async function readLeaseOutcome(
       }
       return { kind: 'none' }
     }
-    const lease = JSON.parse(await data.text()) as Partial<TranscriptLease> | null
-    if (lease?.v !== 1 || typeof lease.expires_at !== 'number') return { kind: 'none' }
+    const text = await data.text()
+    let lease: Partial<TranscriptLease> | null
+    try {
+      lease = JSON.parse(text) as Partial<TranscriptLease> | null
+    } catch {
+      lease = null
+    }
+    const unusable = () => {
+      const nonce = (lease as { nonce?: unknown } | null)?.nonce
+      const generation = typeof nonce === 'string' && CLAIM_GENERATION_RE.test(nonce) ? nonce : createHash('sha256').update(text).digest('hex')
+      return { kind: 'unusable' as const, generation }
+    }
+    if (lease?.v !== 1 || typeof lease.expires_at !== 'number') return unusable()
     if (!Number.isFinite(lease.expires_at) || lease.expires_at > now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS) {
       warnStorageUnknown('transcript-lease.expiry', null)
-      return { kind: 'none' }
+      return unusable()
     }
     return { kind: 'lease', until: lease.expires_at, ...(typeof lease.nonce === 'string' ? { nonce: lease.nonce } : {}) }
   } catch (err) {

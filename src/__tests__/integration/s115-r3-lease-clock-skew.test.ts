@@ -146,12 +146,12 @@ describe('S3 — clock skew against the TTL margin', () => {
     expect((await take(now)).state).toBe('busy')
   })
 
-  it('the reader boundary: EXACTLY TTL + the reader bound reads live; 1 ms past is unreadable (warned) and falls open', async () => {
+  it('the reader boundary: EXACTLY TTL + the reader bound reads live; 1 ms past is unusable (warned) and taken over (S120 G5)', async () => {
     const now = T0 + DAY
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number), nonce: OTHER }), now)
     expect((await take(now)).state).toBe('busy')
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number) + 1, nonce: OTHER }), now)
-    expect((await take(now)).state).toBe('unknown')
+    expect((await take(now)).state).toBe('held')
     expect(warns).toContain('transcript-lease.expiry')
   })
 

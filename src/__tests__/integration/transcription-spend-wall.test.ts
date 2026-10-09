@@ -3786,7 +3786,7 @@ describe('charge once — the durable transcript memo', () => {
       expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
     })
 
-    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + the allowance → busy; one ms past → unreadable (unknown, warned)', async () => {
+    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + the allowance → busy; one ms past → unusable (warned) and taken over (S120 G5)', async () => {
       const { warn } = quiet()
       const NOW = 1_700_000_000_000
       expect(TRANSCRIPT_LEASE_CLOCK_SKEW_MS).toBe(60_000)
@@ -3796,8 +3796,8 @@ describe('charge once — the durable transcript memo', () => {
       expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
       expect(expiryWarned(warn)).toBe(false)
       leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND + 1 }))
-      expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'unknown' })
       expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
+      expect((await takeTranscriptLease(memoKey(AUDIO), NOW)).state).toBe('held')
       expect(expiryWarned(warn)).toBe(true)
     })
   })

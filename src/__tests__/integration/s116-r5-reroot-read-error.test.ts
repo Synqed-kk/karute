@@ -46,13 +46,15 @@ describe('SF-A — the re-root re-read of the lease (3rd lease read: :279, the l
     expect(leaseNonce()).toBe(H)
   })
 
-  it('a body that is not JSON on that read is an error too → busy', async () => {
+  // ⚖ S120 (G5): a body that is not JSON on a SUCCESSFUL download is the stored bytes
+  // (storage-js buffers the whole body), an unusable lease, not a read error.
+  it('a body that is not JSON on that read is an unusable lease, not an error → the re-root holds', async () => {
     capChain()
     bucket.onCall = (op, key, n) => {
       if (op === 'download' && key === LEASE && n === 3) bucket.objects.set(LEASE, { body: '{trunc', createdAt: P })
       return null
     }
-    expect((await takeTranscriptLease(MEMO, P)).state).toBe('busy')
+    expect((await takeTranscriptLease(MEMO, P)).state).toBe('held')
   })
 
   it('a 404 on that read is still 「no lease」 → the re-root holds (no new stuck path)', async () => {
