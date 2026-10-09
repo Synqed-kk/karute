@@ -29,8 +29,9 @@ describe('one masking home', () => {
     const preBound = home.preBound as unknown as jest.Mock
     const mask = home.maskSensitive as unknown as jest.Mock
     errors.describeUnknownThrow(new Error('a'.repeat(2500)))
-    // the message and, since R-S115-10 N4, err.name
-    expect(preBound).toHaveBeenCalledTimes(2)
+    // err.name (R-S115-10 N4) and the message, each through the one preBound
+    // (R-S115-15: the pin names WHAT each call bounds, not only how many)
+    expect(preBound.mock.calls.map((c) => c[0])).toEqual(['Error', 'a'.repeat(2500)])
     expect(mask).toHaveBeenCalled()
     // the exit's masked is the home's own function (identity above), whose
     // body calls the home's preBound and maskSensitive directly
