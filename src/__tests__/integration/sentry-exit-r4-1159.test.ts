@@ -81,3 +81,9 @@ describe('R4 SF4 — a label with a bounded suffix or in brackets', () => {
     (v) => expect(maskSensitive(v)).toBe(v),
   )
 })
+
+describe('R4 F2 — the second bound after NFKC', () => {
+  it('a text that NFKC lengthens (U+FDFA x2100) is still within the bound', () => {
+    expect(preBound('ﷺ'.repeat(2100)).length).toBeLessThanOrEqual(2000)
+  })
+})
