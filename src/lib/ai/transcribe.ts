@@ -815,6 +815,20 @@ async function meteredTranscription(
     return await answerFromMemo(memoKey, memoRead.memo, () => takeOnce(memoKey))
   }
 
+  // ── THE HEAD, BEFORE ANYTHING THAT COSTS (S60 A3, one choke point) ────────
+  // After the memo (a hit was already paid for, so it is answered as before)
+  // and BEFORE the lease (S114, F-CT-3: a refusal writes nothing, not even a
+  // lease — s60-a3-meter-refusal), the ceiling, the reserve and the provider: an audio that opens
+  // with no container the recorders make is refused here, at every door, for
+  // one 64-byte probe and nothing else — no rate-limit consume, no ledger row,
+  // no Deepgram call. The meter writes NO mark (M2: the web JSON arm is not
+  // take-owner gated); marks are finalize's alone. `unknown` proceeds exactly
+  // as today. Behind the same switch as the finalize probe: OFF = no probe.
+  if (RECORDING_SWITCHES.finalizeProbe) {
+    const unreadable = await unreadableHead(params.audio)
+    if (unreadable) throw new AudioUnreadableError(unreadable)
+  }
+
   // ── THE LEASE, BEFORE THE CEILING AND THE RESERVE (S53 A5) ────────────────
   // Only a caller that could be ANSWERED from a memo takes part: one that pays
   // regardless (a colleague's key, a key with no memo) gains nothing by waiting
@@ -873,19 +887,6 @@ async function meteredTranscription(
       busyUntil = taken.until
       await new Promise((resolve) => setTimeout(resolve, LEASE_POLL_MS))
     }
-  }
-
-  // ── THE HEAD, BEFORE ANYTHING THAT COSTS (S60 A3, one choke point) ────────
-  // After the memo (a hit was already paid for, so it is answered as before)
-  // and BEFORE the ceiling, the reserve and the provider: an audio that opens
-  // with no container the recorders make is refused here, at every door, for
-  // one 64-byte probe and nothing else — no rate-limit consume, no ledger row,
-  // no Deepgram call. The meter writes NO mark (M2: the web JSON arm is not
-  // take-owner gated); marks are finalize's alone. `unknown` proceeds exactly
-  // as today. Behind the same switch as the finalize probe: OFF = no probe.
-  if (RECORDING_SWITCHES.finalizeProbe) {
-    const unreadable = await unreadableHead(params.audio)
-    if (unreadable) throw new AudioUnreadableError(unreadable)
   }
 
   try {
