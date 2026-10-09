@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, runCli, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -732,12 +732,13 @@ async function main() {
   assert.ok(s3.s.max === 3 && s3.s.failedAt > 0 && s3.s.after === 0, `3 in flight: max ${s3.s.max}, ${s3.s.after} started after the stop`)
   console.log(`✓ S90 stop at 3 in flight: failed at request ${s3.s.failedAt}, max in flight ${s3.s.max}, ${s3.s.after} started after the stop`)
   // the full-database text only in the error code, or only in the JSON body, stops the run too
-  for (const err of [Object.assign(new Error('pool refused'), { status: 500, code: 'EMAXCONN' }), Object.assign(new Error('unavailable'), { status: 503, body: { error: { message: 'sorry, too many clients already' } } })]) {
+  for (const err of [Object.assign(new Error('pool refused'), { status: 500, code: 'EMAXCONN' }), Object.assign(new Error('unavailable'), { status: 503, body: { error: { message: 'sorry, too many clients already' } } }),
+    Object.assign(new Error('FATAL: max clients reached'), { status: 500 })]) {
     const sc = watched((call) => call === 'appointments.create', err)
     assert.equal(await apply(sc.core, { ...opts(empty()), limiter: sc.lim(DEFAULT_THROTTLE) }), 1, err.message)
     assert.ok(sc.s.failedAt > 0 && sc.s.calls === sc.s.failedAt, `${err.message}: ${sc.s.calls - sc.s.failedAt} started after`)
   }
-  console.log('✓ S90 detection: EMAXCONN only in the code, "too many clients" only in the body: both stop the run')
+  console.log('✓ S90 detection: EMAXCONN only in the code, "too many clients" only in the body, "max clients reached" only in the message: each stops the run')
   // lead note: a full database is never retried (one request, not a whole read-back); a plain 5xx re-run of the read-back still queues in the limiter
   let tries = 0
   await assert.rejects(withRetry(async () => { tries++; throw new Saturated('EMAXCONN') }, false, async () => {}), Saturated)
@@ -767,14 +768,29 @@ async function main() {
   const w1 = watched((call) => call === 'appointments.create', full, { stores: allStores })
   const r1 = await cli(['--store', 'all'], w1)
   assert.deepEqual([r1.code, r1.stores, r1.stops, w1.s.calls - w1.s.failedAt, r1.notStarted?.split(', ').length], [1, 1, 1, 0, allStores.length - 1], r1.out.filter((l) => !l.includes('|')).join('\n'))
+  assert.equal(r1.notStarted, `not started (core's database is full): ${allStores.slice(1).join(', ')}`)
   let begun = 0
   const w4 = watched((call) => ((begun += +(call === 'orgSettings.get')), begun === 2 && call === 'resources.list'), full, { stores: allStores, fail409: true })
   const r4 = await cli(['--store', 'all'], w4)
   assert.deepEqual([r4.code, r4.stores, r4.stops], [1, 2, 1], 'an earlier store\'s 409s (4) and a later write-phase stop: exit 1')
+  // a full database before store 2's run began (its first core call), after store 1's 409s: exit 1, stores 3… named
+  let opened = 0
+  const w6 = watched((call) => call === 'orgSettings.get' && ++opened === 2, full, { stores: allStores, fail409: true })
+  const r6 = await cli(['--store', 'all'], w6)
+  assert.deepEqual([r6.code, r6.stores, r6.stops, r6.notStarted], [1, 2, 1, `not started (core's database is full): ${allStores.slice(2).join(', ')}`], 'a pre-run stop after an earlier store\'s 409s: exit 1')
   const w5 = watched((call) => call === 'staffStores.counts', full, { stores: allStores })
   const r5c = await cli(['--store', 'all'], w5)
   assert.deepEqual([r5c.code, r5c.stores, r5c.stops, !!r5c.notStarted], [0, 1, 1, true], 'a read-back stop: later stores not started, exit unchanged')
   console.log(`✓ S90 CLI: refusals 0 calls; --concurrency 2 max ${wc.s.max}; write stop exit ${r1.code} after ${r1.stores} store (${allStores.length - 1} not started); 409 then stop exit ${r4.code}; read-back stop exit ${r5c.code}`)
+  // the pool settles every worker before it throws: no request starts after it rejected; a full database wins
+  const tick = () => new Promise((r) => setImmediate(r))
+  let started = 0
+  await assert.rejects(poolOf([1, 2, 3, 4, 5, 6], async (x: number) => { started++; await tick(); if (x === 1) throw new Error('boom'); await tick(); await tick() }, 3), /boom/)
+  const atReject = started
+  for (let i = 0; i < 5; i++) await tick()
+  assert.deepEqual([started, atReject], [6, 6], `${started - atReject} requests started after the pool rejected`)
+  await assert.rejects(poolOf([1, 2, 3], async (x: number) => { await tick(); if (x === 1) throw new Error('first'); await tick(); if (x === 2) throw new Saturated('full') }, 3), Saturated)
+  console.log(`✓ S90 pool: ${started} of 6 started before the rejection, ${started - atReject} after; a full database is the error thrown; pre-run stop after 409s exit ${r6.code}`)
   console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
   }
 

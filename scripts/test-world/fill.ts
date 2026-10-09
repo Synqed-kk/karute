@@ -233,7 +233,7 @@ function throttled<C extends object>(core: C, lim: Limiter): C {
   return wrap(core, 1)
 }
 
-async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
+export async function poolOf<T>(items: T[], fn: (x: T) => Promise<void>, size: number) {
   let i = 0
   // every worker settles first (no late write after apply returns), then the first failure is thrown — a full database first
   const settled = await Promise.allSettled(Array.from({ length: Math.min(size, items.length) }, async () => {
