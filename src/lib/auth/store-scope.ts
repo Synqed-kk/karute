@@ -1,3 +1,4 @@
+import type { ShiftPerson } from '@/lib/capacity/capacity'
 // Store-scoped visibility (RBAC). Resolves WHICH store(s) the signed-in user may
 // see, clamping regular staff to their `staff_stores` assignment while letting
 // cross-store roles (owner / manager / SV via `stores.viewAll`) range freely.
@@ -260,6 +261,7 @@ export interface StaffStoreAssignment {
   email: string | null
   /** Assigned stores; empty = floating staff who works in every store. */
   store_ids: string[]
+  is_active?: boolean
 }
 
 // One cached fetch per business: the full staff→stores assignment map.
@@ -284,6 +286,7 @@ const staffStoreAssignmentsByBusiness = unstable_cache(
     return Promise.all(
       staff.map(async (s) => ({
         id: s.id,
+        is_active: s.is_active,
         user_id: (s as { user_id?: string | null }).user_id ?? null,
         email: s.email ? s.email.toLowerCase() : null,
         store_ids: (await client.staffStores.get(s.id)).store_ids,
@@ -557,5 +560,19 @@ export async function resolveShellGate(): Promise<'removed' | 'unassigned' | 'ou
     return scope.degraded ? 'outage' : 'ok'
   } catch {
     return 'outage'
+  }
+}
+
+/** Shift roster reuses the existing assignment load; no extra core calls.
+ * The SDK exposes store_ids only, not StaffStore.createdAt: historical joins
+ * cannot be dated by this load (PR-1 packet exception). */
+export async function shiftRosterForBusiness(businessId: string, storeId: string): Promise<ShiftPerson[] | null> {
+  try {
+    const assignments = await staffStoreAssignmentsByBusiness(businessId)
+    if (assignments.some(a => a.is_active == null)) return null
+    return assignments.filter(a => a.is_active && (a.store_ids.length === 0 || a.store_ids.includes(storeId)))
+      .map(a => ({ id: a.id, active: true, stores: a.store_ids.length ? [{ storeId }] : [] }))
+  } catch {
+    return null
   }
 }

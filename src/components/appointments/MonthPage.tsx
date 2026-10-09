@@ -68,14 +68,14 @@ interface MonthPageProps {
  *  different question (a 稼働 percentage), and one word for two questions is a
  *  grep that lies (D-7).
  *
- *  `band` is the per-store 「混雑」 threshold (⚖ Liam 9/15 11:1x) and is NOT on
- *  the wire yet — 1c-B adds it, and this `??` is the whole seam it needs. The
- *  colours come from the week rows' map, never a second one. */
+ *  The colours come from the week rows' map, never a second one. */
 export function cellTone(cell: {
   density: MonthDensityBucket
   band?: MonthDensityBucket
 }): string | null {
-  return DENSITY_DOT_CLASS[cell.band ?? cell.density]
+  // PR-2 (S7 / R-K): the dot is booking density only; `band` stays on the
+  // DTO for OFF decoding and baked bundles but no longer colours the dot.
+  return DENSITY_DOT_CLASS[cell.density]
 }
 
 /** 予約 N件 for the month = the counted bookings of the days that BELONG to it.

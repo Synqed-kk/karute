@@ -2,6 +2,11 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+const capacityBoundary = {
+  group: ["**/capacity/*", "!**/capacity/capacity", "!**/capacity/capacity.ts"],
+  message: "Capacity internals are private; import @/lib/capacity/capacity only.",
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -34,6 +39,11 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    files: ["src/**/*.{ts,tsx,js,jsx,mjs,cjs}"],
+    ignores: ["src/lib/capacity/**"],
+    rules: { "no-restricted-imports": ["error", { patterns: [capacityBoundary] }] },
+  },
+  {
     // core-contract is tests-only until C2/B1 (CORE-59, today-impact C0): no
     // door imports it, in any import form. Proven by c0-door-import-lint.test.ts.
     files: ["src/**/*.{ts,tsx,js,jsx,mjs,cjs}"],
@@ -43,6 +53,7 @@ const eslintConfig = defineConfig([
         "error",
         {
           patterns: [
+            capacityBoundary,
             {
               // gitignore-style: a pattern matching the folder matches every file in it.
               group: ["@/lib/core-contract", "**/core-contract"],
