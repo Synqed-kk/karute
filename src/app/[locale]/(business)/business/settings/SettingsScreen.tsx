@@ -516,14 +516,14 @@ const reserveStampOf = (row: Record<string, unknown>) => (typeof row.updated_at 
  *  the six are locked while a save is in flight. The rest of the section is the server's, unchanged. */
 function reserveViewOf(s: SettingsSection, lateNote: string, values: Record<string, RowValue>, savedAt: string | null, busy: boolean): SettingsSection {
   const late = lateFromBooking(reservePolicyOf(values))
-  const audit = policyAuditLine(savedAt)
+  const auditLine = policyAuditLine(savedAt)
   return {
     ...s,
     blocks: s.blocks.map((b) => {
       if (b.id !== 'reserve.window' && b.id !== 'reserve.cancel') return b
       const rows = busy ? b.rows.map((r) => ({ ...r, controls: r.controls.map((c) => (RESERVE_CONTROL_IDS.has(c.id) ? { ...c, locked: RESERVE_BUSY_LOCK } : c)) })) : b.rows
       const facts = b.id === 'reserve.cancel' ? [...(b.facts ?? []).filter((f) => f !== lateNote), ...(late ? [lateNote] : [])] : b.facts
-      return { ...b, rows, facts, audit: audit ?? null }
+      return { ...b, rows, facts, audit: auditLine ?? null }
     }),
   }
 }
