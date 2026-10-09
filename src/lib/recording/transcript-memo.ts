@@ -280,28 +280,47 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     if (seen.until > now) return { state: 'busy', until: seen.until }
     // Expired or released: CLAIM this generation first (create-only), so two
     // callers meeting one expired lease cannot both take it over (S114 F-CT-5a).
-    const claim = await createServiceClient().storage.from('recordings').upload(
-      transcriptLeaseClaimKey(memoKey, seen),
-      JSON.stringify({ v: 1, at: now, nonce }),
-      { contentType: 'application/json', upsert: false },
-    )
-    if (claim.error) {
+    // ⚖ S115 (B1) — A DEAD CLAIM CHAINS, IT NEVER STRANDS. A claim whose winner
+    // never wrote its lease (it died, or its lease write failed) used to answer
+    // busy for ever. A claim older than one TTL with no live lease behind it is
+    // now passed over to the NEXT link, `…lease.<that claim's nonce>.claim.json`
+    // — the very key a lease written by that winner would claim — create-only
+    // again, so each link still has exactly one winner.
+    let claimKey = transcriptLeaseClaimKey(memoKey, seen)
+    let theirs: { until: number; nonce?: string } | null | undefined
+    for (let link = 0; ; link++) {
+      const claim = await storageUpload(claimKey, JSON.stringify({ v: 1, at: now, nonce }), false)
+      // A non-refusal error may still have landed the claim: read it back
+      // instead of paying unclaimed (S115) — ours means we won the link.
+      const won = !claim.error || (!isDuplicateRefusal(claim.error) && (await readClaim(claimKey))?.nonce === nonce)
+      if (won) break
       if (!isDuplicateRefusal(claim.error)) {
         warnStorageUnknown('transcript-lease.claim', claim.error)
-        return { state: 'unknown' }
+        return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
       }
-      // Another caller won this generation: it is transcribing now.
-      const theirs = await readLease(key, now)
-      return { state: 'busy', until: theirs !== null && theirs.until > now ? theirs.until : now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      // Another caller won this link. A live lease behind it = it is transcribing.
+      if (theirs === undefined) theirs = await readLease(key, now)
+      if (theirs !== null && theirs.until > now) return { state: 'busy', until: theirs.until }
+      const winner = await readClaim(claimKey)
+      if (winner === null || winner.at + TRANSCRIPT_LEASE_TTL_MS > now || link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) {
+        if (winner !== null && link + 1 >= TRANSCRIPT_LEASE_MAX_LINKS) warnStorageUnknown('transcript-lease.links', null)
+        return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      }
+      claimKey = transcriptLeaseClaimKey(memoKey, { until: 0, nonce: winner.nonce })
     }
-    const taken = await createServiceClient().storage.from('recordings').upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
+    // ⚖ S115 (B1): from here this caller is the ONE winner of its link, and the
+    // claim object itself holds the audio for one TTL. A lease write or read-back
+    // that storage will not confirm therefore still answers HELD (the caller
+    // pays, holding the claim; its release is a no-op and the claim falls open
+    // after one TTL) — never 'unknown', which left a payer holding nothing.
+    const taken = await storageUpload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), true)
     if (taken.error) {
       warnStorageUnknown('transcript-lease.takeover', taken.error)
-      return { state: 'unknown' }
+      return held()
     }
     // Read back: only the caller whose nonce stands proceeds.
     const after = await readLease(key, now)
-    if (after === null) return { state: 'unknown' }
+    if (after === null) return held()
     if (after.nonce !== nonce) return { state: 'busy', until: after.until > now ? after.until : now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
     return held()
   } catch (err) {
@@ -314,11 +333,47 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
  *  has not landed yet — an engineering poll hint, not a business duration. */
 const TRANSCRIPT_LEASE_CLAIM_BUSY_MS = 5_000
 
+/** ⚖ S115 (B1) — how many dead claim links one take will walk. Each link is a
+ *  takeover whose winner never wrote its lease, at least one TTL apart; past
+ *  this many in a row the caller is told busy (warned), never paid unclaimed.
+ *  A loop bound, not a business number. */
+const TRANSCRIPT_LEASE_MAX_LINKS = 32
+
+/** One storage write, its throw folded into `error` (the caller decides). */
+async function storageUpload(key: string, text: string, upsert: boolean): Promise<{ error: unknown }> {
+  try {
+    const { error } = await createServiceClient().storage.from('recordings').upload(key, text, { contentType: 'application/json', upsert })
+    return { error }
+  } catch (err) {
+    return { error: err ?? new Error('storage upload threw') }
+  }
+}
+
+/** A claim object's `{ at, nonce }`, or null when it cannot be read. */
+async function readClaim(key: string): Promise<{ at: number; nonce: string } | null> {
+  try {
+    const { data, error } = await createServiceClient().storage.from('recordings').download(key)
+    if (error || !data) {
+      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.claim-read', error)
+      return null
+    }
+    const claim = JSON.parse(await data.text()) as { v?: unknown; at?: unknown; nonce?: unknown } | null
+    if (claim?.v !== 1 || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return null
+    if (typeof claim.nonce !== 'string' || !CLAIM_GENERATION_RE.test(claim.nonce)) return null
+    return { at: claim.at, nonce: claim.nonce }
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.claim-read', err)
+    return null
+  }
+}
+
+const CLAIM_GENERATION_RE = /^[0-9a-f-]{8,64}$/i
+
 /** The claim object for one lease generation: the lease's own key with the
  *  generation (its nonce; a pre-S114 lease has none, so its expiry) before
  *  `.claim.json`. Parses as no key kind, like the lease. */
 export function transcriptLeaseClaimKey(memoKey: string, seen: { until: number; nonce?: string }): string {
-  const generation = seen.nonce !== undefined && /^[0-9a-f-]{8,64}$/i.test(seen.nonce) ? seen.nonce : `t${seen.until}`
+  const generation = seen.nonce !== undefined && CLAIM_GENERATION_RE.test(seen.nonce) ? seen.nonce : `t${seen.until}`
   return transcriptLeaseKey(memoKey).replace(/\.lease\.json$/, `.lease.${generation}.claim.json`)
 }
 
