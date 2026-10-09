@@ -240,7 +240,7 @@ const storageUpload = jest.fn(
 // (`trc/<audio>.<locale>.lease.json`). Its I/O goes to its OWN map and mocks,
 // so every PR-5 pin above keeps counting memo reads and writes only.
 const leaseStore = new Map<string, string>()
-const isLease = (key: unknown) => typeof key === 'string' && key.endsWith('.lease.json')
+const isLease = (key: unknown) => typeof key === 'string' && (key.endsWith('.lease.json') || key.endsWith('.claim.json')) // S114: a lease generation's claim lives with the lease
 const leaseDownload = jest.fn(async (key: string) => {
   const body = leaseStore.get(key)
   return body === undefined

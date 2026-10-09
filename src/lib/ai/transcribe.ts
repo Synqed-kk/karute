@@ -680,11 +680,11 @@ export async function runMeteredTranscription(
   // ⚖ S53 A5: a lease this call took is released on EVERY way out — paid,
   // refused, or the provider failing — so only a holder that DIED leaves one
   // standing, and that one expires (TRANSCRIPT_LEASE_TTL_MS).
-  const lease: { key: string | null } = { key: null }
+  const lease: { held: HeldTranscriptLease | null } = { held: null }
   try {
     return await meteredTranscription(meter, params, lease)
   } finally {
-    if (lease.key !== null) await releaseTranscriptLease(lease.key)
+    if (lease.held !== null) await releaseTranscriptLease(lease.held)
   }
 }
 
@@ -744,7 +744,7 @@ const LEASE_POLL_MS = 3_000
 async function meteredTranscription(
   meter: TranscriptionMeter,
   params: Parameters<typeof runTranscription>[0],
-  lease: { key: string | null },
+  lease: { held: HeldTranscriptLease | null },
 ): Promise<{ result: Record<string, unknown>; receipt: TranscriptionReceipt }> {
   // ── THE MEMO, BEFORE ANYTHING THAT COSTS (PR-5, charge once) ──────────────
   // Read ahead of the ceiling too: a replay spends nothing, so it must not
@@ -778,7 +778,7 @@ async function meteredTranscription(
   // released in runMeteredTranscription's finally like any other.
   const takeOnce = async (key: string): Promise<TranscriptLeaseTake> => {
     const taken = await takeTranscriptLease(key)
-    if (taken.state === 'held') lease.key = key
+    if (taken.state === 'held') lease.held = taken.lease
     return taken
   }
   const answerFromMemo = async (
@@ -863,7 +863,7 @@ async function meteredTranscription(
       }
       const taken = await takeTranscriptLease(memoKey)
       if (taken.state === 'held') {
-        lease.key = memoKey
+        lease.held = taken.lease
         // ⚖ S57: HELD IS NOT "NOBODY ANSWERED" — THE MEMO IS RE-READ UNDER THE LEASE
         // BEFORE ANY MONEY MOVES. A holder that finished NORMALLY wrote its memo and
         // then released its lease (the finally above), so the next take finds the
