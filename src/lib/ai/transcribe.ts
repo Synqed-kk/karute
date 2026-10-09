@@ -719,6 +719,8 @@ export async function runMeteredTranscription(
  *  its 270 s has less than the limit left: the platform then ends the WAIT (no
  *  lease held, nothing paid) or, rarely, a takeover's call (the crash window
  *  the memo-first write already names).
+ *  The exception is a job's LAST attempt: claimed late, it pays after one busy
+ *  look (LEASE_LAST_ATTEMPT_PAY_BY_MS below; named residual R-S118-1).
  *
  *  AT THE END OF THE WAIT WITH NO ANSWER, THE DOOR THROWS the same retryable
  *  `conflict` word the interactive doors answer, and pays nothing — the lease
@@ -745,7 +747,8 @@ export const LEASE_TAKEOVER_RESERVE_MS =
   LEASE_WORKER_REPORT_HEADROOM_MS + (LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_WORKER_REPORT_HEADROOM_MS) / 2
 /** The limit less the reserve: 135 s. */
 export const LEASE_WORKER_WAIT_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
-/** ⚖ S116 round 5 (R-S116-9): the last attempt's pay starts by this long after its INVOCATION began — the limit less the takeover reserve (135 s), so the paid call keeps its reserve even when the job was claimed late. */
+/** ⚖ S116 round 5 (R-S116-9): the last attempt's pay starts by this long after its INVOCATION began — the limit less the takeover reserve (135 s).
+ *  That keeps the reserve only for a last attempt claimed in its invocation's first 135 s; one claimed later pays after one busy look and one 3 s poll, with whatever time is left (named residual, R-S118-1). */
 export const LEASE_LAST_ATTEMPT_PAY_BY_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
 const LEASE_POLL_MS = 3_000
 
