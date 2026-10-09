@@ -1856,6 +1856,20 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(counts.byStore[STORE.devSalon]).toBe(planes.decisions.filter((d) => d.state === 'open').length) // and the badge counts it
   })
 
+  it('F2 (Greptile #1153 P2) — a generated slot\'s Reserve販売 card names the person the slot SERVES, as its inspector does (one offer, one person)', async () => {
+    generatedSalon()
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    const names = new Map((await data.listStaff(STORE.devSalon)).map((p) => [p.id, p.full_name]))
+    const cards = planes.decisions.filter((d) => d.sell_slot_id !== null && planes.sellSlots.some((x) => x.id === d.sell_slot_id))
+    expect(cards.length).toBeGreaterThan(0)
+    for (const d of cards) {
+      const slot = planes.sellSlots.find((x) => x.id === d.sell_slot_id)!
+      const others = [...names].filter(([id, n]) => id !== slot.staff_id && !names.get(slot.staff_id)!.includes(n)).map(([, n]) => n)
+      expect({ id: d.id, named: d.detail.includes(names.get(slot.staff_id)!), others: others.filter((n) => d.detail.includes(n)) })
+        .toEqual({ id: d.id, named: true, others: [] })
+    }
+  })
+
   it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
     // Dev Salon with its two rooms (slot-01 → Invite Probe, slot-02 → perry) and 東京 (slot-01 → 見本 しろう): each slot-01's person
     // holds a live booking inside the slot's window, on NO room — the room rule alone would serve both.

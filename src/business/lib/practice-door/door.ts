@@ -631,10 +631,18 @@ function servedSlots(seats: RosterSeats[], busy: Busy, live: LiveSpan[]): Fixtur
  *  about a served slot stays. An exact twin is served all of its own, as before. */
 // ⚖ FOLD-GREPTILE-1 F1 — ONE definition, twin or borrower: a Reserve販売 card is served iff its slot is among `slots`, the
 // slots the day FINALLY serves (the generated ones when the day is generated, else the served fixture ones).
+// ⚖ F2 — and the card names the person its slot SERVES (as the inspector reads it): the template's seated person, by
+// roster name, becomes the served slot's.
 function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], slots: readonly FixtureSellSlot[]): FixtureDecision[] {
-  const ids = new Set(slots.map((s) => s.id))
-  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null)
-    .filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id))
+  const served = new Map(slots.map((s) => [s.id, s]))
+  const name = new Map(seats.flatMap((s) => s.roster.map((p) => [p.id, p.name] as const)))
+  const seated = new Map(rekeyRows(sellSlots, seats, 'attribute').map((s) => [s.id, name.get(s.staff_id ?? '')]))
+  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null).flatMap((d) => {
+    const slot = d.sell_slot_id === null ? null : served.get(d.sell_slot_id)
+    if (slot === undefined) return []
+    const [was, now] = slot === null ? [] : [seated.get(slot.id), name.get(slot.staff_id ?? '')]
+    return [was && now ? { ...d, detail: d.detail.split(was).join(now) } : d]
+  })
 }
 
 /** ⚖ §v11 V11-12 — the live rows a server WITHOUT them in hand reads for the give-way: ONE read per call (a range for
