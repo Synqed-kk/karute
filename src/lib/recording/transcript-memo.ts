@@ -289,7 +289,7 @@ export function transcriptLeaseKey(memoKey: string): string {
  */
 export async function takeTranscriptLease(memoKey: string, now = Date.now()): Promise<TranscriptLeaseTake> {
   const key = transcriptLeaseKey(memoKey)
-  const startedAt = Date.now()
+  const startedAt = performance.now()
   const nonce = randomUUID()
   const held = (): TranscriptLeaseTake => ({ state: 'held', lease: { memoKey, nonce } as HeldTranscriptLease })
   const body = (at: number) => JSON.stringify({ v: 1, expires_at: at, nonce } satisfies TranscriptLease)
@@ -303,7 +303,9 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // ⚖ S120 (R-S118-7, GPT-6 finding 1): `now` was read before the create. A create
     // that stalled past the skew bound read a live holder's fresh lease as too far
     // ahead and paid beside it, so every judgement from here uses the clock after it.
-    now += Date.now() - startedAt
+    // The stall is timed on the monotonic clock: a wall-clock step inside the create
+    // (an NTP correction) cannot make a live holder's lease read expired (S120 A3).
+    now += performance.now() - startedAt
     // ⚖ S120 (G5) — A PRESENT BUT UNUSABLE LEASE IS TAKEN OVER LIKE AN EXPIRED ONE. A
     // body no call could have written (or an impossible expiry) used to answer unknown
     // for ever: never rewritten, every call paid unleased. It now goes through the same

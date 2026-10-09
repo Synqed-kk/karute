@@ -36,6 +36,7 @@ beforeEach(() => {
   resetBucket()
   setClock(T0)
   jest.spyOn(Date, 'now').mockImplementation(() => clock.now)
+  jest.spyOn(performance, 'now').mockImplementation(() => clock.now)
   jest.spyOn(console, 'warn').mockImplementation(() => {})
 })
 afterEach(() => jest.restoreAllMocks())
