@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs'
+import { wrapTransport } from './lib/observability/sentry-exit'
 import { sentryScrubOptions } from './lib/observability/sentry-scrub'
 
 export async function register() {
@@ -12,8 +13,13 @@ export async function register() {
     ...sentryScrubOptions,
   }
 
-  if (process.env.NEXT_RUNTIME === 'nodejs') Sentry.init(common)
-  if (process.env.NEXT_RUNTIME === 'edge') Sentry.init(common)
+  // Sentry.makeNodeTransport is referenced ONLY inside the nodejs branch: the
+  // edge entry has no such export and TypeScript would not catch it (item 102).
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    Sentry.init({ ...common, spotlight: false, transport: wrapTransport(Sentry.makeNodeTransport, { log: true }) })
+  }
+  // Edge: no exit until PR 2 (sentry-exit-edge.ts); today's hooks only.
+  if (process.env.NEXT_RUNTIME === 'edge') Sentry.init({ ...common, spotlight: false })
 }
 
 export const onRequestError = Sentry.captureRequestError

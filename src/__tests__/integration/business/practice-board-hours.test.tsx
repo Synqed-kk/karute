@@ -675,7 +675,9 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     // jsdom has no native dialog methods; keep this shim on this mounted instance only.
     dialog.showModal = () => { dialog.open = true }
     dialog.close = () => { dialog.open = false }
-    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 25 })) })
+    // Kenta now has a late shift; exercise the same off-hour grid inside his free 16:00 hour.
+    const firstStart = 16 * 60 + 20
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: firstStart - hours.open + 5 })) })
     // Keep the real guard: this off-hour-grid start asks for acknowledgment before opening the form.
     const placeHere = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')!
     expect(placeHere).toBeDefined()
@@ -683,20 +685,22 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
     const duration = board.props.dialogs.create.menus[0]?.minutes ?? 60
     const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
-    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`07:20–${time(440 + duration)}`)
+    expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(firstStart)}–${time(firstStart + duration)}`)
     const later = () => act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分遅く"]')!.click())
     for (let i = 0; i < 40; i += 1) later()
-    const afterForty = Math.min(hours.close - duration, 440 + 40 * step)
+    const afterForty = Math.min(hours.close - duration, firstStart + 40 * step)
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(afterForty)}–${time(afterForty + duration)}`)
-    // Forty 20-minute advances do not reach close with this menu; finish the distance and click once past it.
+    // Finish any remaining distance, then click once past closing to retain the clamp assertion.
     for (let i = 0; i <= Math.ceil((hours.close - duration - afterForty) / step); i += 1) later()
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration)}–22:00`)
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="20分早く"]')!.click())
     expect(dialog.querySelector('.stepper b')!.textContent).toBe(`${time(hours.close - duration - step)}–21:40`)
     act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="作成をやめる"]')!.click())
-    // 21:45 floors to 21:40 on the 20-minute grid; Kenta's last fixture booking ends at 21:30.
-    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
+    // S87 Q4: today's gym absence is けんた's from 21:30, so this click uses だいち's lane
+    // 21:45 floors to 21:40 on the 20-minute grid.
+    const daichiTrack = host.querySelector<HTMLElement>(`.lane[data-lane="${GYM.daichi}"] .track`)!
+    act(() => { daichiTrack.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
     const placeNearClose = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')
     if (placeNearClose) act(() => placeNearClose.click())
     expect({ open: dialog.open, advice: host.querySelector('.guard-pop')?.textContent }).toEqual({ open: true, advice: undefined })
@@ -717,6 +721,37 @@ it("Q-25 — a 20-minute store: rail cells, the click grid, the form's clamp (Gr
     expect(cell).not.toBeNull()
     expect(host.querySelector('.guard-rail-cell.aimed')).toBe(cell)
     act(() => { window.dispatchEvent(r.ev('pointercancel', 520, 0)) })
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    r.restore()
+  }
+})
+
+it("S87 Q4 — the board sees today's gym absence: the same 21:40 click on けんた's lane refuses with 勤務不可 (readers agree)", async () => {
+  const r = rig(0)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board: ReactElement<TodayProps> = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    const step = 20
+    const { hours } = board.props
+    // Same setup as Q-25: けんた's shift runs to closing and his 「終業」 is gone, so only the absence can refuse.
+    const lanes = board.props.lanes.map((lane) => lane.group === 'staff' && lane.key === GYM.kenta
+      ? { ...lane, window: { from: lane.window!.from, until: hours.close }, untilLabel: '22:00', items: lane.items.filter((item) => !(item.kind === 'absence' && item.title === '終業')) }
+      : lane)
+    await act(async () => root.render(<BusinessSessionEdits>{cloneElement(board, { lanes, guard: { ...board.props.guard, bookingStepMin: step, standardSessionMin: step }, sell: { ...board.props.sell, nowMinute: 360 } })}</BusinessSessionEdits>))
+    r.box.at = 0
+    const track = host.querySelector<HTMLElement>(`.lane[data-lane="${GYM.kenta}"] .track`)!
+    trackWide(900, track.closest('.lane')!) // one pixel per minute on the 07:00–22:00 axis
+    const dialog = host.querySelector<HTMLDialogElement>('dialog[aria-labelledby="createTitle"]')!
+    dialog.showModal = () => { dialog.open = true }
+    dialog.close = () => { dialog.open = false }
+    act(() => { track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 885 })) })
+    const placeNearClose = Array.from(host.querySelectorAll<HTMLButtonElement>('.guard-pop button')).find((button) => button.textContent?.trim() === 'この開始に配置')
+    if (placeNearClose) act(() => placeNearClose.click())
+    const advice = host.querySelector('.guard-pop')?.textContent ?? ''
+    expect({ open: dialog.open, absence: advice.includes('勤務不可') }).toEqual({ open: false, absence: true })
   } finally {
     act(() => root.unmount())
     host.remove()
