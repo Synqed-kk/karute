@@ -35,3 +35,15 @@ export const KEY32 = ['sk_live_', 'Zq8Wv3Xn5Ty7Ub9Rm2Lp4Kd6'].join('')
 export const JWT = ['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'eyJzdWIiOiI5ODc2NTQzMjEwIn0', 'Qm9vbS1zaWduYXR1cmUtMTIzNDU2Nzg5MGFi'].join('.')
 export const BLOB200 = Buffer.from(Array.from({ length: 150 }, (_, i) => (i * 53 + 7) % 256)).toString('base64')
 export const FW_MAIL = ['sato.yui', 'example.com'].join('＠')
+
+// Round 3 (R-S115-1 S1): every labelled-credential form the delta read found
+// leaking. Each takes the planted secret (assembled by the caller) and must
+// lose it at text positions and drop at shape positions.
+export const LABEL_FORMS: ((secret: string) => string)[] = [
+  (x) => `pass=${x}`, (x) => `pass: ${x}`, (x) => `pass = ${x}`, (x) => `passwd=${x}`,
+  (x) => `pwd=${x}`, (x) => `pw=${x}`, (x) => `psw=${x}`, (x) => `passcode=${x}`,
+  (x) => `passphrase: ${x}`, (x) => `auth=${x}`, (x) => `authorization=${x}`, (x) => `session=${x}`,
+  (x) => `sessionid=${x}`, (x) => `session_id=${x}`, (x) => `credential=${x}`, (x) => `credentials=${x}`,
+  (x) => `PIN=${x}`, (x) => `Cookie: session=${x}`, (x) => `{"password":"${x}"}`, (x) => `{"pwd": "${x}"}`,
+  (x) => `'passwd': '${x}'`, (x) => `password="a ${x}"`, (x) => `dbPass=${x}`, (x) => `userPin:${x}`,
+]

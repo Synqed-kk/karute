@@ -211,8 +211,20 @@ const SCHEME_CRED_RE = new RegExp(`\\b(Basic|Token)\\s+${CRED_VALUE.source}`, 'g
  *  used by maskSensitive (text: masks) AND guardOne (every shape position:
  *  token · path and frame file per segment · spaced · transaction name · iso ·
  *  content-type — a hit drops the field). A label word (no leading `\b`, so
- *  access_token / clientSecret match too) then `:` or `=` then a value. */
-export const LABELLED_CRED_RE = /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi
+ *  access_token / clientSecret / dbPass / userPin match too), an optional
+ *  closing quote (the JSON key `"password":`), then `:` or `=` then a value;
+ *  a quoted value is consumed to its closing quote (`password="a b"`).
+ *  Vocabulary (R-S115-1 S1): token · api key · key · secret · pass, password,
+ *  passwd, passcode, passphrase · pwd · pw · psw · auth, authorization ·
+ *  session, session id · credential(s) · pin. What it also eats (masked in
+ *  text, the field dropped at shape positions), because a word merely ENDS in
+ *  a label: `bypass=`, `compass:`, `oauth=`, `OAuth: …`, `spin=`, `chopin:`,
+ *  `monkey:banana`; and real sentences with a label then `:`/`=`:
+ *  `session: expired`, `invalid token: expired`, `missing env key: X`. A
+ *  label with no `:`/`=` after it is kept (`Auth session missing!`,
+ *  `/api/auth/session`, `pinned`, `passthrough`). */
+export const LABELLED_CRED_RE =
+  /(?:token|api[-_]?key|key|secret|pass(?:word|wd|code|phrase)?|pwd|pw|psw|auth(?:orization)?|session(?:[-_]?id)?|credentials?|pin)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|['"]?[^\s&'"]+)/gi
 /** `Bearer` masks whatever follows it (unchanged). */
 const BEARER_RE = /\bBearer\s+\S+/gi
 const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g

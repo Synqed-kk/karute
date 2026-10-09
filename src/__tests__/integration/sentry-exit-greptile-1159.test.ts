@@ -8,6 +8,7 @@ import {
 import { scrubEvent } from '@/lib/observability/sentry-scrub'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { guardContent, preBound } from '@/lib/text/mask-sensitive'
+import { LABEL_FORMS } from './helpers/sentry-exit-plants'
 
 const EID = 'a'.repeat(32)
 const PW = ['Q7m', '!rT2'].join('')
@@ -114,5 +115,25 @@ describe('R-S114-13 — the log line collapses whitespace before it masks', () =
     const { errMessage } = describeUnknownThrow(new Error(['090-1234', '5678'].join('\n\n\n\n')))
     expect(errMessage).not.toContain('090-1234')
     expect(errMessage).not.toContain('1234')
+  })
+})
+
+const PW2 = ['Q7m', 'xrT2'].join('')
+
+describe('R-S115-1 S1 — the widened label vocabulary, one rule at text and shape positions', () => {
+  it.each(LABEL_FORMS.map((f) => [f(PW2)]))('%s: masked at text, dropped at spaced/token/path', (form) => {
+    expect(masked(`failed ${form}`, 400) ?? '').not.toContain(PW2)
+    expect(describeUnknownThrow(new Error(`failed ${form}`)).errMessage).not.toContain(PW2)
+    expect(spaced(`Mozilla/5.0 ${form}`, 400) ?? '').not.toContain(PW2)
+    expect(token(form.replace(/\s/g, ''), 200) ?? '').not.toContain(PW2)
+    expect(path(`/api/${form.replace(/\s/g, '')}`, 300) ?? '').not.toContain(PW2)
+  })
+
+  it('keeps ordinary crash text that holds a label word without `:`/`=`', () => {
+    const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KaruteShell/1'
+    expect(spaced(ua, 400)).toBe(ua)
+    expect(path('/api/auth/session/token', 300)).toBe('/api/auth/session/token')
+    expect(masked('AuthSessionMissingError: Auth session missing!', 200)).toBe('AuthSessionMissingError: Auth session missing!')
+    expect(masked('passthrough failed for pinned row', 200)).toBe('passthrough failed for pinned row')
   })
 })
