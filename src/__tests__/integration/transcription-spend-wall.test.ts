@@ -2156,6 +2156,21 @@ describe('charge once — the durable transcript memo', () => {
     warn.mockRestore()
   })
 
+  it('N2 (S116 r4) the lease answers unknown and the memo landed after the first read → REPLAYED, not paid again', async () => {
+    const first = await call(AUDIO)
+    expect(first.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    // The first read misses (the other door had not landed yet); the lease's first
+    // create fails without landing → 'unknown'. The memo is there by then.
+    storageDownload.mockResolvedValueOnce({ data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } })
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'Internal' } } as never)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const again = await call(AUDIO)
+    warn.mockRestore()
+    expect(again.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
   it('t8 a duplicate refusal (two doors paid in the same moment) is SILENT — the first copy stands', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     memoStore.set(memoKey(AUDIO), 'first copy')

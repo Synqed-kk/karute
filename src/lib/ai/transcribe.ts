@@ -875,7 +875,15 @@ async function meteredTranscription(
         if (mine.state === 'hit') return await answerFromMemo(memoKey, mine.memo, async () => taken)
         break
       }
-      if (taken.state === 'unknown') break
+      if (taken.state === 'unknown') {
+        // ⚖ S116 round 4 (N2): the same S57 re-read before an unleased pay. 'unknown'
+        // is no longer only a storage error (the link cap, an old unreadable claim, a
+        // lease from a clock too far ahead), so a waiter can go busy → unknown across
+        // one poll while the holder's memo lands; that answer is replayed, not re-bought.
+        const mine = await readTranscriptMemo(memoKey)
+        if (mine.state === 'hit') return await answerFromMemo(memoKey, mine.memo, () => takeOnce(memoKey))
+        break
+      }
       const landed = await readTranscriptMemo(memoKey)
       if (landed.state === 'hit') return await answerFromMemo(memoKey, landed.memo, () => takeOnce(memoKey))
       if (meter.door === 'web' || meter.door === 'app') {
