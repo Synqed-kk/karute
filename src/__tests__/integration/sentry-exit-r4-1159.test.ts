@@ -56,7 +56,7 @@ describe('R4 SF3 — each percent-encoded run decodes on its own', () => {
     expect(leaks(log(v), 'hanako', 'example')).toEqual([])
     expect(leaks(exitOut(v), 'hanako', 'example')).toEqual([])
   })
-  it('a run that fails becomes [enc] (its ASCII codes still decode); decoding never lengthens', () => {
+  it('a run that fails becomes [enc] (its ASCII codes still decode); on these inputs (no lone non-UTF-8 code) the decoded text is no longer', () => {
     const v = 'a %E3%8 b %FF%3D c %3D d 100%'
     expect(decodeText(v)).toBe('a [enc]%8 b [enc]= c = d 100%')
     for (const s of [v, ...forms, ...AT]) expect(decodeText(s).length).toBeLessThanOrEqual(s.length)

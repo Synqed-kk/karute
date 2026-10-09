@@ -238,18 +238,25 @@ function decodeRun(run: string): string {
 }
 
 /** THE text decode (R-S115-1 N1) — one definition, used by the Sentry
- *  exit's masked() and the errors.ts server log line. Runs on BOUNDED text
- *  (after preBound): `%40` → `@`, then EACH maximal `%XX` run decoded on its
- *  own (decodeRun; R-S115-10 SF3: one stray `%` or one bad run no longer
- *  turns every decode off), repeated while the text changes (a decoded
- *  `%25%33%44` is `%3D`, decoded again to `=`), at most 4 rounds; a run still
- *  left after that becomes `[enc]`. Decoding never lengthens; the `[enc]`
- *  marker (5 characters) can replace a 3-character code, so the text is at
- *  most 5/3 of the bound (3,334 characters). */
+ *  exit's masked() and the errors.ts server log line (message and, since
+ *  R-S115-15, err.name). Runs on BOUNDED text (after preBound): `%40` → `@`,
+ *  then rounds of: normalise (normaliseText, so a full-width ％ U+FF05 or a
+ *  small ﹪ U+FE6A is a `%` when the decode looks, R-S115-15) and bound again
+ *  (preBound: NFKC can lengthen), then EACH maximal `%XX` run decoded on its
+ *  own (decodeRun; R-S115-10 SF3: one stray `%` or one bad run no longer turns
+ *  every decode off). Rounds repeat until the text is stable (a decoded
+ *  `%25%33%44` is `%3D`, decoded again to `=`; one round per full
+ *  re-encoding). A guard of 8 rounds: a full re-encoding triples the length,
+ *  so a 2000-character text holds at most six of one character (seven is
+ *  2,187 characters); a run still left after 8 rounds becomes `[enc]`.
+ *  Length: decoding a code never lengthens; the `[enc]` marker (5 characters)
+ *  can replace a lone 3-character code (`%FF`), so the result is at most 5/3
+ *  of the bound (3,334 characters); masked() cuts to n and errors.ts caps
+ *  each field after this. */
 export function decodeText(bound: string): string {
   let cur = bound.split('%40').join('@')
-  for (let round = 0; round < 4; round++) {
-    const next = cur.replace(PCT_RUN, decodeRun)
+  for (let round = 0; round < 8; round++) {
+    const next = preBound(normaliseText(cur)).replace(PCT_RUN, decodeRun)
     if (next === cur) return cur
     cur = next
   }
@@ -257,8 +264,8 @@ export function decodeText(bound: string): string {
 }
 
 /** The Sentry exit's `masked(n)` (item 102 § 2.0; R-S113-6 F-S113-2): bound
- *  (preBound) → decodeText (`%40`→`@`, each `%XX` run decoded on its own, a
- *  run that is not valid UTF-8 becomes `[enc]`) → the content guard →
+ *  (preBound) → decodeText (normalised, then `%40`→`@`, each `%XX` run decoded
+ *  on its own until stable, a run that is not valid UTF-8 becomes `[enc]`) → the content guard →
  *  maskSensitive → non-ASCII runs → encoded non-ASCII runs → the guard again
  *  (masks) → cut to n. A text position MASKS, so the decoded-and-masked text
  *  is what leaves. A non-string, an empty result or a value whose only
