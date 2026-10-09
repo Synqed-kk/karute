@@ -3822,15 +3822,22 @@ describe('charge once — the durable transcript memo', () => {
       const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS
       // The take advances `now` by the real time its create took (S120, R-S118-7): freeze it at a 1-ms boundary.
       const frozen = jest.spyOn(Date, 'now').mockReturnValue(NOW)
-      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
-      expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
-      expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
-      expect(expiryWarned(warn)).toBe(false)
-      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND + 1 }))
-      expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
-      expect((await takeTranscriptLease(memoKey(AUDIO), NOW)).state).toBe('held')
-      expect(expiryWarned(warn)).toBe(true)
-      frozen.mockRestore()
+      // …and the create's stall clock (S120: the take times it on performance.now).
+      const frozenStall = jest.spyOn(performance, 'now').mockReturnValue(0)
+      try {
+        leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
+        expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
+        expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
+        expect(expiryWarned(warn)).toBe(false)
+        leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND + 1 }))
+        expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
+        expect((await takeTranscriptLease(memoKey(AUDIO), NOW)).state).toBe('held')
+        expect(expiryWarned(warn)).toBe(true)
+      } finally {
+        // An assert that fails must not leave either clock frozen for the tests after it.
+        frozenStall.mockRestore()
+        frozen.mockRestore()
+      }
     })
   })
 })

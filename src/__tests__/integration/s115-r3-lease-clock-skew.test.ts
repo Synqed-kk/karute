@@ -150,6 +150,7 @@ describe('S3 — clock skew against the TTL margin', () => {
     const now = T0 + DAY
     // The take advances `now` by the real time its create took (S120, R-S118-7): freeze it at a 1-ms boundary.
     jest.spyOn(Date, 'now').mockReturnValue(now)
+    jest.spyOn(performance, 'now').mockReturnValue(0) // and the create's stall clock (restored by afterEach)
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number), nonce: OTHER }), now)
     expect((await take(now)).state).toBe('busy')
     plant(LEASE, JSON.stringify({ v: 1, expires_at: now + TTL + (TOLERANCE as number) + 1, nonce: OTHER }), now)
