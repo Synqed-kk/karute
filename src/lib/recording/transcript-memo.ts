@@ -356,8 +356,12 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
     // pays, holding the claim; its release is a no-op and the claim falls open
     // after one TTL) — never 'unknown', which left a payer holding nothing.
     if (rerooting) {
-      const live = await readLease(key, now)
-      if (live !== null && live.until > now) return { state: 'busy', until: live.until }
+      // ⚖ S116 round 5 (SF-A): a READ ERROR here answers busy, never 「no lease」 — one
+      // blip must not overwrite a live holder. A lasting failure already paid above
+      // (the first read, `seen === null` → unknown), so this cannot stick.
+      const live = await readLeaseOutcome(key, now)
+      if (live.kind === 'error') return { state: 'busy', until: now + TRANSCRIPT_LEASE_CLAIM_BUSY_MS }
+      if (live.kind === 'lease' && live.until > now) return { state: 'busy', until: live.until }
     }
     let taken: { error: unknown }
     try {
@@ -507,21 +511,35 @@ const LEASE_CLOCK_SKEW_MS = TRANSCRIPT_LEASE_CLOCK_SKEW_MS
  *  `now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS`) is unreadable too,
  *  warned: it falls open to paying, never busy forever. */
 async function readLease(key: string, now: number): Promise<{ until: number; nonce?: string } | null> {
+  const read = await readLeaseOutcome(key, now)
+  return read.kind === 'lease' ? { until: read.until, ...(read.nonce !== undefined ? { nonce: read.nonce } : {}) } : null
+}
+
+/** ⚖ S116 round 5 (SF-A) — readLease, telling WHY there is no lease: `none` = a 404,
+ *  or a body this code could not have written; `error` = a download error that is not
+ *  a 404, a throw, or a body that is not JSON (a truncated read). */
+async function readLeaseOutcome(
+  key: string,
+  now: number,
+): Promise<{ kind: 'lease'; until: number; nonce?: string } | { kind: 'none' } | { kind: 'error' }> {
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').download(key)
     if (error || !data) {
-      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.read', error)
-      return null
+      if (error && !isStorageNotFound(error)) {
+        warnStorageUnknown('transcript-lease.read', error)
+        return { kind: 'error' }
+      }
+      return { kind: 'none' }
     }
     const lease = JSON.parse(await data.text()) as Partial<TranscriptLease> | null
-    if (lease?.v !== 1 || typeof lease.expires_at !== 'number') return null
+    if (lease?.v !== 1 || typeof lease.expires_at !== 'number') return { kind: 'none' }
     if (!Number.isFinite(lease.expires_at) || lease.expires_at > now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS) {
       warnStorageUnknown('transcript-lease.expiry', null)
-      return null
+      return { kind: 'none' }
     }
-    return { until: lease.expires_at, ...(typeof lease.nonce === 'string' ? { nonce: lease.nonce } : {}) }
+    return { kind: 'lease', until: lease.expires_at, ...(typeof lease.nonce === 'string' ? { nonce: lease.nonce } : {}) }
   } catch (err) {
     warnStorageUnknown('transcript-lease.read', err)
-    return null
+    return { kind: 'error' }
   }
 }
