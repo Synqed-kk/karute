@@ -177,6 +177,9 @@ const INLINE_URL = /^\s*(data|blob):/i
 export function path(v: unknown, n: number, narrow?: RegExp): string | undefined {
   if (typeof v !== 'string') return undefined
   const s = stripQuery(v)
+  // the length bound before any decode (Greptile #1159 G3): decoding never
+  // lengthens, so an oversized original fails the class test below anyway
+  if (s.length > n) return undefined
   const d = pctDecode(s)
   if (d === null) return undefined
   for (const c of s === d ? [s] : [s, d]) {
@@ -189,7 +192,7 @@ export function path(v: unknown, n: number, narrow?: RegExp): string | undefined
 /** spaced(n): printable ASCII, the email rule and the content guard on BOTH the
  *  value and its stable percent-decoded copy; the ORIGINAL is what leaves. */
 export function spaced(v: unknown, n: number): string | undefined {
-  if (typeof v !== 'string') return undefined
+  if (typeof v !== 'string' || v.length > n) return undefined
   const d = pctDecode(v)
   if (d === null) return undefined
   for (const c of v === d ? [v] : [v, d]) {

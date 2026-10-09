@@ -69,3 +69,19 @@ describe('G2 — nothing is cut before it is masked', () => {
     expect(preBound('ok then 5')).toBe('ok then 5')
   })
 })
+
+describe('G3 — the length bound runs before any decode', () => {
+  it('path and spaced never decode an oversized value', () => {
+    const spy = jest.spyOn(globalThis, 'decodeURIComponent')
+    try {
+      const big = '/a%41'.repeat(1000)
+      expect(path(big, 300)).toBeUndefined()
+      expect(spaced('ua %41'.repeat(1000), 400)).toBeUndefined()
+      expect(spy).not.toHaveBeenCalled()
+      expect(path('/a%41', 300)).toBe('/a%41')
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
