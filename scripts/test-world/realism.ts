@@ -1,5 +1,5 @@
 // realism.ts — THE REALISM PASS on the loader's own bookings (Liam 9/25: 「make them look real … think in the business
-// shoes」). fill.ts only ADDS (its static test forbids an update call); this script CHANGES existing rows, so it lives
+// shoes」). fill.ts adds rows (its only status write goes through close-out.ts); this script CHANGES existing rows, so it lives
 // apart, like close-out.ts. Per managed store (registry.json), on loader-owned bookings only:
 //   · notes — the tag stays first (every reader: /\[(tw:[^\]]+)\]/ or '[tw:'), the booking's ご要望 line follows on the
 //     next line (plan.ts requestFor: a function of the key, so fill.ts writes the same line on the rows it makes later)
@@ -44,7 +44,7 @@ import {
 } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, bookingNotes, plan, rng, type Plan, type Recipe } from './plan'
+import { addDays, bookingNotes, isGeneratedNote, loaderSet, plan, rng, type Plan, type Recipe } from './plan'
 
 export type RealismCore = Pick<FillCore, 'orgSettings' | 'stores' | 'staff' | 'customers' | 'appointments' | 'karuteRecords' | 'packs'>
 export type Fields = { notes?: string | null; status?: AppointmentStatus; status_reason?: string | null; duration_minutes?: number | null }
@@ -54,7 +54,6 @@ export interface Ledger { businessId: string; at: string; planHash: string; mani
 const TAG = /\[(tw:[^\]]+)\]/
 const jstDate = (iso: string) => new Date(Date.parse(iso) + 9 * 3_600_000).toISOString().slice(0, 10)
 /** A status the loader (fill's create, close-out) or this script set — never one a person set in the app. */
-const loaderSet = (a: Appointment) => a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 /** Seeded order: the same rows, the same pick, on every run (the rate sampler). */
 const seeded = <T extends { id: string }>(xs: T[], seed: string) => xs.map((x) => ({ x, w: rng(`${seed}|${x.id}`)() })).sort((a, b) => a.w - b.w).map((y) => y.x)
 /** Every field of f holds on the row as read (apply's and revert's check before a write). */
@@ -90,12 +89,13 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
   for (const a of i.rows) {
     const tag = TAG.exec(a.notes ?? '')?.[1]
     const p = tag ? planned.get(tag) : undefined
-    const bare = `テストデータ [${tag}]`
     const why = !tag ? `not a loader booking (source ${a.source})`
       : seen.get(tag)! > 1 ? `its tag ${tag} is on ${seen.get(tag)} bookings`
       : !p ? `${tag} is not in the plan`
       : a.customer_id !== i.custId.get(p.member) ? `its customer differs from the planned customer (${p.member})`
-      : a.notes !== bare && a.notes !== bookingNotes(p) ? 'its notes were edited by hand' // any text but the plan's own line
+      // ⚖ G-P2 (S88): asked with the row's SAVED reason (the label this script writes); the plan's label, which runs
+      // before S88 wrote, is still the loader's own line
+      : !isGeneratedNote(a.notes, { ...p, cancelReason: a.status === 'CANCELLED' ? a.status_reason : null }) && !isGeneratedNote(a.notes, p) ? 'its notes were edited by hand' // any text but a line the loader wrote for this key
       : null
     if (why) {
       const dur = a.duration_minutes != null ? '' : a.source === 'MANUAL' ? ' — its duration_minutes is null (a MANUAL booking: --repair-foreign leaves it)'
@@ -154,9 +154,11 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
     const [p, n] = [pOf.get(a.id), next.get(a.id)!]
     const old: Fields = {}
     const set: Fields = {}
-    if (p && a.notes !== bookingNotes(p)) {
+    // ⚖ G-P2 (S88): ONE value — the label is the reason saved on this row in this write (n), never the plan's guess
+    const note = p && bookingNotes({ ...p, cancelReason: n.status === 'CANCELLED' ? n.status_reason : null })
+    if (p && a.notes !== note) {
       old.notes = a.notes
-      set.notes = bookingNotes(p)
+      set.notes = note
     }
     if (p && (n.status !== a.status || n.status_reason !== a.status_reason)) {
       // core writes status_reason only beside a status (the same one restated when only the reason moves)
@@ -210,19 +212,19 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   const changes: Change[] = []
   const realismFrom: Ledger['realismFrom'] = []
   for (const storeId of o.stores) {
-    const type = registry.stores[storeId]
+    const type = registry.stores[storeId]?.type
     const st = o.manifest.stores[storeId]
     if (!type) return (log(`REFUSED: store ${storeId} is not a managed test store (registry.json)`), 2)
     if (!st || st.type !== type) throw new Error(`store ${storeId}: not in the manifest as ${type}`)
-    const recipe = await loadRecipe(type)
-    const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
+    const recipe = await loadRecipe(type, storeId, st.pastDays)
+    const p = plan(recipe, storeCtx(storeId, st, o.manifest.runs), today, st.epoch)
     const rows = await read(() => pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, page, page_size: 500 })))
     const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
     const burnt = new Set<string>()
     for (const cid of new Set(rows.map((a) => a.customer_id).filter((x): x is string => !!x)))
       // SDK skew: core sends appointment_id (packs.service listRedemptionsByCustomer); the SDK type does not declare it
       for (const b of (await read(() => core.packs.listRedemptions(cid))) as { appointment_id?: string | null }[]) if (b.appointment_id) burnt.add(b.appointment_id)
-    const lastPlanned = [...o.manifest.runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, recipe.counts.futureDays)), ...rows.filter((a) => TAG.exec(a.notes ?? '')?.[1].startsWith(`tw:${type}:`)).map((a) => jstDate(a.starts_at))].sort().pop() ?? addDays(st.epoch, recipe.counts.futureDays)
+    const lastPlanned = [...o.manifest.runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, recipe.counts.futureDays)), ...rows.filter((a) => TAG.exec(a.notes ?? '')?.[1].startsWith(`tw:${registry.stores[storeId].keyPrefix}:`)).map((a) => jstDate(a.starts_at))].sort().pop() ?? addDays(st.epoch, recipe.counts.futureDays)
     let out: ReturnType<typeof planStore>
     try {
       out = planStore({ recipe, storeId, plan: p, rows, custId, karuted: karuted as Set<string>, burnt, today, lastPlanned, realismFrom: st.realismFrom ?? null, repairForeign: o.repairForeign })
@@ -337,7 +339,7 @@ if (process.argv[1]?.endsWith('realism.ts')) {
       if (m && path && JSON.stringify(m) !== before) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
       return code
     }
-    const stores = store ? [store] : Object.keys(registry.stores)
+    const stores = store ? [store] : Object.keys(m?.stores ?? {}) // the stores this manifest has applied
     const before = JSON.stringify(m)
     try {
       return await realism(core, {

@@ -21,7 +21,7 @@ async function main() {
   const p = plan(recipe, { storeId: STORE, weeklyHours: recipe.policy.weekly_hours }, TODAY, EPOCH)
   const rows = p.appointments.map((a) => ({
     id: `a-${a.key}`, key: a.key, date: a.date, want: a.status, store_id: STORE, customer_id: `c-${a.member}`, staff_id: `s-${a.staff}`,
-    starts_at: a.startsAt, notes: `テストデータ [${a.key}]` as string | null, status: a.date >= EPOCH ? 'SCHEDULED' : a.status,
+    starts_at: a.startsAt, ends_at: a.endsAt, notes: `テストデータ [${a.key}]` as string | null, status: a.date >= EPOCH ? 'SCHEDULED' : a.status,
   }))
   const stale = rows.filter((r) => r.date >= EPOCH && r.date < TODAY) // made SCHEDULED at the epoch, their day now past
   const [future, untagged, done, foreign, ghost, twin, elsewhere, owned, lone] = stale
@@ -38,9 +38,26 @@ async function main() {
   const [copy, twinCopy] = [{ ...owned, id: 'copy-row' }, { ...twin, id: 'twin-row' }]
   const loneAbroad = { ...lone, id: 'lone-abroad', store_id: 'store-other' } // lone's tag in another store; lone has no recorded id
   rows.push(probe, copy, twinCopy, loneAbroad)
-  const want = stale.slice(7).map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
+  // ⚖ G-P1 (S88): a past SCHEDULED row staff moved an hour earlier is no longer the planned booking (stillPlanned): skipped
+  const shifted = stale[stale.length - 1]
+  assert.ok(stale.length > 10 && shifted.status === 'SCHEDULED', 'the fixture: a spare stale SCHEDULED row')
+  shifted.starts_at = new Date(Date.parse(shifted.starts_at) - 3_600_000).toISOString()
+  shifted.ends_at = new Date(Date.parse(shifted.ends_at) - 3_600_000).toISOString()
+  stale[7].status = 'IN_PROGRESS' // ⚖ R2: a row the loader wrote 施術中 on a day now past is closed out too
+  // ⚖ F1 (S88): loaderSet() is the ONE manual-edit guard — a status a person set is never rewritten; the loader's own reason or no setter is
+  const [personSet, loaderReason, noSetter] = [stale[stale.length - 2], stale[stale.length - 3], stale[stale.length - 4]]
+  Object.assign(personSet, { status_set_by: 'staff-x', status_reason: '電話で来店確認' })
+  Object.assign(loaderReason, { status_set_by: 'staff-x', status_reason: 'テストデータ close-out' })
+  Object.assign(noSetter, { status_set_by: null, status_reason: null })
+  // the real-world case: a past-day 施術中 row a person set (status_set_by + a non-loader reason) is never closed out
+  const personInProgress = stale[stale.length - 5]
+  assert.ok(stale.length > 13 && personInProgress.status === 'SCHEDULED' && !['SCHEDULED', 'IN_PROGRESS'].includes(personInProgress.want), 'the fixture: a spare stale row the plan calls over')
+  Object.assign(personInProgress, { status: 'IN_PROGRESS', status_set_by: 'staff-y', status_reason: '施術開始（手動）' })
+  // ⚖ R2: today's started rows the plan already calls over are closed; a planned SCHEDULED or IN_PROGRESS one is left alone
+  const overToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime() && !['SCHEDULED', 'IN_PROGRESS'].includes(r.want))
+  const want = [...stale.slice(7).filter((r) => r !== shifted && r !== personSet && r !== personInProgress), ...overToday].map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
-  assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
+  assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0 && startedToday.some((r) => r.want === 'IN_PROGRESS') && overToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
   const fake = (business = DEV_SALON_BUSINESS_ID, failId = '') => {
     const [calls, reads] = [[] as { id: string; input: unknown }[], { org: 0, appts: 0 }]
@@ -53,7 +70,7 @@ async function main() {
     return { core: core as unknown as FillCore, calls, reads }
   }
   const run = async (apply: boolean, f = fake(), lines: string[] = []) => ({ ...f, lines, code: await closeOut(f.core, STORE, m, NOW, apply, (l) => void lines.push(l)) })
-  const table = (mode: string, written: boolean) => [`mode: ${mode} · today ${TODAY}`, ...['COMPLETED', 'CANCELLED', 'NO_SHOW'].map((s) => ((n) => `${s}: planned ${n} · written ${written ? n : 0}`)(want.filter((w) => w.input.status === s).length))]
+  const table = (mode: string, written: boolean) => [`mode: ${mode} · today ${TODAY}`, ...['COMPLETED', 'CANCELLED', 'NO_SHOW', 'IN_PROGRESS'].map((s) => ((n) => `${s}: planned ${n} · written ${written ? n : 0}`)(want.filter((w) => w.input.status === s).length))]
   const head = (lines: string[]) => lines.filter((l) => !l.startsWith('skipped: '))
   const dry = await run(false)
   const ap = await run(true)
@@ -61,7 +78,7 @@ async function main() {
 
   assert.ok(!touched(future.id), '(c) a future SCHEDULED tagged row is untouched')
   assert.ok(!touched(untagged.id) && !ap.lines.some((l) => l.includes(untagged.id)), '(d) an untagged past SCHEDULED row is untouched, no line')
-  const terminal = rows.filter((r) => r.status !== 'SCHEDULED').map((r) => r.id)
+  const terminal = rows.filter((r) => !['SCHEDULED', 'IN_PROGRESS'].includes(r.status)).map((r) => r.id)
   assert.ok(terminal.length > 10 && !ap.calls.some((c) => terminal.includes(c.id)), '(e) COMPLETED / CANCELLED / NO_SHOW rows are untouched')
   assert.deepEqual(ap.lines.filter((l) => l.includes(foreign.id)), [`skipped: appointments ${foreign.key}: booking ${foreign.id}'s customer differs from the planned customer, left alone`], '(f) a customer-mismatch row is skipped with one line')
   assert.ok(!touched(foreign.id), '(f) a customer-mismatch row is untouched')
@@ -73,6 +90,10 @@ async function main() {
   const twinLines = [twin.id, twinCopy.id].map((id) => `skipped: appointments ${twin.key}: booking ${id} carries a tag seen on 2 bookings, left alone`)
   assert.deepEqual([touched(twin.id), touched(twinCopy.id), ap.lines.filter((l) => l.includes(twin.key))], [false, false, twinLines], '(m) one tag on two bookings, no recorded id: both skipped with a line, 0 writes')
   assert.deepEqual([touched(lone.id), touched(loneAbroad.id), ap.lines.filter((l) => l.includes(lone.key))], [true, false, []], '(p) the same tag in another store is not ambiguity: this store\'s row is written, no line')
+  assert.deepEqual(only(shifted.id), [false, [`skipped: appointments ${shifted.key}: booking ${shifted.id}'s time or duration differs from the plan (or its staff, where the planned staff is known) — a person moved it, left alone`]], '(q) a past SCHEDULED row moved to another time: one skipped line, no write')
+  assert.deepEqual(only(personSet.id), [false, [`skipped: appointments ${personSet.key}: booking ${personSet.id}: a person set its status, left alone`]], '(r) a past SCHEDULED row whose status a person set (status_set_by + a non-loader reason): one skipped line, no write')
+  assert.deepEqual(only(personInProgress.id), [false, [`skipped: appointments ${personInProgress.key}: booking ${personInProgress.id}: a person set its status, left alone`]], '(r) a past-day IN_PROGRESS row whose status a person set: one skipped line, no write')
+  assert.deepEqual([only(loaderReason.id), only(noSetter.id)], [[true, []], [true, []]], '(r) the loader\'s own reason (テストデータ…) or no setter: still closed out, no line')
   const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x.id.localeCompare(y.id))
   assert.deepEqual(byId(ap.calls), byId(want), '(b) apply: exactly the tagged + SCHEDULED + past + owned rows, with plan() status and the exact input')
   assert.deepEqual([ap.code, head(ap.lines)], [0, table('apply', true)], '(b) apply: written = planned per status')
