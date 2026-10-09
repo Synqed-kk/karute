@@ -655,10 +655,10 @@ async function main() {
   const watched = (fail?: (call: string) => boolean, err: Error = full, fo: Parameters<typeof fakeCore>[0] = {}) => {
     const f = fakeCore(fo)
     Object.assign(f.core.staffStores, { counts: async () => ({ counts: { [STORE]: f.t.links.size } }) })
-    const s = { calls: 0, inFlight: 0, max: 0, starts: [] as number[], clock: 0, failedAt: 0, names: [] as string[] }
+    const s = { calls: 0, inFlight: 0, max: 0, starts: [] as number[], clock: 0, failedAt: 0, after: 0, names: [] as string[] }
     for (const [ns, obj] of Object.entries(f.core as unknown as Record<string, Record<string, (...a: unknown[]) => Promise<unknown>>>))
       for (const [k, fn] of Object.entries(obj)) obj[k] = async (...args: unknown[]) => {
-        s.calls++, s.inFlight++, s.starts.push(s.clock), s.names.push(`${ns}.${k}`)
+        s.calls++, s.inFlight++, s.starts.push(s.clock), s.names.push(`${ns}.${k}`), (s.after += +!!s.failedAt)
         s.max = Math.max(s.max, s.inFlight)
         try {
           await new Promise((r) => setImmediate(r)) // a request takes time: overlap shows
@@ -726,6 +726,11 @@ async function main() {
   assert.ok(sr.s.failedAt > 0 && sr.s.calls === sr.s.failedAt, `read-back: failed at request ${sr.s.failedAt}, ${sr.s.calls} started`)
   assert.deepEqual([srLog.filter((l) => l === SATURATED_LINE).length, srLog.some((l) => l.startsWith('section |'))], [1, false], srLog.join('\n'))
   console.log(`✓ S90 EMAXCONN in read-back: stopped at request ${sr.s.failedAt}, ${sr.s.calls - sr.s.failedAt} started after, exit 0 kept`)
+  // the stop at 3 in flight, other workers waiting on the limiter: no request starts after the first EMAXCONN
+  const s3 = watched((call) => call === 'appointments.create')
+  assert.equal(await apply(s3.core, { ...opts(empty()), limiter: s3.lim({ concurrency: 3, pauseMs: 150 }) }), 1)
+  assert.ok(s3.s.max === 3 && s3.s.failedAt > 0 && s3.s.after === 0, `3 in flight: max ${s3.s.max}, ${s3.s.after} started after the stop`)
+  console.log(`✓ S90 stop at 3 in flight: failed at request ${s3.s.failedAt}, max in flight ${s3.s.max}, ${s3.s.after} started after the stop`)
   // the full-database text only in the error code, or only in the JSON body, stops the run too
   for (const err of [Object.assign(new Error('pool refused'), { status: 500, code: 'EMAXCONN' }), Object.assign(new Error('unavailable'), { status: 503, body: { error: { message: 'sorry, too many clients already' } } })]) {
     const sc = watched((call) => call === 'appointments.create', err)
