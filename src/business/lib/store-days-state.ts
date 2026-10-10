@@ -1,10 +1,12 @@
 // ⚖ PKT-S30 F2 (m6 + m15) — the ONE home of how 設定's 臨時休業・特別営業日 lists change after a
-// write. Pure: no imports, no I/O, safe on both sides of the client boundary — it lives here, not in
+// write. Pure: no I/O (one import, the Business strings, for withCoreRef), safe on both sides of the client boundary — it lives here, not in
 // practice-door/, because foundation.test.ts forbids any 'use client' file a value path into the door. SettingsScreen.tsx's
 // store-days callbacks call ONLY these; each takes the write's own answer, so:
 //   · the committed row is core's OWN returned row / array — the typed input is never an argument;
 //   · a failed write (`{ ok: false }`) returns `prev` itself (same reference, byte-identical);
 //   · 臨時休業 are kept in date order (P3-7), 特別営業日 are replaced wholesale by core's array.
+
+import { businessStrings } from '@/business/i18n'
 
 /** One 臨時休業 as core returns it (only the fields the screen shows). */
 export type ClosureCore = { id: string; date: string; reason: string | null }
@@ -57,6 +59,10 @@ export const LIVE_SAVE_LINE = '「追加」「取り消す」を押すとすぐ�
 export const ADD_PENDING_LABEL = '追加中'
 export const REMOVE_PENDING_LABEL = '取り消し中'
 /** A write that did not land (core / tenant refusal, or no answer at all). */
+/** ⚖ R-S97-2 (P2) — a save refused because core did not answer: its message ends in the page notice's エラー番号 line
+ *  (LABEL-FINAL, ja.json) with the bound's ref; no ref = the message unchanged. */
+export const withCoreRef = (message: string, ref: string | undefined): string =>
+  ref === undefined ? message : message + businessStrings.coreUnanswered.reference.replace('{ref}', ref)
 export const GENERIC_FAIL_LINE = 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。'
 /** Validation lines the door (door-writes.ts MSG) and the OFF-world draft add both print. */
 export const PICK_DATE_LINE = '日付を選んでください。'

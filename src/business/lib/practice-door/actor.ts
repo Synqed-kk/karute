@@ -55,6 +55,12 @@ export class CoreUnanswered extends Error {
   }
 }
 
+/** ⚖ R-S97-2 — a SAVE refused because core did not answer keeps its own log line, carrying the bound's ref (one outage,
+ *  one number wherever it surfaces); any other failure's text is exactly as before. */
+export const failText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) + (e instanceof CoreUnanswered ? ` ref=${e.ref}` : '')
+/** The bound's ref for a save's result (`{}` for any other failure, so its result is unchanged). */
+export const coreRefOf = (e: unknown): { ref?: string } => (e instanceof CoreUnanswered ? { ref: e.ref } : {})
+
 /** Symbol slots on the RAW reads object (never a Map: this folder's fence bans the `.set(` token): the bounded object,
  *  once per raw object (practice-door-on pins `a.reads === b.reads`); the outage ref, minted once, so one outage is one
  *  line and one number; the staff-store assignments, read once per actor (door.ts asks three times per render). */

@@ -5,9 +5,9 @@
 // through door.ts's own once-per-actor read (`orgSettingsOf`) and asks door.ts's one `settings.manage`
 // truth (`canManageSettings`). data.ts is its only importer.
 
-import { practiceActor, visibleIds, type PracticeActor } from './actor'
+import { coreRefOf, failText, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings, coreRefOf, failText, orgSettingsOf } from './door'
+import { canManageSettings, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
 import { BOOKING_PALETTE, bookingColorsFor, bookingColorsKeyFor, type BookingColors } from '../booking-colors'
 

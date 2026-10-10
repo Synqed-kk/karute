@@ -26,13 +26,13 @@
 // Every type below is derived from `CoreReads`/`CoreClient` instead (same
 // trick practice-door-recorded.ts uses), and `SynqedError` is recognised by
 // shape (`isSynqedError`) rather than `instanceof` — no import needed either way.
-import { CoreUnanswered, practiceActor, visibleIds, type PracticeActor } from './actor'
+import { CoreUnanswered, coreRefOf, failText, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings, failText, withCoreRef } from './door'
+import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
 import { pickReservePolicy, type ReservePolicy } from './reserve-policy'
-import { applySpecialOpenDays, DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
+import { applySpecialOpenDays, DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge, withCoreRef } from '../store-days-state'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
 
@@ -245,7 +245,7 @@ function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal
     return { ok: false, reason: 'core', message: MSG.genericFail }
   }
   console.error('[business store days] core did not save:', failText(e))
-  return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, e) }
+  return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, coreRefOf(e).ref) }
 }
 
 // ── admission (shared by all four exports) ──────────────────────────────────
@@ -268,7 +268,7 @@ async function admitActor(): Promise<Admitted | Refusal> {
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return TENANT_REFUSAL
     console.error('[business store days] core did not answer:', failText(e))
-    return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, e) }
+    return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, coreRefOf(e).ref) }
   }
   return { ok: true, actor, reach }
 }

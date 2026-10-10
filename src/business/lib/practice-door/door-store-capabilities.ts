@@ -6,9 +6,9 @@
 // `reserve_store_capabilities:<storeId>` until CORE-47 lands. data.ts is its only importer.
 // This file adds no fixture import of its own; door.ts below it (imported here) holds the practice fixtures.
 
-import { practiceActor, visibleIds, type PracticeActor } from './actor'
+import { coreRefOf, failText, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings, coreRefOf, failText, listStoreOptions, orgSettingsOf } from './door'
+import { canManageSettings, listStoreOptions, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
 import { CAP_KEYS, LockedSwitchOn, parseInternalRecord, parseLoses, parseRecord, recordHash, sameJson, seedRecord, seedTypeOf, serializeRecord, stampSave, storeCapabilitiesKeyFor, type BusinessTypeKey, type CapKey, type CapRecord } from '../store-page/model'
 

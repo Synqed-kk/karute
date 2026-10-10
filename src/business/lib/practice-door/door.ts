@@ -12,10 +12,10 @@
 // ./door-booking-colors.ts (R-S39-1: one allowlist entry per file::call); it reads through
 // `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
-import { assertLensVisible, CoreUnanswered, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
+import { assertLensVisible, CoreUnanswered, coreRefOf, failText, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor } from './registry'
 import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
-import { borrows, CORE_REF_LINE, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
+import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
 import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
 import {
@@ -498,14 +498,6 @@ export async function readBookingColors(): Promise<Record<string, unknown> | nul
   if (settings === null || settings === undefined || typeof settings !== 'object') return null
   return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
-
-/** ⚖ R-S97-2 — a SAVE refused because core did not answer keeps its own log line, carrying the bound's ref, and its
- *  message gains the page notice's エラー番号 line: one outage, one number wherever it surfaces. Any other failure: the
- *  text and the message exactly as before. */
-export const failText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) + (e instanceof CoreUnanswered ? ` ref=${e.ref}` : '')
-export const withCoreRef = (message: string, e: unknown): string => (e instanceof CoreUnanswered ? message + CORE_REF_LINE.replace('{ref}', e.ref) : message)
-/** The same number for a save whose result carries no message (the screen owns its words). */
-export const coreRefOf = (e: unknown): { ref?: string } => (e instanceof CoreUnanswered ? { ref: e.ref } : {})
 
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
 export const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
