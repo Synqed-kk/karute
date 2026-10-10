@@ -403,6 +403,9 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: { has(
   if (intent.appointment_id) {
     const own = inWindow.find((r) => r.appointment_id === intent.appointment_id)
     if (own) return own.id
+    // Greptile #1163 F3: booking-bound intents (no_show · cancel · auto) match on
+    // appointment_id ONLY — the null-row fallback is for walk-in sources.
+    if (!HOLDABLE.includes(intent.ledger_source)) return null
     const nullRow = inWindow.find(
       (r) => r.appointment_id === null && day(r.redeemed_on) > cutover && !['qr', 'pos', 'import'].includes(r.source),
     )
