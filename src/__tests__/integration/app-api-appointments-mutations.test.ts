@@ -117,8 +117,23 @@ const listClosedDays = jest.fn(
   ): Promise<{ closed_days: { date: string }[] }> => ({ closed_days: [] }),
 )
 /* eslint-enable @typescript-eslint/no-unused-vars */
+// S126 R-S126-1 a/c: read-after-write — get() returns the booking merged with
+// the last update(), so the R2 re-check inside the first P3 attempt reads the
+// status write back. Reset per test (beforeEach); the spies see every call.
+let apptWritten: Record<string, unknown> = {}
 const fakeClient = {
-  appointments: { create: apptCreate, get: apptGet, update: apptUpdate },
+  appointments: {
+    create: apptCreate,
+    get: async (...a: unknown[]) => {
+      const b = await (apptGet as jest.Mock)(...a)
+      return b ? { ...b, ...apptWritten } : b
+    },
+    update: async (...a: unknown[]) => {
+      const out = await (apptUpdate as jest.Mock)(...a)
+      apptWritten = { ...apptWritten, ...(a[1] as Record<string, unknown>) }
+      return out
+    },
+  },
   // createAppointmentCore's live active + business check (fix round 7).
   staff: { get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'business-1' })) },
   packs: { listRecentRedemptions: jest.fn(async () => [] as { appointment_id: string }[]) },
@@ -141,6 +156,7 @@ const fakeClient = {
     })),
   },
 }
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
 }))
@@ -202,6 +218,7 @@ const MENU_ID = '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7'
 
 beforeEach(() => {
   jest.clearAllMocks()
+  apptWritten = {}
   roster.current = ROSTER
   mockCapabilities.mockResolvedValue(new Set(['bookings.manage']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -532,15 +549,16 @@ describe('POST /api/app/v1/appointments/[id]/cancel', () => {
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 
-  it('a FAILED pack read keeps the web contract: no_burnable_pack code, no write, no burn', async () => {
-    listPacks.mockRejectedValueOnce(new Error('core down'))
+  it('a FAILED pack read is pending, never no_burnable_pack: status written, no burn yet', async () => {
+    listPacks.mockRejectedValue(new Error('core down'))
     const res = await cancelPOST(
       post(URL_, { reason: 'cancel-same-day-contact', burnPack: true }),
       params('appt-1'),
     )
     expect(res.status).toBe(200)
-    expect((await res.json()).code).toBe('no_burnable_pack')
-    expect(apptUpdate).not.toHaveBeenCalled()
+    // S126 R-S126-1 f: a pack-read ERROR = pending, never 「no burnable pack」 (design v4.2 § 6a; pack_id null until the first pick, § 2)
+    expect(await res.json()).toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledTimes(1)
     expect(addRedemption).not.toHaveBeenCalled()
   })
 
