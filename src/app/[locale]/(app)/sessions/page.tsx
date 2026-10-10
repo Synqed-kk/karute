@@ -21,6 +21,12 @@ import { getAiPreSessionBrief, type PreSessionBriefResult } from '@/lib/karute/a
 import { buildRecordScreen } from '@/lib/karute/record-screen'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 
+// ⚖ S115 (N2): this page's server actions include a PAYING door — the discard
+// transcript (src/actions/recording-discard-transcript.ts → runMeteredTranscription),
+// called from RecordPageView. A server action runs under its page's limit, so it is
+// pinned here like every paying route: the lease TTL (330 s) is cut against 300.
+export const maxDuration = 300
+
 export default async function SessionsPage({
   params,
   searchParams,

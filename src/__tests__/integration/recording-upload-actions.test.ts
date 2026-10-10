@@ -148,6 +148,7 @@ import {
   extFromMime,
   MIME_TO_EXT,
 } from '@/lib/recording/key-grammar'
+import { transcriptLeaseClaimKey, transcriptLeaseKey, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
@@ -1895,6 +1896,44 @@ describe('composeTranscriptKey — the paid answer, named for its audio', () => 
     expect(looksLikeRecordingKey('trc')).toBe(false)
     expect(looksLikeRecordingKey(memo)).toBe(false)
     expect(looksLikeRecordingKey(composeTranscriptKey('biz-1', take(), 'ja')!.key)).toBe(false)
+  })
+
+  // ⚖ S58 (blind read finding 5): the lease and the true-up object live beside the memo, one
+  // suffix further — and parse as NO key kind, so no fence or sweep can mistake either for audio
+  // or for a memo.
+  it.each([
+    ['take', take],
+    ['rescue', rescue],
+  ])('s58 the lease and true-up keys of a %s memo parse as NO key kind, in both languages', (_label, audio) => {
+    for (const locale of ['ja', 'en'] as const) {
+      const memo = composeTranscriptKey('biz-1', audio(), locale)!.key
+      const lease = transcriptLeaseKey(memo)
+      const trueUp = transcriptTrueUpKey(memo, '2026-10-10T01:02:03.456Z')
+      expect(lease).toBe(`trc/${audio()}.${locale}.lease.json`)
+      // S120 (G6): one true-up object per memo generation, named by the memo's written_at.
+      expect(trueUp).toBe(`trc/${audio()}.${locale}.g20261010T010203456Z.trueup.json`)
+      // ⚖ S115: the claim keys — a nonce generation, a pre-S114 expiry generation, and the next
+      // link a dead claim chains to (named by that claim's nonce: the same shape).
+      const nonce = '0b5e7c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d'
+      const claims = [
+        transcriptLeaseClaimKey(memo, { until: 1_800_000_000_000, nonce }),
+        transcriptLeaseClaimKey(memo, { until: 1_800_000_000_000 }),
+        transcriptLeaseClaimKey(memo, { until: 0, nonce: 'dead0000-0000-4000-8000-000000000000' }),
+      ]
+      expect(claims).toEqual([
+        `trc/${audio()}.${locale}.lease.${nonce}.claim.json`,
+        `trc/${audio()}.${locale}.lease.t1800000000000.claim.json`,
+        `trc/${audio()}.${locale}.lease.dead0000-0000-4000-8000-000000000000.claim.json`,
+      ])
+      for (const key of [lease, trueUp, ...claims]) {
+        expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+        expect(parseRecordingKey(key, 'biz-2')).toBeNull()
+        expect(isOwnRecordingKey(key, 'biz-1')).toBe(false)
+        expect(isOwnAudioKey(key, 'biz-1')).toBe(false)
+        expect(isStagedKeyFor(key, 'biz-1', SESSION_UUID)).toBe(false)
+        expect(looksLikeRecordingKey(key)).toBe(false)
+      }
+    }
   })
 })
 

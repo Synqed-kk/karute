@@ -234,9 +234,25 @@ async function resolveActorUserId(synqed: SynqedClient, staffId: string): Promis
     .catch(() => null)
 }
 
+// S118 (#1088 r6) — WHY ≥ ON THE CLAIMED ROW IS RIGHT (core main e85773067):
+// claimNext (src/services/recording-job.service.ts:~98-112) runs
+// `UPDATE … SET status='RUNNING', claimed_at=now(), attempts = attempts + 1 … RETURNING id`,
+// then findUniqueOrThrow on that id AFTER the update and returns toPublic(row)
+// (:29-51, snake_case `attempts: r.attempts`, `max_attempts: r.maxAttempts`);
+// POST /v1/recording-jobs/claim (src/routes/recording-jobs.ts:38-41) returns it as is.
+// So the row the worker sees is the POST-increment one: the 3rd claim of a
+// max-3 job reads attempts 3 ≥ 3 = the last.
+/** ⚖ S116 round 5 (R-S116-9) — is this claim the job's last attempt? Core counts
+ *  attempts on claim and FAILs at attempts ≥ max_attempts; an unreadable count = last. */
+export function isLastAttempt(job: Pick<RecordingJob, 'attempts' | 'max_attempts'>): boolean {
+  const { attempts, max_attempts: max } = job as { attempts?: unknown; max_attempts?: unknown }
+  if (typeof attempts !== 'number' || typeof max !== 'number' || !Number.isFinite(attempts) || !Number.isFinite(max)) return true
+  return attempts >= max
+}
+
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
  *  fail() to core, which requeues or FAILs by attempts. */
-async function processJob(job: RecordingJob): Promise<string> {
+async function processJob(job: RecordingJob, invocationStartedAt?: number): Promise<string> {
   const payload = job.payload as unknown as RecordingJobPayload
   if (!payload?.customer_id || !payload.staff_id || !payload.audio_path) {
     throw new Error('Job payload missing customer_id/staff_id/audio_path')
@@ -454,6 +470,9 @@ async function processJob(job: RecordingJob): Promise<string> {
         staffId: payload.staff_id,
         takeId: parsedKey && 'takeId' in parsedKey ? parsedKey.takeId : null,
         attempt: job.attempts,
+        // ⚖ S116 round 5 (R-S116-9): a count that cannot be read is treated as the last.
+        lastAttempt: isLastAttempt(job),
+        invocationStartedAt,
         rescued,
         requestId: job.id,
         // Re-checked with isOwnAudioKey above. A `rsc/` path composes its own
@@ -883,7 +902,8 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
   processed: number
   failed: number
 }> {
-  const deadline = Date.now() + budgetMs
+  const invocationStartedAt = Date.now()
+  const deadline = invocationStartedAt + budgetMs
   // Worker verbs are cross-tenant — business on this client is irrelevant for
   // claim/fail/complete, and per-job calls build a per-business client above.
   const worker = coreClient('00000000-0000-0000-0000-000000000000')
@@ -894,7 +914,7 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
     const job = await worker.recordingJobs.claim()
     if (!job) break
     try {
-      const recordId = await processJob(job)
+      const recordId = await processJob(job, invocationStartedAt)
       await worker.recordingJobs.complete(job.id, recordId)
       processed++
     } catch (err) {
