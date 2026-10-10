@@ -13,7 +13,7 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedC
 
 import {
   attemptIntent, classifyCoreFailure, displayRemaining, preReadMatch, readLedgerUsage, recordUse,
-  settlePending, usageFromRows, cutoverDay, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
+  settlePending, usageFromRows, cutoverDay, CUTOVER_FLOOR_DAY, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
   MAX_CALLER_DURATION_MS,
   supabaseLedgerStore, BUSINESS_PAGE, SETTLE_BUSINESS_PAGES_MAX,
   type IntentRow, type LedgerStore, type Where,
@@ -325,6 +325,46 @@ describe('S125 use ledger — the numbered list', () => {
     expect(store.rows.find((r) => r.id === 's2')).toMatchObject({ state: 'settled', resumed_at: NOW.toISOString() })
   })
 
+  test('B2 · cutover day out of range (R-S127-3): before 2026-10-10 or after today JST → null, pending + ledger.cutover_unset reason out_of_range; today JST and 2026-10-10 → accepted', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const saved = process.env.KARUTE_LEDGER_CUTOVER_DAY
+    const recent = [{ id: 'old', customer_id: 'cust-1', appointment_id: null, redeemed_on: TODAY, source: 'manual' }]
+    const replay = () => sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000b2', appointment_id: null, attempts: 1, pack_picked_by: 'staff' })
+    const tomorrowJst = '2026-10-21' // NOW is 2026-10-20 12:00 JST
+    try {
+      expect(CUTOVER_FLOOR_DAY).toBe('2026-10-10')
+      for (const bad of ['2025-01-01', '2027-01-01', tomorrowJst, '2026-10-09']) {
+        process.env.KARUTE_LEDGER_CUTOVER_DAY = bad
+        expect(cutoverDay(NOW)).toBeNull()
+        const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
+        expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'pending', last_error_code: 'cutover_unset', leased_until: null })
+        expect(core.packs.listRecentRedemptions).not.toHaveBeenCalled()
+        expect(core.packs.addRedemption).not.toHaveBeenCalled()
+      }
+      const alarms = err.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('ledger.cutover_unset'))
+      expect(alarms).toHaveLength(4)
+      for (const m of alarms) expect(JSON.parse(m)).toMatchObject({ facts: { reason: 'out_of_range' } })
+      for (const ok of [TODAY, '2026-10-10']) {
+        process.env.KARUTE_LEDGER_CUTOVER_DAY = ok
+        expect(cutoverDay(NOW)).toBe(ok)
+      }
+      // the default clock is the real JST day: today is accepted, tomorrow is not
+      const realToday = new Date(); const realTomorrow = new Date(realToday.getTime() + 86_400_000)
+      const ymd = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+      process.env.KARUTE_LEDGER_CUTOVER_DAY = ymd(realTomorrow)
+      expect(cutoverDay()).toBeNull()
+      process.env.KARUTE_LEDGER_CUTOVER_DAY = ymd(realToday)
+      expect(cutoverDay()).toBe(ymd(realToday))
+      process.env.KARUTE_LEDGER_CUTOVER_DAY = CUT
+      const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
+      expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'settled', settled_core_id: 'old', resolved_by: 'matched:old' })
+    } finally {
+      if (saved === undefined) delete process.env.KARUTE_LEDGER_CUTOVER_DAY
+      else process.env.KARUTE_LEDGER_CUTOVER_DAY = saved
+      err.mockRestore()
+    }
+  })
+
   test('B · cutover day: unset or malformed → the pre-read keeps the row pending + ledger.cutover_unset, nothing read or sent; set → today’s match', async () => {
     const err = jest.spyOn(console, 'error').mockImplementation(() => {})
     const saved = process.env.KARUTE_LEDGER_CUTOVER_DAY
@@ -334,7 +374,7 @@ describe('S125 use ledger — the numbered list', () => {
       for (const bad of [undefined, '', '2026-13-45', '2026-02-30', 'tomorrow']) {
         if (bad === undefined) delete process.env.KARUTE_LEDGER_CUTOVER_DAY
         else process.env.KARUTE_LEDGER_CUTOVER_DAY = bad
-        expect(cutoverDay()).toBeNull()
+        expect(cutoverDay(NOW)).toBeNull()
         const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
         expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'pending', last_error_code: 'cutover_unset', leased_until: null })
         expect(core.packs.listRecentRedemptions).not.toHaveBeenCalled()
@@ -342,7 +382,7 @@ describe('S125 use ledger — the numbered list', () => {
       }
       expect(err.mock.calls.filter((c) => String(c[1]).includes('ledger.cutover_unset'))).toHaveLength(5)
       process.env.KARUTE_LEDGER_CUTOVER_DAY = CUT
-      expect(cutoverDay()).toBe(CUT)
+      expect(cutoverDay(NOW)).toBe(CUT)
       const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
       expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'settled', settled_core_id: 'old', resolved_by: 'matched:old' })
     } finally {

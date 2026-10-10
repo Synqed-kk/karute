@@ -39,24 +39,38 @@ export const PARK_AFTER_MS = 24 * 60 * 60 * 1000
 export const ALARM_TOP_N = 10
 /** 503 IDEMPOTENT_IN_FLIGHT without a Retry-After: wait this long. */
 export const IN_FLIGHT_RETRY_DEFAULT_MS = 5_000
+/** R-S127-3: the ledger cannot predate its own migration (2026-10-10, JST). */
+export const CUTOVER_FLOOR_DAY = '2026-10-10'
+export type CutoverUnsetReason = 'unset' | 'malformed' | 'out_of_range'
 /** R4/H12: the ledger deploy day (JST), from KARUTE_LEDGER_CUTOVER_DAY — set it
- *  to the deploy day. Core rows dated AFTER it can only be ledgered uses or
+ *  to the deploy day, on the deploy day. Core rows dated AFTER it can only be ledgered uses or
  *  unclaimed-by-construction rows; the day itself is excluded because no core
  *  read returns created_at (C5 would allow it). NO fallback (S126 hole 5: a
  *  silent default adopts a pre-deploy core row). Read lazily inside the attempt,
  *  never at import: mutations.ts imports this module, and a bad env must not take
- *  down the cancel/no-show routes. Unset or malformed = null → the R4 pre-read
- *  keeps the intent pending + alarm 'ledger.cutover_unset'. jest.config.ts sets
- *  one fixed day for the tests.
- *  Under jest, jest.config.ts fills 2026-10-11 only when the variable is unset or empty; export the real deploy day before a live run. */
-export function cutoverDay(): string | null {
+ *  down the cancel/no-show routes. Unset or malformed = null; a well-formed day
+ *  before CUTOVER_FLOOR_DAY (a past typo adopts another day's core row) or after
+ *  `now`'s JST day (a future day turns the pre-cutover adoption rule on for live
+ *  uses) = null too (R-S127-3, reason 'out_of_range'). null → the R4 pre-read
+ *  keeps the intent pending + alarm 'ledger.cutover_unset' (facts.reason).
+ *  jest.config.ts sets one fixed day for the tests.
+ *  Under jest, jest.config.ts fills 2026-10-11 only when the variable is unset or empty; export the real deploy day (today JST, not earlier than 2026-10-10, never a future day) before a live run. */
+export function cutoverDay(now: Date = new Date()): string | null {
+  return readCutover(now).day
+}
+function readCutover(now: Date): { day: string; reason: null } | { day: null; reason: CutoverUnsetReason } {
   const v = process.env.KARUTE_LEDGER_CUTOVER_DAY?.trim()
-  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  if (!v) return { day: null, reason: 'unset' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return { day: null, reason: 'malformed' }
   const t = Date.parse(`${v}T12:00:00+09:00`)
-  return Number.isFinite(t) && ymdInJst(new Date(t)) === v ? v : null
+  if (!Number.isFinite(t) || ymdInJst(new Date(t)) !== v) return { day: null, reason: 'malformed' }
+  if (v < CUTOVER_FLOOR_DAY || v > ymdInJst(now)) return { day: null, reason: 'out_of_range' }
+  return { day: v, reason: null }
 }
 /** The pre-read's answer when cutoverDay() is null: the attempt keeps the row pending + alarm. */
-class CutoverUnsetError extends Error {}
+class CutoverUnsetError extends Error {
+  constructor(readonly reason: CutoverUnsetReason) { super(`KARUTE_LEDGER_CUTOVER_DAY ${reason} (need a JST yyyy-mm-dd in [${CUTOVER_FLOOR_DAY}, today])`) }
+}
 
 // ── Row + store port ─────────────────────────────────────────────────────────
 export type IntentState = 'held' | 'pending' | 'parked' | 'settled' | 'refused' | 'withdrawn'
@@ -377,8 +391,9 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: { has(
 
 interface PreRead { match: CoreRow | null; mine: CoreRow[]; claimed: Map<string, string> }
 async function runPreRead(synqed: Pick<SynqedClient, 'packs'>, store: LedgerStore, row: IntentRow, now: Date): Promise<PreRead> {
-  const cutover = cutoverDay()
-  if (!cutover) throw new CutoverUnsetError('KARUTE_LEDGER_CUTOVER_DAY unset or not a JST yyyy-mm-dd')
+  const cut = readCutover(now)
+  if (cut.day === null) throw new CutoverUnsetError(cut.reason)
+  const cutover = cut.day
   const gestureDay = ymdInJst(new Date(row.gesture_at))
   const start = row.redeemed_on < gestureDay ? row.redeemed_on : gestureDay
   const since = ymdInJst(new Date(Date.parse(`${start}T00:00:00+09:00`) - 86_400_000))
@@ -544,7 +559,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     }
   } catch (e) {
     if (e instanceof CutoverUnsetError) {
-      reportFailure({ product: 'karute', kind: 'ledger.cutover_unset', business_id: row.business_id, ref: row.id })
+      reportFailure({ product: 'karute', kind: 'ledger.cutover_unset', business_id: row.business_id, ref: row.id, facts: { reason: e.reason } })
       return keepPending(store, row, { leased_until: null, last_error_code: 'cutover_unset' })
     }
     // a pre-check / pre-read that errors = pending, never a silent shape change (R2)
