@@ -107,7 +107,8 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   const owed = Math.round(size * 0.09) - customers.filter((c) => c.isNew).length
   const fresh = customers.map((_, i) => ({ i, w: rng(`${entry.keyPrefix}|new|${i}`)() })).filter(({ i }) => i >= legacyCount && !holders.has(i))
     .sort((a, b) => a.w - b.w).slice(0, Math.max(0, owed))
-  for (const { i } of fresh) customers[i] = { ...customers[i], isNew: true, start: Math.floor(rng(`${entry.keyPrefix}|new-start|${i}`)() * (pastDays + registry.futureDays)) }
+  // the 新規 start span keeps the futureDays (14) it was first drawn with: a wider registry horizon must only ADD days, never move a planned row
+  for (const { i } of fresh) customers[i] = { ...customers[i], isNew: true, start: Math.floor(rng(`${entry.keyPrefix}|new-start|${i}`)() * (pastDays + NEW_START_FUTURE_DAYS)) }
   return { ...data, id, storeId, customers, staff: data.staff.map((s) => ({ ...s, name: staffOf.get(s.name)! })),
     packs: data.packs.map((p) => ({ ...p, member: member(data.customers.findIndex((c) => c.member === p.member)) })),
     counts: { ...counts, pastDays, futureDays: registry.futureDays },
@@ -117,6 +118,9 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
+/** The futureDays the 新規 start days were drawn over before the horizon widened (S94); frozen so existing keys never move. */
+const NEW_START_FUTURE_DAYS = 14
+
 /** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + futureDays; null = none. */
 export const lastWindowEnd = (runs: readonly { store: string; today: string }[], storeId: string): string | null =>
   runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, registry.futureDays)).sort().pop() ?? null

@@ -220,7 +220,7 @@ async function pass() {
   assert.equal(ledgers[0].writesBefore, 0, 'ledger first')
   const ledger = ledgers[0].l
   assert.equal(f.stats.writes, ledger.changes.length)
-  assert.equal(w.manifest.stores[STORE].realismFrom, addDays(TODAY, 15), 'realismFrom = the day after the last planned day')
+  assert.equal(w.manifest.stores[STORE].realismFrom, addDays(TODAY, registry.futureDays + 1), 'realismFrom = the day after the last planned day')
 
   const real = w.recipe.realism!
   const planned = new Map(w.p.appointments.map((a) => [`a-${a.key}`, a]))
@@ -430,7 +430,7 @@ async function writeTime() {
   const again = await dryThenApply(wb, fb)
   assert.equal(again.code, 0, again.lines.join('\n'))
   assert.ok(!again.lines.some((l) => l.startsWith('to undo this attempt')), 'a clean apply prints no undo line')
-  assert.equal(wb.manifest.stores[STORE].realismFrom, addDays(TODAY, 15), 'a clean apply advances realismFrom')
+  assert.equal(wb.manifest.stores[STORE].realismFrom, addDays(TODAY, registry.futureDays + 1), 'a clean apply advances realismFrom')
 
   // Revert reads each row again at its write: a row a person edits after revert's fence read (here, while the first row
   // is written back) is left alone with the existing line — the fresh read decides, not the fence read; the others revert.
