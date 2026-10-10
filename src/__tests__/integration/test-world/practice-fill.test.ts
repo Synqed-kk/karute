@@ -67,7 +67,8 @@ it('T2 (R5): the original stores\' legacy members keep the origin/main planner\'
     const { r, p } = plans.get(id)!
     expect(p.customers.slice(0, 30)).toEqual(old.customers)
     const legacy = new Set(r.legacyMembers)
-    expect(p.appointments.filter((a) => legacy.has(a.member)).map((a) => [a.key, a.status, a.startsAt, a.staff, a.resource, a.menu])).toEqual(old.rows)
+    // legacy-keys.txt was captured at futureDays 14: compare inside its window (TODAY + 14); later days are the wider horizon's
+    expect(p.appointments.filter((a) => legacy.has(a.member) && a.date <= addDays(TODAY, 14)).map((a) => [a.key, a.status, a.startsAt, a.staff, a.resource, a.menu])).toEqual(old.rows)
   }
 })
 
@@ -97,7 +98,7 @@ it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1),
   for (const [id, { r, p }] of plans) {
     const again = plan(r, ctxOf(id, r), TODAY, TODAY)
     expect(again).toEqual(p)
-    expect(p.window).toEqual({ from: addDays(TODAY, -105), to: addDays(TODAY, 14) })
+    expect(p.window).toEqual({ from: addDays(TODAY, -105), to: addDays(TODAY, 30) })
     const legacy = new Set(r.legacyMembers)
     const now = jstIso(TODAY, BOARD_PIN)
     const across = (a: { startsAt: string; endsAt: string; date: string }) => a.startsAt <= jstIso(a.date, BOARD_PIN) && jstIso(a.date, BOARD_PIN) < a.endsAt

@@ -548,7 +548,7 @@ async function main() {
       // Keep the original bed/part-of-day characterization intact on its original thirty-person recipe.
       // The expanded profile's keys are checked separately against the captured pre-change golden.
       const legacy = { ...r, customers: r.customers.slice(0, 30), profile: undefined, legacyMembers: undefined,
-        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, cancelShare: .08 } }
+        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, futureDays: 14, cancelShare: .08 } }
       const legacyPlans = [plan(legacy, ctxT, TODAY, TODAY), plan(legacy, ctxT, addDays(TODAY, 7), TODAY)]
       const perBed = legacyPlans[0].appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
       if (type === 'beauty_chiropractic') assert.deepEqual(perBed, { 'ベッド1': 74, 'ベッド2': 68, 'ベッド3': 79, '個室': 14 }, `${type}: q1 bookings per bed`)
