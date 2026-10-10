@@ -331,6 +331,18 @@ describe('S125 use ledger — the numbered list', () => {
       err.mockRestore()
     }
   })
+
+  test('E · core validation 400 with its exact body {error: string} → refused invalid_body (final) + alarm, never endless pending', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const store = memStore(); const core = fakeCore()
+    core.packs.addRedemption.mockRejectedValue(coreErr(400, 'Invalid uuid', { body: { error: 'Invalid uuid' } }))
+    expect(await recordUse(deps(store, core), walkIn())).toMatchObject({ ok: false, state: 'refused' })
+    expect(store.rows[0]).toMatchObject({ state: 'refused', refused_code: 'invalid_body', last_error_status: 400 })
+    expect(err.mock.calls.some((c) => String(c[1]).includes('ledger.refused'))).toBe(true)
+    expect(classifyCoreFailure({ ok: false, error: 'x', status: 400, message: 'bad', body: { issues: [] } }, false)).toEqual({ kind: 'refused', code: 'invalid_body' })
+    expect(classifyCoreFailure({ ok: false, error: 'x', status: 400, message: 'Pack not found in this business', body: { error: 'Pack not found in this business' } }, false)).toEqual({ kind: 'refused', code: 'pack_not_found' })
+    err.mockRestore()
+  })
 })
 
 function sysRow(over: Partial<IntentRow> = {}): IntentRow {

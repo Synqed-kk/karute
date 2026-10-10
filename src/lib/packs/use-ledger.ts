@@ -299,7 +299,11 @@ export function classifyCoreFailure(f: AddRedemptionFailure, booked: boolean): C
   const message = f.message ?? ''
   for (const [s, m, code] of REFUSED_PAIRS) if (status === s && message === m) return { kind: 'refused', code }
   const body = f.body ?? null
-  if (status === 400 && body && (Array.isArray(body.issues) || Array.isArray(body.error))) {
+  // core's validation 400 (zod) is `{ error: issues[0].message }`, a STRING
+  // (core:src/routes/packs.ts:61-62, read by the S126 attack); the array shapes
+  // stay for any route that sends them. Every core 400 on this route is
+  // deterministic → final (refused, shown 未消化（要確認）), never endless pending.
+  if (status === 400 && body && (typeof body.error === 'string' || Array.isArray(body.issues) || Array.isArray(body.error))) {
     return { kind: 'refused', code: 'invalid_body' }
   }
   // the trigger raise the design names (500 'over-redeemed' / 23514); the store's
@@ -310,6 +314,10 @@ export function classifyCoreFailure(f: AddRedemptionFailure, booked: boolean): C
   if (booked && status === 500 && /P2002|23505|pack_redemptions_active_appointment_unique/.test(message)) {
     return { kind: 'booked_duplicate' }
   }
+  // core's in-flight answer = 503 + body { error, code: 'IDEMPOTENT_IN_FLIGHT' } +
+  // header Retry-After: 1 (core:src/routes/packs.ts:81-86; proven by the S126
+  // attack — do not re-verify). The SDK reads `code` from body.code and cannot
+  // see the header, so IN_FLIGHT_RETRY_DEFAULT_MS normally applies.
   const code = f.code ?? (typeof body?.code === 'string' ? body.code : null)
   if (status === 503 && code === 'IDEMPOTENT_IN_FLIGHT') {
     const ra = Number(body?.retry_after ?? body?.retryAfter)
