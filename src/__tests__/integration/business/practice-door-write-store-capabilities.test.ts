@@ -580,3 +580,35 @@ describe('S75 fix 2 — the route passes the door\'s `locked` on', () => {
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 })
+
+// ⚖ P2 · R-S97-2 — writeStoreCapabilities: a hung actor read refuses at 5,000 ms, no PUT, one number.
+describe('P2 — writeStoreCapabilities fails fast on a hung core read', () => {
+  const hang = () => new Promise(() => {})
+  async function at5000<T>(p: Promise<T>): Promise<T> {
+    let done = false
+    void p.then(() => (done = true))
+    await jest.advanceTimersByTimeAsync(4999)
+    expect(done).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    expect(done).toBe(true)
+    return p
+  }
+  beforeEach(() => { jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }) })
+  afterEach(() => { jest.useRealTimers() })
+  const boundRef = () => {
+    const bound = error.mock.calls.filter((c) => c[0] === '[business core read]')
+    expect(bound).toHaveLength(1)
+    return (bound[0][1] as { ref: string }).ref
+  }
+  it('answerSheet (the actor) never answers', async () => {
+    const basedOn = await loaded()
+    withReads()
+    ;(mockCore.reads.answerSheet as jest.Mock).mockImplementation(hang)
+    const result = await at5000(data.writeStoreCapabilities(S, seedRecord('other'), [], basedOn))
+    const ref = boundRef()
+    expect(result).toEqual({ ok: false, reason: 'core', ref })
+    expect(error).toHaveBeenCalledWith('[business store capabilities] core did not answer:', `no answer within 5000 ms ref=${ref}`)
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+})

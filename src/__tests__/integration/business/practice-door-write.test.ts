@@ -380,3 +380,36 @@ describe('⚖ A2 — the page', () => {
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 })
+
+// ⚖ P2 · R-S97-2 — door.ts writeReserveCardColor (:543-548 on main): a hung read refuses at 5,000 ms, no PUT, one number.
+describe('P2 — writeReserveCardColor fails fast on a hung core read', () => {
+  const hang = () => new Promise(() => {})
+  async function at5000<T>(p: Promise<T>): Promise<T> {
+    let done = false
+    void p.then(() => (done = true))
+    await jest.advanceTimersByTimeAsync(4999)
+    expect(done).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    expect(done).toBe(true)
+    return p
+  }
+  beforeEach(() => { jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }) })
+  afterEach(() => { jest.useRealTimers() })
+  const boundRef = () => {
+    const bound = error.mock.calls.filter((c) => c[0] === '[business core read]')
+    expect(bound).toHaveLength(1)
+    return (bound[0][1] as { ref: string }).ref
+  }
+  it.each([
+    ['answerSheet (the actor)', 'answerSheet', '[business card colour] core did not answer:'],
+    ['orgSettingsGet (the read before the write)', 'orgSettingsGet', '[business card colour] core did not save:'],
+  ] as Array<[string, keyof Spied, string]>)('%s', async (_name, read, tag) => {
+    withReads()[read].mockImplementation(hang)
+    const result = await at5000(data.writeReserveCardColor(KON))
+    const ref = boundRef()
+    expect(result).toEqual({ ok: false, reason: 'core', ref })
+    expect(error).toHaveBeenCalledWith(tag, `no answer within 5000 ms ref=${ref}`)
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+})
