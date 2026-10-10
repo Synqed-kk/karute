@@ -818,28 +818,37 @@ export async function settlePending(opts: {
     s.businesses += 1
     const synqed = opts.clientFor(businessId)
     const rows = await opts.store.listOpen(businessId, states, SETTLE_ROWS_PER_BUSINESS, 'retry')
+    // R-S126-10 (c), cold read F2: one customer's rows run one after another in
+    // created_at order, so an earlier row's claim lands before the next row's R4
+    // pre-read; customers run in parallel (SETTLE_CONCURRENCY).
+    const byCustomer = new Map<string, IntentRow[]>()
+    for (const r of rows) byCustomer.set(r.customer_id, [...(byCustomer.get(r.customer_id) ?? []), r])
+    const groups = [...byCustomer.values()].map((g) => g.sort((x, y) => (x.created_at ?? '').localeCompare(y.created_at ?? '')))
     let next = 0
     const worker = async () => {
-      while (next < rows.length && clock().getTime() < deadline) {
-        let row = rows[next++]
-        if (ownedByWriter(row, clock())) continue
-        if (row.state === 'parked') {
-          row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
-        }
-        s.attempted += 1
-        let leasedByThisPass = false
-        const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
-        if (out.state === 'settled') s.settled += 1
-        else if (out.state === 'refused') s.refused += 1
-        else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
-          clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
-          // S128 F3 + G1: park only a row no other sender holds mid-flight. This
-          // pass leased it → CAS on exactly the lease its attempt left (out is the
-          // persisted RETURNING row; an UNANSWERED attempt keeps its own lease);
-          // it did not → the lease must be free now.
-          const leaseWhere: Partial<Where> = leasedByThisPass ? { leasedUntilEq: out.leased_until ?? null } : { leaseFreeAt: iso(clock()) }
-          const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, ...leaseWhere }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
-          if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
+      while (next < groups.length && clock().getTime() < deadline) {
+        for (const first of groups[next++]) {
+          if (clock().getTime() >= deadline) break
+          let row = first
+          if (ownedByWriter(row, clock())) continue
+          if (row.state === 'parked') {
+            row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
+          }
+          s.attempted += 1
+          let leasedByThisPass = false
+          const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
+          if (out.state === 'settled') s.settled += 1
+          else if (out.state === 'refused') s.refused += 1
+          else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
+            clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
+            // S128 F3 + G1: park only a row no other sender holds mid-flight. This
+            // pass leased it → CAS on exactly the lease its attempt left (out is the
+            // persisted RETURNING row; an UNANSWERED attempt keeps its own lease);
+            // it did not → the lease must be free now.
+            const leaseWhere: Partial<Where> = leasedByThisPass ? { leasedUntilEq: out.leased_until ?? null } : { leaseFreeAt: iso(clock()) }
+            const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, ...leaseWhere }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
+            if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
+          }
         }
       }
     }
