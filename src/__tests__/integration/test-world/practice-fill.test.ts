@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { SynqedClient } from '@synqed-kk/client'
-import { lastWindowEnd, loadRecipe, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
+import { lastWindowEnd, loadRecipe, NEW_START_FUTURE_DAYS, registry, storeCtx, summarize, targetsFor } from '../../../../scripts/test-world/fill'
 import { SURNAMES } from '../../../../scripts/test-world/names'
 import { addDays, bookingNotes, CANCEL_LABELS, hoursOn, jstIso, plan, sidesOf, type Plan, type Recipe } from '../../../../scripts/test-world/plan'
 
@@ -222,10 +222,10 @@ it('E2 (R5 vs R4): legacy rows in core keep their old time and staff; legacy row
   const before = (a: { date: string }) => a.date <= through
   expect(split.filter((a) => legacy.has(a.member) && before(a)).map(row)).toEqual(golden.stores[id].rows.filter((x: string[]) => x[2].slice(0, 10) <= through))
   expect(outside(split.filter((a) => !before(a)))).toEqual([])
-  // the boundary: recorded wins; unrecorded = the latest run's today + futureDays; no run = none
+  // the boundary: recorded wins; unrecorded = the latest run's today + 14 (the pre-FILL-2 horizon, NEW_START_FUTURE_DAYS); no run = none
   const runs = [{ store: id, today: '2026-09-20' }, { store: id, today: '2026-10-01' }, { store: 'other', today: '2026-10-05' }]
-  expect(lastWindowEnd(runs, id)).toBe(addDays('2026-10-01', registry.futureDays))
+  expect(lastWindowEnd(runs, id)).toBe(addDays('2026-10-01', NEW_START_FUTURE_DAYS))
   expect(lastWindowEnd([], id)).toBeNull()
-  expect(storeCtx(id, { weeklyHours: r.policy.weekly_hours }, runs).legacyThrough).toBe(addDays('2026-10-01', registry.futureDays))
+  expect(storeCtx(id, { weeklyHours: r.policy.weekly_hours }, runs).legacyThrough).toBe(addDays('2026-10-01', NEW_START_FUTURE_DAYS))
   expect(storeCtx(id, { weeklyHours: r.policy.weekly_hours, legacyThrough: null }, runs).legacyThrough).toBeNull()
 })

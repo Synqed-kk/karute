@@ -129,6 +129,7 @@ export interface Plan {
   packs: { key: string; member: string; size: number; unitPrice: number; purchasedOn: string; staff: string; redeem: string[] }[]
   appointments: PlannedAppointment[]
   karutes: { key: string; member: string; staff: string; menu: string; date: string; duration: number; entries: KaruteLine[] }[]
+  dropped: { key: string; date: string; why: DropWhy }[] // S95: planned bookings the live calendar removed (empty without one)
 }
 
 const DAY = 86_400_000
@@ -136,7 +137,7 @@ const WEEKDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 const utc = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`)
 export const addDays = (ymd: string, n: number) => new Date(utc(ymd) + n * DAY).toISOString().slice(0, 10)
 export const hoursOn = (h: WeeklyHours, ymd: string) => h[WEEKDAY[new Date(utc(ymd)).getUTCDay()]] ?? null
-const mins = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+export const mins = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 /** A JST wall-clock minute on a JST date, as the ISO instant core stores. */
 export const jstIso = (ymd: string, minute: number) => new Date(utc(ymd) - 9 * 3_600_000 + minute * 60_000).toISOString()
 
@@ -222,7 +223,17 @@ export interface StoreCtx {
   // ⚖ E2: the last day already in core from the pre-FILL-2 planner (the manifest's legacyThrough). A legacy member's row on or
   // before it keeps its origin/main time and staff (R5); after it — or always, for a store with no such day — it follows the side rule (R4).
   legacyThrough?: string | null
+  // S95: the store's live calendar in core (read by the caller; plan.ts stays pure). Absent = the plan as it always was.
+  liveCalendar?: LiveCalendar
 }
+
+/** The store's calendar as core holds it now: live weekly hours, ad-hoc closed dates (臨時休業), special-open days. */
+export interface LiveCalendar {
+  weeklyHours: WeeklyHours
+  closedDates: ReadonlySet<string>
+  specialOpen: ReadonlyMap<string, { open: string; close: string }>
+}
+export type DropWhy = 'closed-day' | 'live-weekday-closed' | 'outside-live-hours' | 'closed-and-special'
 
 export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: string): Plan {
   const { id, counts: n } = recipe
@@ -398,7 +409,42 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
     })
   }
 
-  return { window: { from, to }, staff: recipe.staff, resources: recipe.resources, menus: recipe.menus, customers: recipe.customers, packs, appointments, karutes }
+  const out: Plan = { window: { from, to }, staff: recipe.staff, resources: recipe.resources, menus: recipe.menus, customers: recipe.customers, packs, appointments, karutes, dropped: [] }
+  return store.liveCalendar ? applyLiveCalendar(out, store.liveCalendar) : out
+}
+
+/** S96 — THE one answer to "is the store open on this date, and when" under the live calendar (null = closed): a closed-day
+ *  row closes the date (a special-open entry too = still closed), else the special-open window, else the live weekday.
+ *  applyLiveCalendar and summarize's open-day count both read it. */
+export function liveHoursOn(cal: LiveCalendar, ymd: string): { open: string; close: string } | null {
+  if (cal.closedDates.has(ymd)) return null
+  return cal.specialOpen.get(ymd) ?? hoursOn(cal.weeklyHours, ymd)
+}
+
+/** S95 D1 — THE LIVE CALENDAR ONLY REMOVES, NEVER MOVES. The last pass over a finished plan: a booking core would refuse is
+ *  dropped with its karute; every other row is the very object the plan made (layout, chain, statuses untouched — the slot
+ *  layout is order-dependent, so nothing is added, moved or re-laid). Closed: an ad-hoc closed date (with a special-open
+ *  entry too = still closed, Karute's reading of core's order is not core-confirmed and dropping never causes a refusal);
+ *  else the special-open window or the live weekday's hours, a null weekday = closed. Packs are left as planned (fill burns
+ *  only on a COMPLETED booking in core). */
+export function applyLiveCalendar(p: Plan, cal: LiveCalendar): Plan {
+  const why = (a: PlannedAppointment): DropWhy | null => {
+    const h = liveHoursOn(cal, a.date)
+    if (!h) return cal.closedDates.has(a.date) ? (cal.specialOpen.has(a.date) ? 'closed-and-special' : 'closed-day') : 'live-weekday-closed'
+    const [open, close] = [Date.parse(jstIso(a.date, mins(h.open))), Date.parse(jstIso(a.date, mins(h.close)))]
+    return Date.parse(a.startsAt) < open || Date.parse(a.endsAt) > close ? 'outside-live-hours' : null
+  }
+  const dropped = p.appointments.flatMap((a) => ((w) => (w ? [{ key: a.key, date: a.date, why: w }] : []))(why(a)))
+  const gone = new Set(dropped.map((d) => d.key))
+  return { ...p, appointments: p.appointments.filter((a) => !gone.has(a.key)), karutes: p.karutes.filter((k) => !gone.has(k.key)), dropped: [...p.dropped, ...dropped] }
+}
+
+/** S96 — THE one count of a pack's redemptions on a plan: a redeem key counts only while its booking is still among the
+ *  plan's appointments. applyLiveCalendar leaves every pack object as planned (D1); a key whose booking it dropped has no
+ *  booking to burn against, so it is neither written nor counted. summarize, readBack and fill's redemption loop read this. */
+export function redeemsOf(p: Plan): (k: Plan['packs'][number]) => string[] {
+  const booked = new Set(p.appointments.map((a) => a.key))
+  return (k) => k.redeem.filter((key) => booked.has(key))
 }
 
 /** ⚖ R4 — THE SIDE RULE (one rule, two halves; the other half is src/business/lib/practice-door/sample-day.ts shiftDay):

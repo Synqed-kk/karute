@@ -31,14 +31,16 @@ import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { setPlannedStatus, todayStatusFixes } from './close-out'
 import { namePoolFor, STAFF_NAMES } from './names'
-import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, liveHoursOn, plan, redeemsOf, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { liveLine, readLiveCalendar } from './live-calendar'
 
 export type FillCore = Pick<
   SynqedClient,
   'orgSettings' | 'stores' | 'staff' | 'staffStores' | 'storePolicies' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords'
 >
 type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions' | 'todayStatus'
-interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[] }
+interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[]
+  dropped?: { bookings: number; karutes: number; dates: string[] } } // S95: what the live calendar removed from this run's plan
 export interface Manifest {
   businessId: string
   // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
@@ -118,12 +120,14 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
-/** The futureDays the 新規 start days were drawn over before the horizon widened (S94); frozen so existing keys never move. */
-const NEW_START_FUTURE_DAYS = 14
+/** The futureDays the 新規 start days were drawn over before the horizon widened (S94); frozen so existing keys never move.
+ *  It is also the horizon every pre-FILL-2 run wrote with (today + 14), so lastWindowEnd derives an unrecorded legacyThrough
+ *  from it — never from registry.futureDays, which widened to 30 after those runs (QUEUE-S94 item 6). */
+export const NEW_START_FUTURE_DAYS = 14
 
-/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + futureDays; null = none. */
+/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + 14 (NEW_START_FUTURE_DAYS); null = none. */
 export const lastWindowEnd = (runs: readonly { store: string; today: string }[], storeId: string): string | null =>
-  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, registry.futureDays)).sort().pop() ?? null
+  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, NEW_START_FUTURE_DAYS)).sort().pop() ?? null
 
 export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number; legacyThrough?: string | null }, runs: readonly { store: string; today: string }[] = []): StoreCtx => {
   // ⚖ R6: an applied store plans from the pastDays its manifest recorded at first apply; a differing registry value is logged and ignored
@@ -296,7 +300,9 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
+  let calLine: string | null = null // S95 D4: the store's live-calendar line, first in the summary
   const summary = () => {
+    if (calLine) log(calLine)
     log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
     run.skipped.forEach((l) => log(`skipped: ${l}`))
     ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
@@ -332,8 +338,23 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   }
 
   try {
-    const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
-    if (policy.source === 'default')
+    const p0 = plan(recipe, storeCtx(storeId, st), today, st.epoch)
+    let cal: LiveCalendar
+    try {
+      cal = await readLiveCalendar(core, storeId, p0.window, read, recipe.policy.weekly_hours, log, policy)
+    } catch (e) {
+      if (e instanceof Saturated) throw e
+      // S95 D3: never an unfiltered plan against live core — this store stops before any write, loud (exit 1)
+      if (!prior && sent === 0) delete m.stores[storeId]
+      run.errors.push(`live calendar: read failed, nothing written for this store: ${message(e)}`)
+      summary()
+      return 1
+    }
+    // S95 D1: the live calendar only removes (plan.ts applyLiveCalendar — the pass plan() runs for StoreCtx.liveCalendar)
+    const p = applyLiveCalendar(p0, cal)
+    calLine = liveLine(cal, p0, p)
+    run.dropped = { bookings: p.dropped.length, karutes: p0.karutes.length - p.karutes.length, dates: [...new Set(p.dropped.map((d) => d.date))].sort() }
+    if (policy.source === 'default' || policy.weekly_hours == null) // QUEUE-S93 b: a policy row with no weekly_hours gets them too
       await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
     const staffId = new Map<string, string>()
@@ -409,6 +430,8 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       const a = window.find((x) => x.id === id && x.store_id === storeId)
       if (a) mine.set(key, a) // the recorded id wins over a tag match for the same key
     }
+    // S95: a booking written before its day was closed is the store's to handle — never touched, said once per run
+    for (const d of p.dropped) if (mine.has(d.key)) run.skipped.push(`appointments ${d.key}: booking ${mine.get(d.key)!.id} is on ${d.date}, which the live calendar now closes (${d.why}), left alone`)
     // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
     const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
       const [start, end] = [Date.parse(a.startsAt), Date.parse(a.endsAt) + p.resources.find((r) => r.name === a.resource)!.cleanup_minutes * 60_000]
@@ -456,11 +479,15 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     }
 
     // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
+    // QUEUE-S94 item 1: a planned karute whose booking is not COMPLETED in core (realism's future cancel, a NO_SHOW, a skipped
+    // booking) is said once and left out of the planned karutes, so planned = what fill can write
+    const unwritable = new Set<string>()
     const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
     const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
     await pool(p.karutes, async (k) => {
       const aid = done(k.key)
-      if (!aid || karuted.has(aid)) return
+      if (!aid) return void (unwritable.add(k.key), log(`karute skipped: booking ${k.key} is ${apptRow.get(k.key)?.status ?? 'absent'} in core`))
+      if (karuted.has(aid)) return
       await write('karuteRecords', k.key, () => core.karuteRecords.create({
         customer_id: custId.get(k.member)!, store_id: storeId, staff_id: staffId.get(k.staff)!, appointment_id: aid, status: 'APPROVED',
         ai_summary: k.entries.map((l) => `【${l.label}】${l.text}`).join('\n'), service: k.menu, duration_minutes: k.duration, session_date: k.date,
@@ -468,6 +495,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       }))
     })
     const dateOf = new Map(p.appointments.map((a) => [a.key, a.date]))
+    const redeems = redeemsOf(p) // S96: only keys whose booking survived the live calendar (done() would skip the rest too)
     await pool(p.packs, async (k) => {
       const pid = packId.get(k.key)
       if (!pid) return
@@ -475,7 +503,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       const redeemed = pid.startsWith('dry:') ? [] : await read(() => core.packs.listRedemptions(cid))
       const burnt = new Set(redeemed.map((r) => `${r.pack_id}|${r.redeemed_on}`))
       let used = redeemed.filter((r) => r.pack_id === pid).length // ⚖ Q7: every burn counts, a same-day double burn too (never distinct dates)
-      for (const key of k.redeem) {
+      for (const key of redeems(k)) {
         if (used >= k.size) break // ⚖ R5: never more burns than the pack holds (never 6 on a 5)
         const aid = done(key)
         if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
@@ -490,7 +518,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     // The read-back is a diagnostic: its failure never changes the exit code.
     if (o.readBack) {
       try {
-        (await withRetry(() => readBack(core, storeId, p, lim.concurrency), false, o.wait)).forEach((r) => log(r.join(' | ')))
+        (await withRetry(() => readBack(core, storeId, { ...p, karutes: p.karutes.filter((k) => !unwritable.has(k.key)) }, lim.concurrency), false, o.wait)).forEach((r) => log(r.join(' | ')))
       } catch (e) {
         log(e instanceof Saturated ? SATURATED_LINE : `read-back failed (writes unaffected): ${message(e)}`)
       }
@@ -529,6 +557,7 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
   const packs = await each(ours, (c) => core.packs.listPacks(c.id))
   const burns = await each([...new Set(packs.map((k) => k.customer_id))], (id) => core.packs.listRedemptions(id))
   const tagged = appts.filter((a) => a.notes?.includes('[tw:'))
+  const redeems = redeemsOf(p)
   const status = JSON.stringify(tagged.reduce<Record<string, number>>((o, a) => ((o[a.status] = (o[a.status] ?? 0) + 1), o), {}))
   return [
     ['section', 'planned', 'in core now'],
@@ -538,7 +567,7 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
     ['menus of the store (all)', p.menus.length, menus.filter((m) => m.store_id === storeId).length],
     ['customers (recipe member numbers)', p.customers.length, ours.length],
     ['packs of those customers', p.packs.length, packs.length],
-    ['redemptions on those packs', p.packs.reduce((n, k) => n + k.redeem.length, 0), burns.length],
+    ['redemptions on those packs', p.packs.reduce((n, k) => n + redeems(k).length, 0), burns.length],
     ['appointments (fill-tagged)', p.appointments.length, `${tagged.length} ${status}`],
     ['appointments of the store (all)', '', appts.length],
     ['karuteRecords of the store (all)', p.karutes.length, karutes.length],
@@ -546,17 +575,19 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
 }
 
 /** Counts per section of a plan, plus the shape numbers a reader checks at a glance. */
-export function summarize(p: Plan, today: string, hours: WeeklyHours) {
+export function summarize(p: Plan, today: string, hours: WeeklyHours, cal?: LiveCalendar | null) {
   const by = <T,>(xs: T[], f: (x: T) => string) => xs.reduce<Record<string, number>>((o, x) => ((o[f(x)] = (o[f(x)] ?? 0) + 1), o), {})
   const visits = Object.values(by(p.appointments, (a) => a.member)).sort((a, b) => a - b)
   let days = 0
-  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += hoursOn(hours, d) ? 1 : 0
-  const full = p.packs.filter((k) => k.redeem.length === k.size).length
+  // S96: a day counts only when open in BOTH views — the snapshot hours plan() lays bookings on AND the live calendar — the only days bookings can exist
+  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += hoursOn(hours, d) && (!cal || liveHoursOn(cal, d)) ? 1 : 0
+  const redeems = redeemsOf(p)
+  const full = p.packs.filter((k) => redeems(k).length === k.size).length
   return {
     window: `${p.window.from} … ${p.window.to} (today ${today})`, staff: p.staff.length, resources: p.resources.length, menus: p.menus.length,
-    customers: p.customers.length, packs: `${p.packs.length} (${full} fully used)`, redemptions: p.packs.reduce((n, k) => n + k.redeem.length, 0),
+    customers: p.customers.length, packs: `${p.packs.length} (${full} fully used)`, redemptions: p.packs.reduce((n, k) => n + redeems(k).length, 0),
     appointments: `${p.appointments.length} ${JSON.stringify(by(p.appointments, (a) => a.status))}`,
-    perOpenDay: (p.appointments.length / days).toFixed(1), visitsPerCustomer: `min ${visits[0]} · median ${visits[visits.length >> 1]} · max ${visits[visits.length - 1]}`,
+    openDays: days, perOpenDay: (p.appointments.length / days).toFixed(1), visitsPerCustomer: `min ${visits[0]} · median ${visits[visits.length >> 1]} · max ${visits[visits.length - 1]}`,
     karuteRecords: p.karutes.length,
   }
 }
@@ -573,13 +604,19 @@ export async function runCli(argv: string[], makeClient: () => Promise<FillCore>
   const targets = targetsFor(store, type)
   if (cmd === 'plan') {
     const m = load()
+    // S95 D3: reads (never writes) the live calendar when core's env is set; offline = the snapshot plan, said once
+    const live = process.env.SYNQED_CORE_URL && process.env.SYNQED_CORE_API_KEY ? makeClient() : null
+    if (!live) log('live calendar: not read (no core env)')
     for (const storeId of targets) {
       const t = registry.stores[storeId].type
       const st = m.stores[storeId]
       const r = await loadRecipe(t, storeId, st?.pastDays)
       const hours = st?.weeklyHours ?? r.policy.weekly_hours
-      const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
-      log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
+      const p0 = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
+      const cal = live ? await readLiveCalendar(await live, storeId, p0.window, (fn) => withRetry(fn, false, io.sleep), r.policy.weekly_hours, log) : null
+      const p = cal ? applyLiveCalendar(p0, cal) : p0
+      if (cal) log(storeId, liveLine(cal, p0, p))
+      log(storeId, t, JSON.stringify(summarize(p, today, hours, cal), null, 1))
       if (rest.includes('--rows')) for (const a of p.appointments)
         log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
     }
