@@ -36,6 +36,10 @@ function memStore(): Mem {
       if (row.gesture_at_client != null && !Number.isFinite(Date.parse(row.gesture_at_client))) {
         throw new Error(`invalid input syntax for type timestamp with time zone: "${row.gesture_at_client}"`)
       }
+      // S128 G2: the extended ISO year form ("+010000-…") is refused too
+      if (row.gesture_at_client != null && /^[+-]/.test(row.gesture_at_client)) {
+        throw new Error(`timestamp out of range: "${row.gesture_at_client}"`)
+      }
       if (!rows.some((r) => r.business_id === row.business_id && r.id === row.id)) rows.push({ ...row, created_at: row.created_at ?? NOW.toISOString() })
     },
     async getAllById(id) { return rows.filter((r) => r.id === id).map((r) => ({ ...r })) },
@@ -45,6 +49,7 @@ function memStore(): Mem {
       if (w.attempts !== undefined && r.attempts !== w.attempts) return null
       if (w.settledCoreId !== undefined && r.settled_core_id !== w.settledCoreId) return null
       if (w.leaseFreeAt && r.leased_until && !(r.leased_until < w.leaseFreeAt)) return null
+      if (w.leasedUntilEq !== undefined && (r.leased_until ?? null) !== w.leasedUntilEq) return null
       Object.assign(r, patch)
       return { ...r }
     },
@@ -212,5 +217,52 @@ describe('S128 A1 Greptile fixes', () => {
     })
     expect(alarms(err, 'ledger.clock_suspect')[0]).toMatchObject({ ref: r.intentId, facts: { gesture_at_client: 'not-a-date' } })
     expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
+  })
+
+  test('G1 · daily pass: an UNANSWERED row (its own live lease from this pass) IS parked; another sender\'s lease is NOT; a free-lease old row IS', async () => {
+    const store = memStore(); const core = fakeCore()
+    core.packs.addRedemption.mockImplementation(async (p: { appointment_id?: string }) => {
+      if (p.appointment_id === 'appt-u') throw new Error('socket hang up') // no status → UNANSWERED: the attempt keeps its lease
+      throw coreErr(500, 'boom') // answered → the attempt frees its lease
+    })
+    const old = ago(PARK_AFTER_MS + 1_000)
+    const unanswered = intentRow({ id: 'eeeeeeee-0000-4000-8000-000000000001', appointment_id: 'appt-u', created_at: old, attempts: 1, last_attempt_at: ago(PARK_AFTER_MS) })
+    const held = intentRow({ id: 'eeeeeeee-0000-4000-8000-000000000002', appointment_id: 'appt-h', created_at: old, attempts: 1,
+      last_attempt_at: ago(1_000), leased_until: new Date(NOW.getTime() + 60_000).toISOString() })
+    const free = intentRow({ id: 'eeeeeeee-0000-4000-8000-000000000003', appointment_id: 'appt-f', created_at: old, attempts: 1, last_attempt_at: ago(PARK_AFTER_MS) })
+    for (const r of [unanswered, held, free]) await store.insertIgnore(r)
+    const s = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: true, now: () => NOW })
+    expect(store.rows.find((r) => r.id === unanswered.id)).toMatchObject({ state: 'parked', attempts: 2 })
+    expect(store.rows.find((r) => r.id === held.id)).toMatchObject({ state: 'pending', attempts: 1, leased_until: held.leased_until })
+    expect(store.rows.find((r) => r.id === free.id)).toMatchObject({ state: 'parked', parked_reason: 'http_500' })
+    expect(s.parked).toBe(2)
+    expect(alarms(err, 'ledger.parked').map((a) => a.ref).sort()).toEqual([unanswered.id, free.id].sort())
+    expect(core.packs.addRedemption).toHaveBeenCalledTimes(2)
+  })
+
+  test('G1 (b) · this pass leased + UNANSWERED, then another sender takes a different lease before the park → NOT parked', async () => {
+    const base = memStore(); const core = fakeCore()
+    core.packs.addRedemption.mockRejectedValue(new Error('socket hang up'))
+    const other = new Date(NOW.getTime() + 999_000).toISOString()
+    const store: Mem = { ...base, rows: base.rows, async update(b, id, w, patch) {
+      if (patch.state === 'parked') { const r = base.rows.find((x) => x.id === id); if (r) r.leased_until = other } // the other sender wins in between
+      return base.update(b, id, w, patch)
+    } }
+    const row = intentRow({ id: 'eeeeeeee-0000-4000-8000-000000000004', appointment_id: 'appt-u', created_at: ago(PARK_AFTER_MS + 1_000), attempts: 1, last_attempt_at: ago(PARK_AFTER_MS) })
+    await store.insertIgnore(row)
+    const s = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: true, now: () => NOW })
+    expect(store.rows.find((r) => r.id === row.id)).toMatchObject({ state: 'pending', attempts: 2, leased_until: other })
+    expect(s.parked).toBe(0)
+    expect(alarms(err, 'ledger.parked')).toHaveLength(0)
+  })
+
+  test('G2 · gestureAt at the max JS date (+275760) → gesture_at_client null, row written, raw text in audit_payload, clock_suspect', async () => {
+    const store = memStore(); const core = fakeCore()
+    const far = '+275760-09-13T00:00:00.000Z'
+    const r = await recordUse(deps(store, core), { businessId: B, ownerUserId: null, staffId: null, customerId: 'cust-3', packId: 'pack-A', appointmentId: null, gestureAt: far })
+    expect(r).toMatchObject({ ok: true, state: 'settled' })
+    expect(store.rows.find((x) => x.id === r.intentId)).toMatchObject({
+      gesture_at: NOW.toISOString(), gesture_at_client: null, clock_suspect: true, audit_payload: { gesture_at_client: far },
+    })
   })
 })

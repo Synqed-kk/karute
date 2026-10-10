@@ -22,6 +22,7 @@ export function memLedgerStore(): LedgerStore {
       if (w.attempts !== undefined && r.attempts !== w.attempts) return null
       if (w.settledCoreId !== undefined && r.settled_core_id !== w.settledCoreId) return null
       if (w.leaseFreeAt && r.leased_until && !(r.leased_until < w.leaseFreeAt)) return null
+      if (w.leasedUntilEq !== undefined && (r.leased_until ?? null) !== w.leasedUntilEq) return null
       Object.assign(r, patch)
       return { ...r }
     },

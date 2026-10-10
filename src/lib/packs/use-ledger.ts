@@ -145,6 +145,9 @@ export interface Where {
   state: IntentState
   attempts?: number
   leaseFreeAt?: string
+  /** S128 G1: leased_until EXACTLY this value (null = no lease) — the park CAS
+   *  on the lease the pass's own attempt left, refusing one another sender took. */
+  leasedUntilEq?: string | null
   /** CAS on the claim itself (S126 hole 3: a matched claim outranked). */
   settledCoreId?: string
 }
@@ -200,6 +203,7 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
       let q = db.from(T).update(patch).eq('business_id', businessId).eq('id', id).eq('state', where.state)
       if (where.attempts !== undefined) q = q.eq('attempts', where.attempts)
       if (where.settledCoreId) q = q.eq('settled_core_id', where.settledCoreId)
+      if (where.leasedUntilEq !== undefined) q = where.leasedUntilEq === null ? q.is('leased_until', null) : q.eq('leased_until', where.leasedUntilEq)
       if (where.leaseFreeAt) q = q.or(`leased_until.is.null,leased_until.lt."${where.leaseFreeAt}"`)
       const { data, error } = await q.select('*')
       fail(error)
@@ -306,8 +310,16 @@ export function acceptGestureAt(
   // never reaches the column (null); the raw text rides the audit payload only.
   return {
     gestureAt: now.toISOString(), clockSuspect: Boolean(client),
-    gestureAtClient: Number.isFinite(t) ? new Date(t).toISOString() : null, gestureAtClientRaw: client ?? null,
+    gestureAtClient: Number.isFinite(t) ? isoInYearRange(t) : null, gestureAtClientRaw: client ?? null,
   }
+}
+
+/** S128 G2: a year outside 1..9999 serialises to the extended ISO form
+ *  ("+010000-…"), which timestamptz may refuse — such a value gets null. */
+function isoInYearRange(t: number): string | null {
+  const d = new Date(t)
+  const y = d.getUTCFullYear()
+  return y >= 1 && y <= 9999 ? d.toISOString() : null
 }
 
 // ── R3 the ONE classification map ────────────────────────────────────────────
@@ -435,6 +447,8 @@ export interface AttemptDeps {
   store: LedgerStore
   synqed: Pick<SynqedClient, 'packs' | 'appointments'>
   now?: () => Date
+  /** S128 G1: called with the row as leased when THIS attempt took the lease. */
+  onLease?: (leased: IntentRow) => void
   /** R2: the path's pre-checks, re-run inside EVERY attempt. A throw = pending. */
   precheck?: (row: IntentRow) => Promise<Precheck>
   /** R3-pick: a SYSTEM-picked pack's next candidate (excluding `tried`). */
@@ -495,6 +509,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     { state: 'pending', attempts: start.attempts, leaseFreeAt: iso(now) },
     { attempts: start.attempts + 1, last_attempt_at: iso(now), leased_until: plus(now, REPLAY_LEASE_MS) })
   if (!row) return reread(store, start) // no lease → answer from the row, no core call
+  deps.onLease?.(row)
   const replay = start.attempts > 0
   try {
     let cur = row
@@ -790,13 +805,18 @@ export async function settlePending(opts: {
           row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
         }
         s.attempted += 1
-        const out = await attemptIntent({ store: opts.store, synqed, now: clock }, row)
+        let leasedByThisPass = false
+        const out = await attemptIntent({ store: opts.store, synqed, now: clock, onLease: () => { leasedByThisPass = true } }, row)
         if (out.state === 'settled') s.settled += 1
         else if (out.state === 'refused') s.refused += 1
         else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
           clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
-          // S128 F3: park only a row whose lease is free now (never one another sender holds mid-flight)
-          const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, leaseFreeAt: iso(clock()) }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
+          // S128 F3 + G1: park only a row no other sender holds mid-flight. This
+          // pass leased it → CAS on exactly the lease its attempt left (out is the
+          // persisted RETURNING row; an UNANSWERED attempt keeps its own lease);
+          // it did not → the lease must be free now.
+          const leaseWhere: Partial<Where> = leasedByThisPass ? { leasedUntilEq: out.leased_until ?? null } : { leaseFreeAt: iso(clock()) }
+          const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, ...leaseWhere }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
           if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
         }
       }
