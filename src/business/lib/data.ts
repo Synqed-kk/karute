@@ -27,6 +27,7 @@ import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import { readStoreCapabilities as doorReadStoreCapabilities, readStoreSeedType as doorReadStoreSeedType, writeStoreCapabilities as doorWriteStoreCapabilities, type BusinessTypeKey, type CapRecord, type WriteStoreCapabilitiesResult } from './practice-door/door-store-capabilities'
 import * as doorWrites from './practice-door/door-writes'
+import { LATE_FROM_BOOKING_NOTE as doorLateFromBookingNote, setReservePolicy as doorSetReservePolicy, type SetReservePolicyResult } from './practice-door/door-reserve-policy'
 import { BOARD_REACH_DAYS, weekdayOfKey, weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
@@ -357,6 +358,11 @@ export async function addStoreSpecialOpenDay(
   return doorWrites.addSpecialOpenDay(storeId, input)
 }
 
+/** Reserve S66 — 受付ルール: one store's six booking rules, through the door (OFF answers 'tenant'). */
+export async function setReservePolicy(storeId: string, draft: unknown, basedOn: string): Promise<SetReservePolicyResult> {
+  return doorSetReservePolicy(storeId, draft, basedOn)
+}
+
 export async function removeStoreSpecialOpenDay(storeId: string, date: string): Promise<doorWrites.SetSpecialOpenDaysResult> {
   return doorWrites.removeSpecialOpenDay(storeId, date)
 }
@@ -370,6 +376,8 @@ export const specialDayBadge = doorWrites.specialDayBadge
 export const SPECIAL_OPEN_DAYS_NOTE = doorWrites.SPECIAL_OPEN_DAYS_NOTE
 export const READ_FAILURE_LINE = doorWrites.READ_FAILURE_LINE
 export const READ_ONLY_NOTE = doorWrites.READ_ONLY_NOTE
+export const LATE_FROM_BOOKING_NOTE = doorLateFromBookingNote
+export type { SetReservePolicyResult }
 export const applySpecialOpenDays = doorWrites.applySpecialOpenDays
 export type StoreDaysWriteState = doorWrites.StoreDaysWriteState
 export type StoreDaysReadResult = doorWrites.StoreDaysReadResult
