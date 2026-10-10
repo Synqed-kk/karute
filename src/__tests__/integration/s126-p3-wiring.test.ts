@@ -187,6 +187,21 @@ describe('A (hole 1) — created_by sent to core is a uuid or null, never an emp
     expect(row.state).toBe('settled')
     expect(sent).toEqual([want])
   })
+  it('S127 · a non-uuid actor id → owner_user_id null on the P3 insert (a uuid column), the no-show still succeeds', async () => {
+    const c = fakeCore()
+    const store = mockLedger.store as Store
+    const realInsert = store.insertIgnore.bind(store)
+    store.insertIgnore = async (row: IntentRow) => {
+      // Postgres on the uuid column: invalid input syntax for type uuid
+      if (row.owner_user_id !== null && !UUID_RE.test(String(row.owner_user_id))) throw new Error('invalid input syntax for type uuid')
+      return realInsert(row)
+    }
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, { ...ACTOR, actorId: 'user-1' }, SCOPE)
+    expect(res).toEqual({ success: true })
+    const row = await rowsOf(store, lastDetail().intent_id as string)
+    expect(row.owner_user_id).toBeNull()
+    expect(row.state).toBe('settled')
+  })
 })
 
 describe('B (hole 2, alarm part) — a SYSTEM withdrawal of a P3 row is never silent', () => {

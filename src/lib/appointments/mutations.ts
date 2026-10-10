@@ -400,7 +400,10 @@ async function insertP3IntentOrThrow(
     if (!actor.businessId) throw new Error('no business for the ledger')
     const store = await defaultLedgerStore()
     const row = await insertP3Intent(store, {
-      businessId: actor.businessId, ownerUserId: actor.actorId, intentId: actor.idempotencyKey, source,
+      // owner_user_id is a uuid column: a non-uuid actor id would throw on the insert and
+      // staff could not mark the no-show — guarded like created_by (non-uuid → null, never a throw)
+      businessId: actor.businessId, ownerUserId: actor.actorId && UUID_RE.test(actor.actorId) ? actor.actorId : null,
+      intentId: actor.idempotencyKey, source,
       customerId: appt.customer_id, appointmentId, bookingDay: ymdInJst(new Date(appt.starts_at)),
       // core validations/pack.ts:29: created_by = uuid | null — never '' (attack hole 1)
       packId: target.id, createdBy: actor.actorId && UUID_RE.test(actor.actorId) ? actor.actorId : null,
