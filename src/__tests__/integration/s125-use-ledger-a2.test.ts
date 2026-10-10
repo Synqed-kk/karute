@@ -121,5 +121,6 @@ describe('P4 stall read (H2) — open walk-in uses by day', () => {
       { ...base, id: '4', state: 'settled', appointment_id: null },
     ] as IntentRow[]).get('c')!
     expect(u.openWalkInByDay.get('2026-10-10')).toBe(2)
+    expect(u.pendingWalkInByDay.get('2026-10-10')).toBe(1) // R-S127-2: only the pending one stalls the marker
   })
 })

@@ -880,8 +880,10 @@ export interface CustomerLedgerUsage {
   noPackPending: number
   /** open uses (held+pending+parked) per JST day — the double-guard number */
   usesByDay: Map<string, number>
-  /** held/pending/parked WALK-IN uses per JST day — P4 stalls that customer-day (H2) */
+  /** held/pending/parked WALK-IN uses per JST day — P4 skips that customer-day (H2) */
   openWalkInByDay: Map<string, number>
+  /** PENDING walk-in uses per JST day — the only ones that stall P4's day marker (R-S127-2) */
+  pendingWalkInByDay: Map<string, number>
   /** refused-unresolved rows: SHOWN, never block */
   refused: IntentRow[]
 }
@@ -889,7 +891,7 @@ export interface CustomerLedgerUsage {
 export type LedgerUsageRead = { ok: true; byCustomer: Map<string, CustomerLedgerUsage> } | { ok: false }
 
 function emptyUsage(): CustomerLedgerUsage {
-  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), openWalkInByDay: new Map(), refused: [] }
+  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), openWalkInByDay: new Map(), pendingWalkInByDay: new Map(), refused: [] }
 }
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
 
@@ -903,6 +905,7 @@ export function usageFromRows(rows: IntentRow[]): Map<string, CustomerLedgerUsag
     if (r.kind === 'undo') { if (r.pack_id && r.state !== 'held') bump(u.pendingUndoByPack, r.pack_id); continue }
     bump(u.usesByDay, day(r.redeemed_on))
     if (r.appointment_id === null) bump(u.openWalkInByDay, day(r.redeemed_on))
+    if (r.appointment_id === null && r.state === 'pending') bump(u.pendingWalkInByDay, day(r.redeemed_on))
     if (!r.pack_id) { u.noPackPending += 1; continue }
     bump(r.state === 'held' ? u.heldByPack : u.pendingByPack, r.pack_id)
   }
