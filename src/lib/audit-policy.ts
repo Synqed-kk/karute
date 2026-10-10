@@ -1134,4 +1134,20 @@ export const RAW_SUPABASE_WRITE_ALLOWLIST: {
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
+  {
+    file: 'src/lib/packs/use-ledger.ts',
+    call: 'pack_use_intents.upsert',
+    symbols: ['insertIgnore'],
+    justification:
+      "S125 use ledger (design v4.2 § 2, R1): INSERT … ON CONFLICT (business_id, id) DO NOTHING of a ticket-use gesture into pack_use_intents (Karute's own project, service role, RLS on with no policy), written BEFORE the core call so a use is never lost. The ledger row IS the record of the staff gesture; core's pack_redemptions row stays the money record. Failures go to reportFailure (§ 7, Sentry); nothing is ever deleted (the module has no delete). Lead Fable 5.1, S126 R-S126-9.",
+    dated: '2026-10-10',
+  },
+  {
+    file: 'src/lib/packs/use-ledger.ts',
+    call: 'pack_use_intents.update',
+    symbols: ['update'],
+    justification:
+      "S125 use ledger (design v4.2 § 2/§ 3): every state change of a pack_use_intents row (lease, settle, refuse, withdraw, park, resume) is ONE conditional UPDATE … WHERE state = <prior> … RETURNING. The ledger row IS the record of the staff gesture and its outcome. Failures go to reportFailure (§ 7, Sentry); nothing is deleted — terminal rows are kept. Lead Fable 5.1, S126 R-S126-9.",
+    dated: '2026-10-10',
+  },
 ]

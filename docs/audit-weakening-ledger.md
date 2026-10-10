@@ -681,3 +681,5 @@
   releaseTranscriptLease overwrites only its own unexpired lease. Still a coordination marker for a call
   that files its own receipt/refusal row · Opus 5.5 builder on PACKET-FIX-BATCH-1088-PART2-S114 (lead
   Opus 5.5, R-S114-5) · Liam's word before the merge
+- 2026-10-10 · RAW_SUPABASE_WRITE_ALLOWLIST:src/lib/packs/use-ledger.ts::pack_use_intents.upsert · the use ledger's insert-first write (design v4.2 § 2, R1): the ledger row IS the record of the staff gesture, written before the core call; failures go to reportFailure; nothing deleted · lead Fable 5.1, S126 R-S126-9
+- 2026-10-10 · RAW_SUPABASE_WRITE_ALLOWLIST:src/lib/packs/use-ledger.ts::pack_use_intents.update · the use ledger's conditional state transitions (UPDATE … WHERE state = <prior> … RETURNING, design v4.2 § 2/§ 3); failures go to reportFailure; nothing deleted · lead Fable 5.1, S126 R-S126-9

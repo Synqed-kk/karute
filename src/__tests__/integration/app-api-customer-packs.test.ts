@@ -64,6 +64,7 @@ jest.mock('@/lib/packs/store', () => ({
   setCustomerLifecycleWithClient: (...a: unknown[]) => setCustomerLifecycleWithClient(...(a as [])),
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { POST as packCreate } from '@/app/api/app/v1/customers/[id]/packs/route'
 import { POST as packRedeem } from '@/app/api/app/v1/customers/[id]/packs/redeem/route'
 import { POST as lifecycleSet } from '@/app/api/app/v1/customers/[id]/lifecycle/route'

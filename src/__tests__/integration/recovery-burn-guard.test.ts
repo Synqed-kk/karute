@@ -68,15 +68,25 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { redeemSessionAction } from '@/actions/packs'
 import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
 
 const DAY = '2026-08-18'
+const INDEX_HIT = {
+  ok: false, error: 'already_redeemed', status: 500,
+  message: 'Unique constraint failed on pack_redemptions_active_appointment_unique (P2002)',
+} as { ok: false; error: string }
+const readLedger = async (_since: string) => {
+  if (ledgerThrows) throw new Error('core down')
+  return ledger
+}
 
 beforeEach(() => {
   jest.clearAllMocks()
   ledger = []
   ledgerThrows = false
+  listRecentRedemptions.mockImplementation(readLedger)
   addRedemptionWithClient.mockResolvedValue({ ok: true, id: 'red-1' })
   findCustomerAppointmentForDateWithClient.mockResolvedValue(null)
 })
@@ -91,7 +101,8 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: null,
       recovery: true,
     })
-    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    // S125 A6 caller contract: state + intentId added
+    expect(res).toMatchObject({ ok: false, error: 'already_redeemed', state: 'refused', intentId: expect.any(String) })
     // The whole point: no write was attempted.
     expect(addRedemptionWithClient).not.toHaveBeenCalled()
   })
@@ -148,7 +159,8 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: null,
       recovery: true,
     })
-    expect(res).toEqual({ ok: false, error: 'guard_unavailable' })
+    // S125 design § 3 R2: an erroring pre-check = pending, never refused; audit row A26, ⚖ 10/3
+    expect(res).toMatchObject({ ok: true, state: 'pending' })
     // Fail-closed is unchanged: nothing burned.
     expect(addRedemptionWithClient).not.toHaveBeenCalled()
   })
@@ -162,7 +174,8 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: null,
       recovery: true,
     })
-    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    // S125 A6 caller contract: state + intentId added
+    expect(res).toMatchObject({ ok: false, error: 'already_redeemed', state: 'refused', intentId: expect.any(String) })
   })
 
   // ⚖ 8/21 EVE — this assertion was INVERTED by the booking-keyed ruling. It
@@ -207,8 +220,15 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
   // ONE BOOKING = MAX ONE BURN still holds — it just holds at the DB index
   // now, not at this guard. addRedemptionWithClient maps 23505/P2002 on
   // pack_redemptions_active_appointment_unique to 'already_redeemed'.
-  it('a booked burn the index already holds still reports already_redeemed', async () => {
-    addRedemptionWithClient.mockResolvedValueOnce({ ok: false, error: 'already_redeemed' })
+  // S125 § 3 R3: booked index hit → R4 read → settle to the row, else pending
+  it('a booked burn the index already holds settles to the live row the R4 read finds', async () => {
+    // the store's real index-hit shape: core's 500 carrying the unique index (P2002)
+    addRedemptionWithClient.mockResolvedValueOnce(INDEX_HIT)
+    const live = { id: 'red-live', customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: DAY, source: 'manual' }
+    // The live row is visible only once core has been asked (the index hit), so
+    // the settle comes from the R3 → R4 read, not from a pre-send read.
+    listRecentRedemptions.mockImplementation(async () =>
+      (addRedemptionWithClient.mock.calls.length > 0 ? [live] : []) as Redemption[])
     const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
       packId: 'pack-1',
       customerId: 'cust-1',
@@ -216,7 +236,22 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: 'appt-1',
       recovery: true,
     })
-    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    expect(addRedemptionWithClient).toHaveBeenCalledTimes(1)
+    expect(res).toMatchObject({ ok: true, state: 'settled', redemptionId: 'red-live' })
+  })
+
+  // S125 § 3 R3: booked index hit → R4 read → settle to the row, else pending
+  it('a booked index hit whose R4 read finds no row stays pending', async () => {
+    addRedemptionWithClient.mockResolvedValueOnce(INDEX_HIT)
+    listRecentRedemptions.mockImplementation(async () => [])
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      appointmentId: 'appt-1',
+      recovery: true,
+    })
+    expect(res).toMatchObject({ ok: true, state: 'pending' })
   })
 
   // The guard keys on the RESOLVED appointment, never the raw input: a

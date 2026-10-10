@@ -54,6 +54,7 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { redeemSessionAction } from '@/actions/packs'
 
 const lastForwardedAppointmentId = () => mockAddRedemption.mock.calls[0][1].appointmentId
@@ -110,6 +111,7 @@ describe('redeemSessionAction appointment precedence', () => {
 
     const res = await redeemSessionAction({ packId: 'p1', customerId: 'cust-1' })
 
-    expect(res).toEqual({ ok: false, error: 'below_zero' })
+    // S125 A6 caller contract: state + intentId added
+    expect(res).toMatchObject({ ok: false, error: 'below_zero', state: 'refused', intentId: expect.any(String) })
   })
 })

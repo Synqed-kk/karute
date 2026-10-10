@@ -24,14 +24,13 @@ import {
   addVisitReconcileDismissalWithClient,
   addCustomerContactWithClient,
   addPackAlertDismissalWithClient,
-  addRedemptionWithClient,
   createPackWithClient,
-  findCustomerAppointmentForDateWithClient,
   setCustomerLifecycleWithClient,
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
 import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
+import { recordUse, type LedgerStore, type UseState } from '@/lib/packs/use-ledger'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
@@ -124,6 +123,29 @@ export interface RedeemSessionActionInput {
    *  QUEUED. The web action leaves it unset on purpose — see redeemSessionAction
    *  below. */
   idempotencyKey?: string
+  /** The gesture's ledger intent id (= the Idempotency-Key core sees, R1). */
+  intentId?: string
+  /** R6: the client's gesture time; bounded by the ledger. */
+  gestureAt?: string | null
+  /** The 「もう1回分を消化する」 answer to a held use (R1-gate). */
+  anotherSession?: boolean
+}
+
+/** The use ledger (design v4.2 R1): when present, the burn is written to
+ *  pack_use_intents FIRST and sent from the row. */
+export interface RedeemLedger {
+  store: LedgerStore
+  businessId: string
+  ownerUserId: string | null
+}
+
+export interface RedeemSessionResult {
+  ok: boolean
+  state?: UseState
+  redemptionId?: string
+  intentId?: string
+  heldAgainst?: string
+  error?: string
 }
 
 /** Redeem core (SINGLE SOURCE): burn pairing is SERVER-derived here — when the
@@ -135,85 +157,100 @@ export async function redeemSessionActionWithClient(
   synqed: Pick<SynqedClient, 'packs' | 'appointments'>,
   staffId: string | null,
   input: RedeemSessionActionInput,
-): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+  ledger?: RedeemLedger,
+): Promise<RedeemSessionResult> {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
-  const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const redeemedOn = input.redeemedOn ?? jstToday
-  const appointmentId =
-    input.appointmentId !== undefined
-      ? input.appointmentId
-      : await findCustomerAppointmentForDateWithClient(synqed, input.customerId, redeemedOn)
-  // D5 (R-B6 ⑦) — the customer-day guard, for a WALK-IN recovery burn only.
-  //
-  // ⚖ 2026-08-21 (Liam): recovery burns are BOOKING-KEYED whenever a booking
-  // exists. A customer's second back-to-back same-day BOOKING takes its own
-  // ticket — his salons book a double visit as two bookings, never one long
-  // one — so a booked recovery burn is guarded by the DB's partial unique
-  // index on pack_redemptions(appointment_id) alone: ONE BOOKING = MAX ONE
-  // BURN, which is exactly the law and nothing stricter.
-  //
-  // The customer+JST-day check (the auto-burn cron's guard 2, ported here in
-  // fix round 1 as A-2) survives ONLY for a burn with no appointment at all,
-  // where it is the sole protection: the index cannot see NULL-appointment
-  // rows, the banner can re-offer the same unbooked visit after a second
-  // crash, and two takes of one walk-in would otherwise both burn.
-  // `appointmentId` here is the RESOLVED one — a caller-supplied id, or the
-  // booking the server found for the customer that day — so a recovery burn
-  // that merely omitted the id is still treated as booked.
-  //   RESIDUAL, documented not fixed (BA-1 class): check-then-write has a race
-  //   window — two walk-in burns for one customer-day landing between the read
-  //   and the write both pass. Closing it for real needs a core-side
-  //   uniqueness delta on (customer_id, redeemed_on) — an OPTIONAL Anthony
-  //   one-liner, not a blocker: the window is milliseconds wide on a path a
-  //   single staffer drives by hand, and the client's own single-flight latch
-  //   already covers the double-tap case.
-  //   CEILING (money lens #8, recorded not fixed): a walk-in visit whose burn
-  //   was dated to an ADJACENT JST day is outside this day-keyed check.
-  //   CEILING (F-10, RE-KEYED by the ⚖ ruling): the old ceiling was the
-  //   opposite one — two genuine same-day visits by one customer burned ONE
-  //   ticket. That is gone for booked visits. What replaces it: a prior
-  //   NULL-appointment burn for the same customer-day no longer blocks a
-  //   BOOKED burn, so a walk-in row that was really this booking's burn (a
-  //   reconcile-strip backfill, an earlier unbooked recovery of the same
-  //   visit) can be followed by a second, booked burn for it. That is a data
-  //   MIS-KEYING, not a second visit: manager reconcile (F7) is where it is
-  //   corrected, and the recovery banner's 回数券 line is derived from the same
-  //   redemption rows, so it still shows what actually happened.
-  if (input.recovery && !appointmentId) {
-    // Floor one JST day back, exactly like the cron's historySince — a `since`
-    // equal to the day itself relies on core's comparison being inclusive,
-    // which the app repo cannot see.
-    const since = ymdInJst(new Date(Date.parse(`${redeemedOn}T00:00:00+09:00`) - 86_400_000))
-    const already = await synqed.packs
-      .listRecentRedemptions(since)
-      .then((rows) =>
-        rows.some(
-          (r) => r.customer_id === input.customerId && isSameJstDay(r.redeemed_on, redeemedOn),
-        ),
-      )
-      // Fail CLOSED on an unreadable history — we cannot prove this burn safe.
-      // But it gets its OWN discriminator (F-3): reporting it as
-      // 'already_redeemed' told the staffer the ticket had been used, and the
-      // client then certified the answer, so a transient read blip cost a burn
-      // permanently under a message that gave nobody a reason to look. No burn
-      // happens either way; only the truth the client is told differs.
-      .catch(() => 'unreadable' as const)
-    if (already === 'unreadable') return { ok: false, error: 'guard_unavailable' }
-    if (already) return { ok: false, error: 'already_redeemed' }
-  }
-  const result = await addRedemptionWithClient(synqed, {
-    packId: input.packId,
-    customerId: input.customerId,
-    redeemedOn,
-    appointmentId,
-    karuteRecordId: input.karuteRecordId ?? null,
-    source: input.source ?? 'manual',
-    createdBy: staffId,
-    idempotencyKey: input.idempotencyKey,
-  })
-  return result.ok
-    ? { ok: true, redemptionId: result.id }
-    : { ok: false, error: result.error }
+  // R1 (design v4.2): EVERY caller goes through the use ledger. The facade
+  // passes its own (Bearer business); the web action's is the cookie session's.
+  const l = ledger ?? (await import('@/lib/packs/use-ledger').then((m) => m.defaultLedgerContext()).catch(() => null))
+  if (!l?.businessId) return { ok: false, error: 'ledger_unavailable' }
+  return redeemThroughLedger(synqed, staffId, input, l)
+}
+
+/** R1 at the first line of P1 / P2 / P6: the gesture is a ledger row before
+ *  any core call; D5 (the walk-in recovery customer-day guard) and the
+ *  booking lookup run INSIDE every attempt (R2), a guard that cannot read =
+ *  pending, never a silent refusal. */
+async function redeemThroughLedger(
+  synqed: Pick<SynqedClient, 'packs' | 'appointments'>,
+  staffId: string | null,
+  input: RedeemSessionActionInput,
+  ledger: RedeemLedger,
+): Promise<RedeemSessionResult> {
+  return recordUse(
+    {
+      store: ledger.store,
+      synqed,
+      precheck: async (row) => {
+    // D5 (R-B6 ⑦) — the customer-day guard, for a WALK-IN recovery burn only.
+    //
+    // ⚖ 2026-08-21 (Liam): recovery burns are BOOKING-KEYED whenever a booking
+    // exists. A customer's second back-to-back same-day BOOKING takes its own
+    // ticket — his salons book a double visit as two bookings, never one long
+    // one — so a booked recovery burn is guarded by the DB's partial unique
+    // index on pack_redemptions(appointment_id) alone: ONE BOOKING = MAX ONE
+    // BURN, which is exactly the law and nothing stricter.
+    //
+    // The customer+JST-day check (the auto-burn cron's guard 2, ported here in
+    // fix round 1 as A-2) survives ONLY for a burn with no appointment at all,
+    // where it is the sole protection: the index cannot see NULL-appointment
+    // rows, the banner can re-offer the same unbooked visit after a second
+    // crash, and two takes of one walk-in would otherwise both burn.
+    // `appointmentId` here is the RESOLVED one — a caller-supplied id, or the
+    // booking the server found for the customer that day — so a recovery burn
+    // that merely omitted the id is still treated as booked.
+    //   RESIDUAL, documented not fixed (BA-1 class): check-then-write has a race
+    //   window — two walk-in burns for one customer-day landing between the read
+    //   and the write both pass. Closing it for real needs a core-side
+    //   uniqueness delta on (customer_id, redeemed_on) — an OPTIONAL Anthony
+    //   one-liner, not a blocker: the window is milliseconds wide on a path a
+    //   single staffer drives by hand, and the client's own single-flight latch
+    //   already covers the double-tap case.
+    //   CEILING (money lens #8, recorded not fixed): a walk-in visit whose burn
+    //   was dated to an ADJACENT JST day is outside this day-keyed check.
+    //   CEILING (F-10, RE-KEYED by the ⚖ ruling): the old ceiling was the
+    //   opposite one — two genuine same-day visits by one customer burned ONE
+    //   ticket. That is gone for booked visits. What replaces it: a prior
+    //   NULL-appointment burn for the same customer-day no longer blocks a
+    //   BOOKED burn, so a walk-in row that was really this booking's burn (a
+    //   reconcile-strip backfill, an earlier unbooked recovery of the same
+    //   visit) can be followed by a second, booked burn for it. That is a data
+    //   MIS-KEYING, not a second visit: manager reconcile (F7) is where it is
+    //   corrected, and the recovery banner's 回数券 line is derived from the same
+    //   redemption rows, so it still shows what actually happened.
+      // Floor one JST day back, exactly like the cron's historySince — a `since`
+      // equal to the day itself relies on core's comparison being inclusive,
+      // which the app repo cannot see.
+        // Fail CLOSED on an unreadable history — we cannot prove this burn safe.
+        // But it gets its OWN discriminator (F-3): reporting it as
+        // 'already_redeemed' told the staffer the ticket had been used, and the
+        // client then certified the answer, so a transient read blip cost a burn
+        // permanently under a message that gave nobody a reason to look. No burn
+        // happens either way; only the truth the client is told differs.
+        if (!input.recovery || row.appointment_id) return { ok: true }
+        const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
+        const rows = await synqed.packs.listRecentRedemptions(since)
+        return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
+          ? { refuse: 'already_redeemed' }
+          : { ok: true }
+      },
+    },
+    {
+      intentId: input.intentId ?? input.idempotencyKey,
+      businessId: ledger.businessId,
+      ownerUserId: ledger.ownerUserId,
+      staffId,
+      customerId: input.customerId,
+      packId: input.packId,
+      ...(input.appointmentId !== undefined ? { appointmentId: input.appointmentId } : {}),
+      redeemedOn: input.redeemedOn,
+      gestureAt: input.gestureAt,
+      source: input.source,
+      recovery: input.recovery,
+      anotherSession: input.anotherSession,
+      karuteRecordId: input.karuteRecordId ?? null,
+    },
+  )
 }
 
 /** 来店なし core (SINGLE SOURCE) — ANY staff (unlike alert dismissal):
