@@ -13,7 +13,7 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedC
 
 import {
   attemptIntent, classifyCoreFailure, displayRemaining, preReadMatch, readLedgerUsage, recordUse,
-  settlePending, usageFromRows, CUTOVER_DAY, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
+  settlePending, usageFromRows, cutoverDay, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
   type IntentRow, type LedgerStore, type Where,
 } from '@/lib/packs/use-ledger'
 
@@ -21,6 +21,7 @@ const B = '11111111-1111-4111-8111-111111111111'
 const B2 = '22222222-2222-4222-8222-222222222222'
 const NOW = new Date('2026-10-20T03:00:00.000Z') // 12:00 JST, after CUTOVER_DAY
 const TODAY = '2026-10-20'
+const CUT = '2026-10-11' // jest.config.ts sets KARUTE_LEDGER_CUTOVER_DAY to this day
 
 function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; failReads?: boolean } {
   const rows: IntentRow[] = []
@@ -150,19 +151,19 @@ describe('S125 use ledger — the numbered list', () => {
   test('6 · R4 pre-read inside min(redeemed_on, gesture day): booked + walk-in + CUTOVER_DAY + pre-cutover backfill (fix 2)', () => {
     const base = sysRow({ gesture_at: NOW.toISOString(), redeemed_on: '2026-10-18', appointment_id: null })
     const rows = [
-      { id: 'r-cut', customer_id: 'cust-1', appointment_id: null, redeemed_on: CUTOVER_DAY, source: 'manual' },
+      { id: 'r-cut', customer_id: 'cust-1', appointment_id: null, redeemed_on: CUT, source: 'manual' },
       { id: 'r-old', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-17', source: 'manual' },
       { id: 'r-in', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-18', source: 'backfill' },
       { id: 'r-qr', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-19', source: 'qr' },
     ]
-    expect(preReadMatch(base, rows, new Set(), TODAY)).toBe('r-in')           // backfill dated before the gesture day
-    expect(preReadMatch(base, rows, new Set(['r-in']), TODAY)).toBeNull()     // claimed rows excluded; qr never
+    expect(preReadMatch(base, rows, new Set(), TODAY, CUT)).toBe('r-in')           // backfill dated before the gesture day
+    expect(preReadMatch(base, rows, new Set(['r-in']), TODAY, CUT)).toBeNull()     // claimed rows excluded; qr never
     const booked = { ...base, appointment_id: 'appt-9' }
-    expect(preReadMatch(booked, [{ id: 'b', customer_id: 'cust-1', appointment_id: 'appt-9', redeemed_on: '2026-10-18', source: 'auto' }], new Set(), TODAY)).toBe('b')
-    expect(preReadMatch(booked, [rows[0]], new Set(), TODAY)).toBeNull()      // the deploy day itself excluded
+    expect(preReadMatch(booked, [{ id: 'b', customer_id: 'cust-1', appointment_id: 'appt-9', redeemed_on: '2026-10-18', source: 'auto' }], new Set(), TODAY, CUT)).toBe('b')
+    expect(preReadMatch(booked, [rows[0]], new Set(), TODAY, CUT)).toBeNull()      // the deploy day itself excluded
     const pre = { ...base, redeemed_on: '2026-10-05' }                       // pre-cutover backfill of an old visit
-    expect(preReadMatch(pre, [{ id: 'orphan', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-05', source: 'backfill' }], new Set(), TODAY)).toBe('orphan')
-    expect(preReadMatch(pre, [{ id: 'other', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-06', source: 'backfill' }], new Set(), TODAY)).toBeNull()
+    expect(preReadMatch(pre, [{ id: 'orphan', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-05', source: 'backfill' }], new Set(), TODAY, CUT)).toBe('orphan')
+    expect(preReadMatch(pre, [{ id: 'other', customer_id: 'cust-1', appointment_id: null, redeemed_on: '2026-10-06', source: 'backfill' }], new Set(), TODAY, CUT)).toBeNull()
   })
 
   test('7 · ledger insert failure (P1): no core call, the device-held shape', async () => {
@@ -302,6 +303,33 @@ describe('S125 use ledger — the numbered list', () => {
     const daily = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: true, now: () => NOW })
     expect(daily.settled).toBe(1)
     expect(store.rows.find((r) => r.id === 's2')).toMatchObject({ state: 'settled', resumed_at: NOW.toISOString() })
+  })
+
+  test('B · cutover day: unset or malformed → the pre-read keeps the row pending + ledger.cutover_unset, nothing read or sent; set → today’s match', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const saved = process.env.KARUTE_LEDGER_CUTOVER_DAY
+    const recent = [{ id: 'old', customer_id: 'cust-1', appointment_id: null, redeemed_on: TODAY, source: 'manual' }]
+    const replay = () => sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000b1', appointment_id: null, attempts: 1, pack_picked_by: 'staff' })
+    try {
+      for (const bad of [undefined, '', '2026-13-45', '2026-02-30', 'tomorrow']) {
+        if (bad === undefined) delete process.env.KARUTE_LEDGER_CUTOVER_DAY
+        else process.env.KARUTE_LEDGER_CUTOVER_DAY = bad
+        expect(cutoverDay()).toBeNull()
+        const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
+        expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'pending', last_error_code: 'cutover_unset', leased_until: null })
+        expect(core.packs.listRecentRedemptions).not.toHaveBeenCalled()
+        expect(core.packs.addRedemption).not.toHaveBeenCalled()
+      }
+      expect(err.mock.calls.filter((c) => String(c[1]).includes('ledger.cutover_unset'))).toHaveLength(5)
+      process.env.KARUTE_LEDGER_CUTOVER_DAY = CUT
+      expect(cutoverDay()).toBe(CUT)
+      const store = memStore(); const core = fakeCore({ recent }); const row = replay(); await store.insertIgnore(row)
+      expect(await attemptIntent(deps(store, core), row)).toMatchObject({ state: 'settled', settled_core_id: 'old', resolved_by: 'matched:old' })
+    } finally {
+      if (saved === undefined) delete process.env.KARUTE_LEDGER_CUTOVER_DAY
+      else process.env.KARUTE_LEDGER_CUTOVER_DAY = saved
+      err.mockRestore()
+    }
   })
 })
 

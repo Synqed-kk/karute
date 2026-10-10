@@ -39,21 +39,23 @@ export const PARK_AFTER_MS = 24 * 60 * 60 * 1000
 export const ALARM_TOP_N = 10
 /** 503 IDEMPOTENT_IN_FLIGHT without a Retry-After: wait this long. */
 export const IN_FLIGHT_RETRY_DEFAULT_MS = 5_000
-/** R4/H12: the ledger deploy day (JST). Core rows dated AFTER it can only be
- *  ledgered uses or unclaimed-by-construction rows; the day itself is excluded
- *  because no core read returns created_at (C5 would allow it). Set
- *  KARUTE_LEDGER_CUTOVER_DAY to the deploy day; this is the documented fallback. */
-export const CUTOVER_DAY_FALLBACK = '2026-10-11'
-export const CUTOVER_DAY = parseCutoverDay(process.env.KARUTE_LEDGER_CUTOVER_DAY)
-
-/** A bad value throws at module load (boot), never silently. */
-function parseCutoverDay(raw: string | undefined): string {
-  const v = raw?.trim() || CUTOVER_DAY_FALLBACK
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || ymdInJst(new Date(`${v}T12:00:00+09:00`)) !== v) {
-    throw new Error(`[use-ledger] KARUTE_LEDGER_CUTOVER_DAY is not a JST date (yyyy-mm-dd): ${JSON.stringify(raw)}`)
-  }
-  return v
+/** R4/H12: the ledger deploy day (JST), from KARUTE_LEDGER_CUTOVER_DAY — set it
+ *  to the deploy day. Core rows dated AFTER it can only be ledgered uses or
+ *  unclaimed-by-construction rows; the day itself is excluded because no core
+ *  read returns created_at (C5 would allow it). NO fallback (S126 hole 5: a
+ *  silent default adopts a pre-deploy core row). Read lazily inside the attempt,
+ *  never at import: mutations.ts imports this module, and a bad env must not take
+ *  down the cancel/no-show routes. Unset or malformed = null → the R4 pre-read
+ *  keeps the intent pending + alarm 'ledger.cutover_unset'. jest.config.ts sets
+ *  one fixed day for the tests. */
+export function cutoverDay(): string | null {
+  const v = process.env.KARUTE_LEDGER_CUTOVER_DAY?.trim()
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  const t = Date.parse(`${v}T12:00:00+09:00`)
+  return Number.isFinite(t) && ymdInJst(new Date(t)) === v ? v : null
 }
+/** The pre-read's answer when cutoverDay() is null: the attempt keeps the row pending + alarm. */
+class CutoverUnsetError extends Error {}
 
 // ── Row + store port ─────────────────────────────────────────────────────────
 export type IntentState = 'held' | 'pending' | 'parked' | 'settled' | 'refused' | 'withdrawn'
@@ -334,7 +336,7 @@ const day = (s: string) => s.slice(0, 10)
 
 /** Window = min(frozen redeemed_on, gesture day) → today. Returns the core row
  *  this intent should settle to, or null (only then may it be sent). */
-export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<string>, today: string): string | null {
+export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<string>, today: string, cutover: string): string | null {
   const gestureDay = ymdInJst(new Date(intent.gesture_at))
   const start = intent.redeemed_on < gestureDay ? intent.redeemed_on : gestureDay
   const inWindow = rows.filter(
@@ -344,24 +346,26 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<st
     const own = inWindow.find((r) => r.appointment_id === intent.appointment_id)
     if (own) return own.id
     const nullRow = inWindow.find(
-      (r) => r.appointment_id === null && day(r.redeemed_on) > CUTOVER_DAY && !['qr', 'pos', 'import'].includes(r.source),
+      (r) => r.appointment_id === null && day(r.redeemed_on) > cutover && !['qr', 'pos', 'import'].includes(r.source),
     )
     return nullRow?.id ?? null
   }
   const walk = inWindow.filter((r) => r.appointment_id === null && (r.source === 'manual' || r.source === 'backfill'))
-  const preCutover = intent.redeemed_on < CUTOVER_DAY
-  const m = walk.find((r) => day(r.redeemed_on) > CUTOVER_DAY || (preCutover && day(r.redeemed_on) === intent.redeemed_on))
+  const preCutover = intent.redeemed_on < cutover
+  const m = walk.find((r) => day(r.redeemed_on) > cutover || (preCutover && day(r.redeemed_on) === intent.redeemed_on))
   return m?.id ?? null
 }
 
 async function runPreRead(synqed: Pick<SynqedClient, 'packs'>, store: LedgerStore, row: IntentRow, now: Date): Promise<string | null> {
+  const cutover = cutoverDay()
+  if (!cutover) throw new CutoverUnsetError('KARUTE_LEDGER_CUTOVER_DAY unset or not a JST yyyy-mm-dd')
   const gestureDay = ymdInJst(new Date(row.gesture_at))
   const start = row.redeemed_on < gestureDay ? row.redeemed_on : gestureDay
   const since = ymdInJst(new Date(Date.parse(`${start}T00:00:00+09:00`) - 86_400_000))
   const rows = (await synqed.packs.listRecentRedemptions(since)) as unknown as CoreRow[]
   const mine = rows.filter((r) => r.customer_id === row.customer_id)
   const claimed = await store.claimedCoreIds(row.business_id, mine.map((r) => r.id))
-  return preReadMatch(row, mine, claimed, ymdInJst(now))
+  return preReadMatch(row, mine, claimed, ymdInJst(now), cutover)
 }
 
 // ── R2 booking lookup that never turns an error into "no booking" (H15) ──────
@@ -492,6 +496,10 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       })
     }
   } catch (e) {
+    if (e instanceof CutoverUnsetError) {
+      reportFailure({ product: 'karute', kind: 'ledger.cutover_unset', business_id: row.business_id, ref: row.id })
+      return keepPending(store, row, { leased_until: null, last_error_code: 'cutover_unset' })
+    }
     // a pre-check / pre-read that errors = pending, never a silent shape change (R2)
     return keepPending(store, row, { leased_until: null, last_error_code: 'precheck_error', last_error_text: e instanceof Error ? e.message : String(e) })
   }
