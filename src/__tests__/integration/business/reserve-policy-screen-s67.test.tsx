@@ -490,3 +490,18 @@ describe('Reserve S69 — round 2: the token is committed state; the last good s
     expect(src).toContain('result = await putReservePolicy(save, policy, reserveBasedOn) // the committed token')
   })
 })
+
+// ⚖ P2 · R-S97-2 fix 2 — the door's line, then the 「エラー番号：」 line on its OWN line (FailText).
+describe('P2 · R-S97-2 — 受付ルール: the number under the refusal', () => {
+  const { businessStrings } = jest.requireActual('@/business/i18n') as typeof import('@/business/i18n')
+  const { withCoreRef, GENERIC_FAIL_LINE } = jest.requireActual('@/business/lib/store-days-state') as typeof import('@/business/lib/store-days-state')
+  const REF = '0a1b2c3d'
+  it('a 503 whose message carries the ref → the line, then the number line, the number monospace', async () => {
+    await mount()
+    replies.push({ status: 503, body: { ok: false, reason: 'core', message: withCoreRef(GENERIC_FAIL_LINE, REF) } })
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    await press()
+    const alert = document.querySelector('.st-act-error[role="alert"]')!
+    expect([alert.firstChild?.textContent, alert.querySelector('.st-fail-ref')?.textContent, alert.querySelector('.st-fail-ref-num')?.textContent]).toEqual([GENERIC_FAIL_LINE, businessStrings.coreUnanswered.reference.replace('{ref}', REF), REF])
+  })
+})

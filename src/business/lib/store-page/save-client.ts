@@ -6,7 +6,10 @@ import { parseInternalRecord, recordHash, type CapKey, type CapRecord } from './
 
 /** S75 fix 1: 'locked' = the door's 'invalid' carrying `locked` (a key the 業種 locks OFF was sent ON) — its own line. */
 export type CapsSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' | 'disconnected' | 'locked'
-export type CapsSaveResult = { ok: true; record: CapRecord; basedOn: string } | { ok: false; reason: CapsSaveReason }
+export type CapsSaveResult = { ok: true; record: CapRecord; basedOn: string } | { ok: false; reason: CapsSaveReason; ref?: string }
+
+/** ⚖ P2 · R-S97-2 — THE one check of a refusal's ref (the bound's 8 hex) for the room's saves; anything else is none. */
+export const isCoreRef = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}$/.test(v)
 
 const CAPS_SAVE_URL = '/api/business/store-capabilities'
 const CAPS_SAVE_REASONS: ReadonlyArray<CapsSaveReason> = ['forbidden', 'tenant', 'invalid', 'stale', 'core', 'disconnected']
@@ -27,14 +30,15 @@ export async function putStoreCapabilities(
       body: JSON.stringify({ storeId: save.storeId, record: save.record, reset_keys: [...save.resetKeys], based_on: save.basedOn }),
     })
     const body: unknown = await res.json().catch(() => null)
-    const answer = (body ?? {}) as { ok?: unknown; record?: unknown; reason?: unknown; locked?: unknown }
+    const answer = (body ?? {}) as { ok?: unknown; record?: unknown; reason?: unknown; locked?: unknown; ref?: unknown }
     if (res.ok && answer.ok === true) {
       const record = parseInternalRecord(answer.record)
       return record === null ? { ok: false, reason: 'core' } : { ok: true, record, basedOn: recordHash(record) }
     }
     if (answer.reason === 'invalid' && typeof answer.locked === 'string') return { ok: false, reason: 'locked' }
     const reason = CAPS_SAVE_REASONS.find((r) => r === answer.reason)
-    return { ok: false, reason: reason ?? 'core' }
+    // ⚖ P2 · R-S97-2 — the bound's ref (8 hex) rides along so the room can print the number.
+    return { ok: false, reason: reason ?? 'core', ...(isCoreRef(answer.ref) ? { ref: answer.ref } : {}) }
   } catch {
     return { ok: false, reason: 'core' }
   }

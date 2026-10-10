@@ -864,6 +864,10 @@ html:has(.biz .page.pg-settings) {
    `disabled` (the room's own law — the reason/state stays reachable by keyboard). */
 .biz .pg-settings .st-act[aria-disabled="true"] { cursor: default; background: var(--muted); border-color: var(--muted); }
 .biz .pg-settings .st-act-error { color: var(--orange); font-size: 11.5px; font-weight: 600; line-height: 1.6; }
+/* ⚖ P2 · R-S97-2 fix 2 — a save's 「エラー番号：」 line (LABEL-FINAL): its own line under the failure sentence, the
+   number monospace and selectable so it can be read out or copied (SettingsScreen FailText). */
+.biz .pg-settings .st-fail-ref { display: block; }
+.biz .pg-settings .st-fail-ref-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; user-select: all; }
 .biz .pg-settings .st-act-result { color: var(--green-dark); font-size: 11.5px; line-height: 1.6; }
 .biz .pg-settings .st-coll-readonly { margin: 4px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
 .biz .pg-settings .st-chip { margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--st-current-bg); color: var(--st-current-ink); font-size: 10.5px; font-weight: 600; }

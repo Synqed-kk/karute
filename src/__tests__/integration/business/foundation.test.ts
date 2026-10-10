@@ -412,6 +412,7 @@ describe('the fixture data door', () => {
         './BusinessSessionEdits',
         './BusinessSidebar',
         './BusinessTopbar',
+        './CoreUnansweredNotice', // ⚖ P2 (R-S97-1) — the shared notice the layout shows when core does not answer the shell
         './ShiftsSessionEdits',
         './business-shell.css',
         '@/business/lib/admission',

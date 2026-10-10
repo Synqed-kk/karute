@@ -836,6 +836,23 @@ describe('B2 act 1c stamp time', () => {
     await settle()
     expect(stamps()).toEqual(['✓ 保存しました 03:17'])
   })
+  it('P2 · R-S97-2 fix 5 — 予約の色分け, door ON: a 503 with the bound\'s ref shows the 「エラー番号：」 line; a following 403 clears it; a 503 without a ref shows none', async () => {
+    const { businessStrings } = jest.requireActual('@/business/i18n') as typeof import('@/business/i18n')
+    await open(STORE.tokyo, 'language-display')
+    const replies = [fakeRes(503, { ok: false, reason: 'core', ref: '0a1b2c3d' }), fakeRes(403, { ok: false, reason: 'forbidden' }), fakeRes(503, { ok: false, reason: 'core' })]
+    global.fetch = jest.fn(() => Promise.resolve(replies.shift()!)) as unknown as typeof fetch
+    const group = document.querySelector('.st-swatches[aria-label="新規予約の色"]')
+    fireEvent.click([...group!.querySelectorAll('button.st-swatch')].find((b) => b.getAttribute('aria-pressed') !== 'true') as HTMLButtonElement)
+    const alert = () => document.querySelector('.st-act-error[role="alert"]')
+    const seen: unknown[] = []
+    for (let k = 0; k < 3; k++) {
+      await act(async () => { saveBtn().click() })
+      await settle()
+      seen.push([alert() !== null, alert()?.querySelector('.st-fail-ref')?.textContent ?? null, alert()?.querySelector('.st-fail-ref-num')?.textContent ?? null])
+    }
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+    expect(seen).toEqual([[true, businessStrings.coreUnanswered.reference.replace('{ref}', '0a1b2c3d'), '0a1b2c3d'], [true, null, null], [true, null, null]])
+  })
   it('(f) source pin: jstClock( twice in the screen, the render-time stamp prop gone from the screen and from src/', () => {
     const fs = jest.requireActual('node:fs') as typeof import('node:fs')
     const path = jest.requireActual('node:path') as typeof import('node:path')
@@ -958,5 +975,21 @@ describe('B2 act 2a honest stamp every page-only save', () => {
     expect(document.body.textContent).not.toContain('✓ 保存しました')
     expect(document.body.textContent).not.toContain(PAGE_ONLY)
     expect(document.body.textContent).toContain('いまは保存できないため、時間をおいてもう一度保存してください')
+  })
+})
+
+// ⚖ P2 · R-S97-2 fix 2 — 臨時休業: the door's line, then the 「エラー番号：」 line on its OWN line (FailText).
+describe('P2 · R-S97-2 — 臨時休業・特別営業日: the number under the refusal', () => {
+  const { businessStrings } = jest.requireActual('@/business/i18n') as typeof import('@/business/i18n')
+  const { withCoreRef, GENERIC_FAIL_LINE } = jest.requireActual('@/business/lib/store-days-state') as typeof import('@/business/lib/store-days-state')
+  const REF = '0a1b2c3d'
+  it('臨時休業 add → 503 whose message carries the ref: the line, then the number line', async () => {
+    await mount()
+    reply = () => ({ status: 503, body: { ok: false, reason: 'core', message: withCoreRef(GENERIC_FAIL_LINE, REF) } })
+    fireEvent.change(input('store-hours.closures-date')!, { target: { value: '2026-12-01' } })
+    await act(async () => { addBtn('store-hours.closures')!.click() })
+    await settle()
+    const err = blockEl('store-hours.closures')!.querySelector('.st-coll-error')!
+    expect([err.firstChild?.textContent, err.querySelector('.st-fail-ref')?.textContent, err.querySelector('.st-fail-ref-num')?.textContent]).toEqual([GENERIC_FAIL_LINE, businessStrings.coreUnanswered.reference.replace('{ref}', REF), REF])
   })
 })

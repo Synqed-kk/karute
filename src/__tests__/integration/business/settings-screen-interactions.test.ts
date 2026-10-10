@@ -1325,7 +1325,7 @@ describe('予約の色分け — 保存する sends only a real colour change (G
     expect(await sendBookingColors(SAVE, { ...SAVED, 'lang.color-vip': BOOKING_PALETTE[4].hex }, SAVED)).toEqual({ ok: false, reason: 'forbidden' })
     expect(f).toHaveBeenCalledTimes(1)
     expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}/)
-    expect(SRC_CODE).toContain('{bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}')
+    expect(SRC_CODE).toContain('{bookingFail && <p className="st-act-error" role="alert"><FailText text={withCoreRef(BOOKING_SAVE_FAIL[bookingFail], failRef.booking)} /></p>}') // P2 · R-S97-2 fix 2: the line drawn by FailText, the number on its own line
   })
 })
 

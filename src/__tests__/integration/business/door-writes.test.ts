@@ -1121,3 +1121,59 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
     expect(data.LATE_FROM_BOOKING_NOTE).toBe('直前締切が無料キャンセル期限より短いため、期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。')
   })
 })
+
+// ⚖ P2 · R-S97-2 — a save whose core read never answers refuses at 5,000 ms BEFORE any write; its own line names the save
+// and carries the bound's ref, and its message ends in the page notice's エラー番号 line (ja.json) with that same ref.
+describe('P2 · R-S97-2 — a hung read inside a save: refused before any write, one number in the line and the message', () => {
+  const ja = jest.requireActual('@/business/i18n/ja.json') as { coreUnanswered: { reference: string } }
+  const hang = () => new Promise(() => {})
+  const RESERVE_FAIL = 'いまは保存できないため、時間をおいてもう一度保存してください。'
+  async function at5000<T>(p: Promise<T>): Promise<T> {
+    let done = false
+    void p.then(() => (done = true))
+    await jest.advanceTimersByTimeAsync(4999)
+    expect(done).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    expect(done).toBe(true)
+    return p
+  }
+  const { STORE_PLANE_OVERRIDES } = jest.requireActual('@/business/lib/practice-door/sample-facade') as typeof import('@/business/lib/practice-door/sample-facade')
+  const { RESERVE_POLICY_DEFAULTS } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
+  beforeEach(() => { STORE_PLANE_OVERRIDES[STORE_ID] = { ...STORE_PLANE_OVERRIDES[STORE_ID], bookingPolicy: 'live' } })
+  it.each([
+    ['test 7 — answerSheet (the actor)', 'login-owner', 'answerSheet', () => data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' }), '[business store days] core did not answer:', GENERIC_FAIL_LINE],
+    ['door-writes.ts:357 — addClosedDay pre-read', 'login-owner', 'storePolicyListClosedDays', () => data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' }), '[business store days] core did not save:', GENERIC_FAIL_LINE],
+    ['door-writes.ts:401 — removeClosedDay pre-read', 'login-owner', 'storePolicyListClosedDays', () => data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id), '[business store days] core did not save:', GENERIC_FAIL_LINE],
+    ['door-writes.ts:484 — special-days pre-read', 'login-owner', 'storePolicyGet', () => data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-10-21', open: '10:00', close: '18:00' }), '[business store days] core did not save:', GENERIC_FAIL_LINE],
+    ['door-reserve-policy.ts:59 — the HQ grant check (ADMIN)', 'login-admin', 'businessGrantsCheck', () => data.setReservePolicy(STORE_ID, { ...RESERVE_POLICY_DEFAULTS }, 'x'), '[business reserve policy] core did not save:', RESERVE_FAIL],
+    ['door-reserve-policy.ts:92 — the fresh policy read', 'login-owner', 'storePolicyGet', () => data.setReservePolicy(STORE_ID, { ...RESERVE_POLICY_DEFAULTS }, 'x'), '[business reserve policy] core did not save:', RESERVE_FAIL],
+  ] as Array<[string, string, keyof Spied, () => Promise<unknown>, string, string]>)('%s', async (_site, login, read, save, tag, fail) => {
+    as(login)
+    withReads()[read].mockImplementation(hang)
+    const result = await at5000(save())
+    const bound = error.mock.calls.filter((c) => c[0] === '[business core read]')
+    expect(bound).toHaveLength(1)
+    const { ref } = bound[0][1] as { ref: string }
+    expect(result).toEqual({ ok: false, reason: 'core', message: `${fail}\n${ja.coreUnanswered.reference.replace('{ref}', ref)}` })
+    expect(error).toHaveBeenCalledWith(tag, `no answer within 5000 ms ref=${ref}`)
+    expect(mockCore.writerFor).not.toHaveBeenCalled()
+    expectWrites()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('canWriteStoreDays: a hung actor read → \'unknown\' at 5,000 ms; the bound\'s one line and NO store-days line (the log-skip)', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    expect(await at5000(data.readCanWriteStoreDays(STORE_ID))).toBe('unknown')
+    expect([error.mock.calls.filter((c) => c[0] === '[business core read]').length, error.mock.calls.filter((c) => c[0] === '[business store days] core did not answer:').length]).toEqual([1, 0])
+  })
+  it('HQ_GRANTED: a hung grant check is evicted at 5,000 ms — the next save in the same process asks core afresh', async () => {
+    as('login-admin')
+    const spy = withReads()
+    spy.businessGrantsCheck.mockImplementation(hang)
+    expect(await at5000(data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' }))).toMatchObject({ ok: false, reason: 'core' })
+    spy.businessGrantsCheck.mockResolvedValue({ granted: false })
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' })).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(spy.businessGrantsCheck).toHaveBeenCalledTimes(2)
+    expectWrites()
+  })
+})

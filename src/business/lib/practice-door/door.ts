@@ -12,7 +12,7 @@
 // ./door-booking-colors.ts (R-S39-1: one allowlist entry per file::call); it reads through
 // `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
-import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
+import { assertLensVisible, CoreUnanswered, coreRefOf, failText, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor } from './registry'
 import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
@@ -240,12 +240,17 @@ export async function listStoreOptions(): Promise<FixtureStore[]> {
   })
 }
 
-async function activeStaff(actor: PracticeActor) {
-  const rows = await pageAll('staff list', 200, async (page) => {
-    const r = await actor.reads.staffList({ page, page_size: 200 })
+/** P2 (g) — the active staff, read ONCE per actor (a symbol slot on its reads, like ORG_ONCE): one render asked up to
+ *  three times. A rejection stays memoised for the request, so every consumer sees the same failure. */
+const STAFF_ONCE = Symbol('active staff, once per actor')
+const readActiveStaff = (reads: PracticeActor['reads']) =>
+  pageAll('staff list', 200, async (page) => {
+    const r = await reads.staffList({ page, page_size: 200 })
     return { rows: r.staff, page_size: r.page_size }
-  })
-  return rows.filter((s) => s.is_active !== false)
+  }).then((rows) => rows.filter((s) => s.is_active !== false))
+function activeStaff(actor: PracticeActor) {
+  const reads: PracticeActor['reads'] & { [STAFF_ONCE]?: ReturnType<typeof readActiveStaff> } = actor.reads
+  return (reads[STAFF_ONCE] ??= readActiveStaff(reads))
 }
 
 /** absent/empty assignments = floating: the person works in every store. */
@@ -421,30 +426,18 @@ export async function listVisits(
  *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
  *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
 const ORG_ONCE = Symbol('org-settings, once per actor')
-/** ⚖ S81 F3 · S82 R2 — the bound on a core read the page waits for: no answer within it = a failed read, never a hung
- *  page. The SDK client sets no timeout of its own; 5 s = door-writes.ts's AUDIT_LOG_BOUND_MS, this folder's one other
- *  bound on a core call. ONE definition, both races: the shared org read (orgSettingsOf) and the hours reads (readHours). */
-const CORE_READ_BOUND_MS = 5000
-/** ⚖ S82 R2 (Greptile P1) — the bound sits on the SHARED org read itself, so no reader of the business settings can
- *  hold the page past CORE_READ_BOUND_MS: a timeout REJECTS the one promise exactly as a failed read does, every
- *  consumer takes the failure path it already has, and the failure is logged HERE, once per request. */
+/** ⚖ S82 R2 (Greptile P1) · P2 — the SHARED org read: the bound itself now sits on every core read (actor.ts
+ *  boundReads), so a timeout REJECTS the one promise exactly as a failed read does and every consumer takes the failure
+ *  path it already has. A failure is logged HERE, once per request — a timeout was already logged by the bound. */
 export function orgSettingsOf(actor: PracticeActor) {
   const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
   return (reads[ORG_ONCE] ??= boundedOrgRead(reads))
 }
 function boundedOrgRead(reads: PracticeActor['reads']): ReturnType<PracticeActor['reads']['orgSettingsGet']> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([
-    reads.orgSettingsGet(),
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
-    }),
-  ])
-    .catch((e: unknown) => {
-      console.error('[practice org settings] core did not answer:', e instanceof Error ? e.message : String(e))
-      throw e
-    })
-    .finally(() => clearTimeout(timer))
+  return reads.orgSettingsGet().catch((e: unknown) => {
+    if (!(e instanceof CoreUnanswered)) console.error('[practice org settings] core did not answer:', e instanceof Error ? e.message : String(e))
+    throw e
+  })
 }
 /** The board's readers of the settings (the shell's name, the booking colours): a failed or unanswered org read is
  *  the absent org (null) — the answer they already give with no org row — never a board that cannot open. Already logged. */
@@ -519,14 +512,14 @@ export async function readCanManageCardColor(): Promise<boolean> {
     return canManageSettings(await practiceActor())
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return false
-    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
+    if (!(e instanceof CoreUnanswered)) console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
     return false
   }
 }
 
 export type WriteCardColorResult =
   | { ok: true; color: string | null }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core'; ref?: string }
 
 /** ⚖ A2 (Liam 9/24, CONTRACT-CARD-LOOK §5) — THE ONE BUSINESS WRITER: the Reserve card colour.
  *  OFF has no writer. Only the 12 palette hex values or null, checked before any core call.
@@ -543,8 +536,8 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
     // The route promises 503 honesty: a failed staff / sheet / store read is core's failure, never a 500.
-    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business card colour] core did not answer:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   try {
@@ -560,8 +553,8 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
     return { ok: true, color }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    console.error('[business card colour] core did not save:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business card colour] core did not save:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
 }
 
@@ -652,7 +645,7 @@ async function liveRowsOf(actor: PracticeActor, lens: StoreLens, range: DayRange
   try {
     return (await dayRows(actor, lens, range)).rows
   } catch (e) {
-    console.error('[practice sample day] core did not answer:', e instanceof Error ? e.message : String(e))
+    if (!(e instanceof CoreUnanswered)) console.error('[practice sample day] core did not answer:', e instanceof Error ? e.message : String(e))
     return []
   }
 }
@@ -753,23 +746,15 @@ function hoursSlots(actor: PracticeActor): HoursSlots {
 }
 
 /** The three reads together — the store policy (weekly_hours + special_open_days), the 臨時休業 rows over `window`, the
- *  business's operating_hours — raced ONCE against the bound and caught ONCE: resolves (never rejects) to the reads, or
- *  null when any failed or none answered in time (one log line). The timer is cleared once, either way. */
+ *  business's operating_hours — each bounded by actor.ts's boundReads, caught ONCE: resolves (never rejects) to the
+ *  reads, or null when any failed or did not answer in time (one log line; a timeout's line is the bound's own). */
 async function readHours(actor: PracticeActor, storeId: string, window: { from: string; to: string }): Promise<HoursReads | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const [policy, closedDays, org] = await Promise.race([
-      Promise.all([actor.reads.storePolicyGet(storeId), actor.reads.storePolicyListClosedDays(storeId, window), orgSettingsOf(actor)]),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`no answer within ${CORE_READ_BOUND_MS} ms`)), CORE_READ_BOUND_MS)
-      }),
-    ])
+    const [policy, closedDays, org] = await Promise.all([actor.reads.storePolicyGet(storeId), actor.reads.storePolicyListClosedDays(storeId, window), orgSettingsOf(actor)])
     return { policy: policy ?? null, closedDays, org: org ?? null }
   } catch (e) {
-    console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
+    if (!(e instanceof CoreUnanswered)) console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 

@@ -6,7 +6,7 @@
 // `reserve_store_capabilities:<storeId>` until CORE-47 lands. data.ts is its only importer.
 // This file adds no fixture import of its own; door.ts below it (imported here) holds the practice fixtures.
 
-import { practiceActor, visibleIds, type PracticeActor } from './actor'
+import { coreRefOf, failText, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings, listStoreOptions, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
@@ -17,7 +17,7 @@ export type { BusinessTypeKey, CapRecord }
 
 export type WriteStoreCapabilitiesResult =
   | { ok: true; record: CapRecord }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'; locked?: CapKey }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'; locked?: CapKey; ref?: string }
 
 /** R90 amended S68 — a faithful wire record is at most ≈4.4k chars (parse caps: changed_at 64, changed_by 128, 16 switches),
  *  so a stored record is always logged whole; the cut only guards a runaway value. */
@@ -92,8 +92,8 @@ export async function writeStoreCapabilities(
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    console.error('[business store capabilities] core did not answer:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business store capabilities] core did not answer:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   if (!visibleIds(actor).includes(storeId)) return { ok: false, reason: 'forbidden' }
@@ -141,7 +141,7 @@ export async function writeStoreCapabilities(
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
     // S75 fix 1 (Sonnet SF3): additive — the reason stays 'invalid' (an old page reads it), `locked` names the key
     if (e instanceof LockedSwitchOn) return { ok: false, reason: 'invalid', locked: e.key }
-    console.error('[business store capabilities] core did not save:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business store capabilities] core did not save:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
 }

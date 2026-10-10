@@ -8,7 +8,8 @@ import { writeStoreCapabilities } from '@/business/lib/data'
 
 const STATUS = { forbidden: 403, tenant: 409, stale: 409, invalid: 400, core: 503, disconnected: 501 } as const
 type Reason = keyof typeof STATUS
-const refuse = (reason: Reason, locked?: string) => Response.json({ ok: false, reason, ...(locked !== undefined ? { locked } : {}) }, { status: STATUS[reason] })
+// ⚖ P2 · R-S97-2 — a refusal because core did not answer carries the bound's ref, so the screen can show the number.
+const refuse = (reason: Reason, locked?: string, ref?: string) => Response.json({ ok: false, reason, ...(locked !== undefined ? { locked } : {}), ...(ref === undefined ? {} : { ref }) }, { status: STATUS[reason] })
 
 /** Strict same-origin, exactly card-color's: with an Origin header it must name this request's own scheme
  *  and the `host` this server received — never `x-forwarded-host`, which the client can send. Without an
@@ -47,5 +48,5 @@ export async function PUT(req: Request): Promise<Response> {
   if (!Array.isArray(resetKeys)) return refuse('invalid') // its members (known keys, once each) are the door's check
   if (typeof basedOn !== 'string' || basedOn === '' || basedOn.length > BASED_ON_MAX) return refuse('invalid')
   const result = await writeStoreCapabilities(storeId, record, resetKeys, basedOn)
-  return result.ok ? Response.json(result, { status: 200 }) : refuse(result.reason, 'locked' in result ? result.locked : undefined)
+  return result.ok ? Response.json(result, { status: 200 }) : refuse(result.reason, 'locked' in result ? result.locked : undefined, 'ref' in result ? result.ref : undefined)
 }

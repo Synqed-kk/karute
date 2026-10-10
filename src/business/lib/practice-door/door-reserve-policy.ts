@@ -8,12 +8,12 @@
 // (core-reach's `storeDaysWriterFor`). Core's own requireHqAdmin and store-in-business 404 are the second net.
 // data.ts is its only importer.
 
-import { practiceActor, visibleIds, type PracticeActor } from './actor'
+import { coreRefOf, failText, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { renderNow } from '../clock'
 import { planesOf } from './sample-facade'
-import { READ_ONLY_NOTE } from '../store-days-state'
+import { READ_ONLY_NOTE, withCoreRef } from '../store-days-state'
 import { parseReservePolicy, pickReservePolicy, policyHash, reservePolicyProblem, type ReservePolicy } from './reserve-policy'
 
 // 'stale' belongs to this write alone: the shared store-days Reason feeds four-reason STATUS maps (two routes).
@@ -82,8 +82,8 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return refuse('tenant', MSG.fail)
-    console.error('[business reserve policy] core did not answer:', e instanceof Error ? e.message : String(e))
-    return refuse('core', MSG.fail)
+    console.error('[business reserve policy] core did not answer:', failText(e))
+    return refuse('core', withCoreRef(MSG.fail, coreRefOf(e).ref))
   }
   if (!visibleIds(actor).includes(storeId)) return refuse('forbidden', MSG.readOnly)
   if (!canManageSettings(actor)) return refuse('forbidden', MSG.readOnly)
@@ -105,7 +105,7 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
     if (e instanceof reach.PracticeTenantMismatch) return refuse('tenant', MSG.fail)
     if (isSynqedError(e) && e.status === 403) return refuse('forbidden', MSG.readOnly)
     // English never reaches the screen — logged for whoever reads the server console.
-    console.error('[business reserve policy] core did not save:', isSynqedError(e) ? `${e.status} ${e.message}` : e instanceof Error ? e.message : String(e))
-    return refuse('core', MSG.fail)
+    console.error('[business reserve policy] core did not save:', isSynqedError(e) ? `${e.status} ${e.message}` : failText(e))
+    return refuse('core', withCoreRef(MSG.fail, coreRefOf(e).ref))
   }
 }

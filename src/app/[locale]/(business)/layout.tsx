@@ -21,10 +21,11 @@
 
 import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { listStoreOptions, practiceDoorOn, readShellIdentity, readShellViewer, readUnresolvedCounts } from '@/business/lib/data'
+import { CoreUnanswered, listStoreOptions, practiceDoorOn, readShellIdentity, readShellViewer, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
+import { CoreUnansweredNotice } from './CoreUnansweredNotice'
 import { ShiftsSessionEdits } from './ShiftsSessionEdits'
 import './business-shell.css'
 
@@ -58,14 +59,29 @@ export default async function BusinessLayout({
   params: Promise<{ locale: string }>
 }) {
   const admission = await requireBusinessAdmission()
-  const [{ locale }, storeOptions, shell, viewer, unresolved, doorOn] = await Promise.all([
-    params,
-    listStoreOptions(),
-    readShellIdentity(),
-    readShellViewer(admission),
-    readUnresolvedCounts(),
-    practiceDoorOn(),
-  ])
+  let loaded
+  try {
+    loaded = await Promise.all([
+      params,
+      listStoreOptions(),
+      readShellIdentity(),
+      readShellViewer(admission),
+      readUnresolvedCounts(),
+      practiceDoorOn(),
+    ])
+  } catch (e) {
+    // P2 — core did not answer the shell's reads: the bare Business frame with the notice and the bound's ref (no
+    // sidebar, no topbar: their data is what failed). Anything else — notFound, the lens refusal — goes on unchanged.
+    if (e instanceof CoreUnanswered) {
+      return (
+        <div className="biz">
+          <CoreUnansweredNotice reference={e.ref} />
+        </div>
+      )
+    }
+    throw e
+  }
+  const [{ locale }, storeOptions, shell, viewer, unresolved, doorOn] = loaded
 
   // Formatted on the server so the client renders one string and no clock or
   // timezone can drift between the two passes.

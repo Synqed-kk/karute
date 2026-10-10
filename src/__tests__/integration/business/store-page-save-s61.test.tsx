@@ -888,3 +888,35 @@ describe('S75 fix 4 — R-F an edit during the flight keeps its key touched', ()
     expect(sw('packs').getAttribute('aria-checked')).toBe('false')
   })
 })
+
+// ⚖ P2 · R-S97-2 fix 1/2 — a refusal because core did not answer: the colour's and the switches' line, then the
+// 「エラー番号：」 line on its OWN line (FailText), the number monospace and selectable.
+describe('P2 · R-S97-2 — the number under the colour\'s and the switches\' refusal', () => {
+  const { businessStrings } = jest.requireActual('@/business/i18n') as typeof import('@/business/i18n')
+  const REF = '0a1b2c3d'
+  const core = (): Answer => ({ status: 503, body: { ok: false, reason: 'core', ref: REF } })
+  const refLines = () => [...document.querySelectorAll('.st-act-error[role="alert"] .st-fail-ref')].map((el) => el.textContent)
+  it('カードの見た目 — colour 503 + ref → its line, then the number line', async () => {
+    stub(echo, core)
+    await mount(await propsFor(STORE.tokyo))
+    await pickOther()
+    await press()
+    expect(refLines()).toEqual([businessStrings.coreUnanswered.reference.replace('{ref}', REF)])
+    expect(document.querySelector('.st-act-error .st-fail-ref-num')?.textContent).toBe(REF)
+  })
+  it('お店ページの機能 — switches 503 + ref → its line, then the number line', async () => {
+    stub(core)
+    await mount(await propsFor(STORE.tokyo))
+    await flip(K)
+    await press()
+    expect(refLines()).toEqual([businessStrings.coreUnanswered.reference.replace('{ref}', REF)])
+    expect(document.querySelector('.st-act-error .st-fail-ref-num')?.textContent).toBe(REF)
+  })
+  it('a 503 without a ref → no number line (the line exactly as before)', async () => {
+    stub(refuse(503, 'core'))
+    await mount(await propsFor(STORE.tokyo))
+    await flip(K)
+    await press()
+    expect([refLines(), alerts()]).toEqual([[], [X3]])
+  })
+})

@@ -46,7 +46,8 @@ import { registerProps } from '@/app/[locale]/(business)/business/register/regis
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
+import { boundReads, CoreUnanswered, PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
+import { CoreUnansweredNotice } from '@/app/[locale]/(business)/CoreUnansweredNotice'
 import { doorFor } from '@/business/lib/practice-door/switch'
 import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
@@ -1560,7 +1561,8 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
   const cellAt = (b: Awaited<ReturnType<typeof boardOn>>, m: number, d: number) => (b.calendar as Cell[]).find((c) => c.m === m && c.d === d)!
   const closedRow = (store: string, date: string) => ({ id: `c-${date}`, store_id: store, date, reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' })
   // total: shown ≠ today adds ONE appointments read (the shown day's rows beside today's, a different day) — not an hours read.
-  it.each([[0, 62], [3, 63], [45, 63]])('S82 G6(a) — one board render, shown = today + %i: policy 1 · 臨時休業 1 · org 1 (total %i)', async (shownDay, expectedTotal) => {
+  // P2 (g): STAFF_ONCE + ASSIGN_ONCE dedupe the staff and assignment reads — totals 62/63/63 → 54/55/55 (run-emitted).
+  it.each([[0, 54], [3, 55], [45, 55]])('S82 G6(a) — one board render, shown = today + %i: policy 1 · 臨時休業 1 · org 1 (total %i)', async (shownDay, expectedTotal) => {
     const spy = withReads()
     await boardOn(STORE.tokyo, shownDay)
     const n = (k: keyof Spied) => spy[k].mock.calls.length
@@ -1568,6 +1570,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     // BEFORE S81: 60 (policy 3 · org 1 · 56 others); S81: 63 (policy 1 · 臨時休業 2 · org 1 · 59). The others include the
     // per-reader practiceActor() admission reads React's cache() dedupes in a real request and this harness does not.
     expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 1, org: 1, total: expectedTotal })
+    // P2 (g) — per reader: the staff list = one paged read per practiceActor() (= one answerSheet each; cache() dedupes them in a
+    // real request) + ONE active-staff read; the assignments ONE.
+    expect({ staffList: n('staffList'), actorReads: n('answerSheet'), staffStoresList: n('staffStoresList') }).toEqual({ staffList: 15, actorReads: 14, staffStoresList: 1 }) // run-emitted: 14 actors + 1
     expect(spy.storePolicyListClosedDays.mock.calls[0]).toEqual([STORE.tokyo, { from: '2026-07-31', to: '2026-10-30' }])
   })
   it('S82 G6(a) — a 臨時休業 at either end of the reach (today − 45, today + 45) paints its cell closed', async () => {
@@ -1601,7 +1606,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect(b.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
       const closedWds = [...new Set(b.calendar.filter((c) => c.covered !== false && c.closed).map((c) => c.wd))]
       expect(closedWds).toEqual(day.closedWeekdays)
-      expect(quiet.mock.calls.filter((c) => c[0] === '[practice hours] core did not answer:')).toHaveLength(1)
+      // P2 — a rejection keeps the site's own line; a timeout's one line is the bound's ([practice hours] 1→0 for that case).
+      const lines = (tag: string) => quiet.mock.calls.filter((c) => c[0] === tag).length
+      expect([lines('[practice hours] core did not answer:'), lines('[business core read]')]).toEqual(_label === 'rejects' ? [1, 0] : [0, 1])
     } finally {
       quiet.mockRestore()
     }
@@ -2298,7 +2305,8 @@ describe('(S82 R2) the shared org read is bounded — the board finishes whateve
       expect(props.boardMark).toEqual(SAMPLE_MARK)
       expect(props.bookingColors).toEqual(absent)
       expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
-      expect(orgLines(quiet)).toBe(1)
+      expect(orgLines(quiet)).toBe(0) // P2: the bound wrote the one line (1→0 here)
+      expect(quiet.mock.calls.filter((c) => c[0] === '[business core read]')).toHaveLength(1)
       expect(jest.getTimerCount()).toBe(0)
     } finally {
       dateOnly()
@@ -2335,7 +2343,8 @@ describe('(S82 R2) the shared org read is bounded — the board finishes whateve
       await jest.advanceTimersByTimeAsync(1)
       expect(done).toBe(true)
       expect(await pending).toEqual(expected)
-      expect(orgLines(quiet)).toBe(1)
+      expect(orgLines(quiet)).toBe(0) // P2: the bound wrote the one line (1→0 here)
+      expect(quiet.mock.calls.filter((c) => c[0] === '[business core read]')).toHaveLength(1)
       expect(jest.getTimerCount()).toBe(0)
     } finally {
       dateOnly()
@@ -2706,5 +2715,181 @@ describe('(14) Reserve S66 — 受付 reads the store\'s six booking rules live 
     const props = await read({})
     expect(blockOf(props, 'reserve.window').sample).toEqual({ form: 'part', labels: [...PLANE_LABEL.opsConfig] })
     expect(blockOf(props, 'reserve.cancel')).not.toHaveProperty('sample')
+  })
+})
+
+// ⚖ P2 (S97) — the bounded core reader: ONE bound on every core read (actor.ts boundReads, at the one place every reads
+// object enters the door), one black-box line per outage carrying the ref the user sees.
+describe('P2 — every core read is bounded at CORE_READ_BOUND_MS', () => {
+  const NOW = new Date('2026-09-14T04:24:00Z')
+  const fakeAll = () => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'hrtime', 'performance'] })
+  const dateOnly = () => jest.useFakeTimers({
+    now: NOW,
+    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+  })
+  const page = async (store: string) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    return TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
+  }
+  const hang = () => new Promise(() => {})
+  const LINE = '[business core read]'
+  let quiet: jest.SpyInstance
+  const coreLines = () => quiet.mock.calls.filter((c) => c[0] === LINE)
+  type Out<T> = { ok: true; v: T } | { ok: false; e: unknown }
+  /** Settled at 4,999 ms? at 5,000 ms? and how. */
+  async function at5000<T>(go: () => Promise<T>): Promise<{ early: boolean; settled: boolean; out: Out<T> }> {
+    let settled = false
+    const p: Promise<Out<T>> = go().then((v) => ((settled = true), { ok: true as const, v }), (e: unknown) => ((settled = true), { ok: false as const, e }))
+    await jest.advanceTimersByTimeAsync(4999)
+    const early = settled
+    await jest.advanceTimersByTimeAsync(1)
+    return { early, settled, out: await p }
+  }
+  const errOf = <T,>(o: Out<T>) => (o.ok ? null : (o.e as CoreUnanswered))
+  beforeEach(() => {
+    quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    fakeAll()
+  })
+  afterEach(() => {
+    dateOnly()
+    quiet.mockRestore()
+  })
+
+  it('P2 F1 — staffStoresList never answers: listStaff, readStaffStores, readDayPlanes and the today page REJECT with CoreUnanswered at 5,000 ms (pending at 4,999), never a floating roster; one [business core read] line; no timer left', async () => {
+    const got: unknown[] = []
+    for (const [name, go] of [
+      ['listStaff', () => data.listStaff(STORE.tokyo)],
+      ['readStaffStores', () => data.readStaffStores(STORE.tokyo)],
+      ['readDayPlanes', () => data.readDayPlanes(STORE.tokyo, TODAY)],
+      ['today page', () => page(STORE.tokyo)],
+    ] as Array<[string, () => Promise<unknown>]>) {
+      withReads().staffStoresList.mockImplementation(hang)
+      quiet.mockClear()
+      const r = await at5000(go)
+      const e = errOf(r.out)
+      got.push({
+        name, early: r.early, settled: r.settled, instance: e instanceof CoreUnanswered,
+        fields: e && { read: e.read, ms: e.ms, message: e.message, hex: /^[0-9a-f]{8}$/.test(e.ref), digest: e.digest === e.ref },
+        lines: coreLines().map((c) => c[1]), wantLine: e && [{ reason: 'no-answer', ref: e.ref, read: 'staffStoresList', ms: 5000 }], timers: jest.getTimerCount(),
+      })
+    }
+    const want = (name: string) => expect.objectContaining({
+      name, early: false, settled: true, instance: true, timers: 0,
+      fields: { read: 'staffStoresList', ms: 5000, message: 'no answer within 5000 ms', hex: true, digest: true },
+    })
+    expect(got).toEqual(['listStaff', 'readStaffStores', 'readDayPlanes', 'today page'].map(want))
+    for (const g of got as Array<{ lines: unknown; wantLine: unknown }>) expect(g.lines).toEqual(g.wantLine)
+  })
+
+  it('P2 F1 — appointmentsList never answers: readDayPlanes and the today page REJECT at 5,000 ms; listShiftsByDay serves the plain seated day (V11-12) with zero [practice sample day] lines', async () => {
+    const range = { from: TODAY, to: TODAY }
+    withReads().appointmentsList.mockResolvedValue({ appointments: [], total: 0, page: 1, page_size: 500 })
+    const plain = await data.listShiftsByDay(STORE.gym, range)
+    for (const go of [() => data.readDayPlanes(STORE.gym, TODAY), () => page(STORE.gym)] as Array<() => Promise<unknown>>) {
+      withReads().appointmentsList.mockImplementation(hang)
+      quiet.mockClear()
+      const r = await at5000(go)
+      expect([r.early, r.settled, errOf(r.out) instanceof CoreUnanswered, errOf(r.out)?.read]).toEqual([false, true, true, 'appointmentsList'])
+      expect(coreLines()).toHaveLength(1)
+    }
+    withReads().appointmentsList.mockImplementation(hang)
+    quiet.mockClear()
+    const r = await at5000(() => data.listShiftsByDay(STORE.gym, range))
+    expect(r.out).toEqual({ ok: true, v: plain })
+    expect(quiet.mock.calls.filter((c) => c[0] === '[practice sample day] core did not answer:')).toHaveLength(0)
+    expect(coreLines()).toHaveLength(1)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('P2 — every reader is bounded: each of the 14 keys of recordedReads() rejects at 5,000 ms through practiceActor().reads', async () => {
+    const keys = Object.keys(recordedReads()) as Array<keyof CoreReads>
+    const got: Record<string, unknown> = {}
+    for (const key of keys) {
+      const spy = withReads()
+      const actor = await practiceActor()
+      spy[key].mockImplementation(hang) // looked up at call time: a re-stub after the actor exists is still seen
+      const r = await at5000(() => (actor.reads[key] as (...a: unknown[]) => Promise<unknown>)('x'))
+      got[key] = [r.early, r.settled, errOf(r.out)?.read ?? 'answered']
+    }
+    expect(keys).toHaveLength(14)
+    expect(got).toEqual(Object.fromEntries(keys.map((k) => [k, [false, true, k]])))
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('P2 — boundReads is stable: one raw reads object gives one bounded object; two actors share it', async () => {
+    const raw = recordedReads()
+    expect(boundReads(raw)).toBe(boundReads(raw))
+    expect(boundReads(raw)).not.toBe(raw)
+    const [a, b] = [await practiceActor(), await practiceActor()]
+    expect(a.reads).toBe(b.reads)
+  })
+
+  it('P2 — one outage, one line, one ref: storePolicyGet hangs for all 7 stores (the layout fan-out and a direct fan-out)', async () => {
+    const stores = ids(await data.listStoreOptions())
+    expect(stores).toHaveLength(7)
+    withReads().storePolicyGet.mockImplementation(hang)
+    quiet.mockClear()
+    const counts = await at5000(() => data.readUnresolvedCounts())
+    expect([counts.settled, counts.out.ok, coreLines().length, quiet.mock.calls.filter((c) => c[0] === '[practice hours] core did not answer:').length]).toEqual([true, true, 1, 0])
+    const spy = withReads()
+    const actor = await practiceActor()
+    spy.storePolicyGet.mockImplementation(hang)
+    quiet.mockClear()
+    const all = Promise.allSettled(stores.map((id) => actor.reads.storePolicyGet(id)))
+    await jest.advanceTimersByTimeAsync(5000)
+    const refs = (await all).map((x) => (x.status === 'rejected' ? (x.reason as CoreUnanswered).ref : 'answered'))
+    expect([refs.length, new Set(refs).size, coreLines().length, (coreLines()[0][1] as { ref: string }).ref]).toEqual([7, 1, 1, refs[0]])
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('P2 layout — a hung storesList: BusinessLayout returns the bare frame with the notice carrying the bound\'s ref; a core error is rethrown unchanged', async () => {
+    const BusinessLayout = (await import('@/app/[locale]/(business)/layout')).default
+    const call = () => BusinessLayout({ children: null, params: Promise.resolve({ locale: 'ja' }) })
+    withReads().storesList.mockImplementation(hang)
+    const r = await at5000(call)
+    const el = (r.out.ok ? r.out.v : null) as unknown as { type: unknown; props: { className: string; children: { type: unknown; props: { reference: string } } } }
+    expect([r.early, r.settled, el.type, el.props.className, el.props.children.type]).toEqual([false, true, 'div', 'biz', CoreUnansweredNotice])
+    expect(coreLines()).toEqual([[LINE, expect.objectContaining({ ref: el.props.children.props.reference, read: 'storesList' })]])
+    withReads().storesList.mockRejectedValue(new Error('core down'))
+    await expect(call()).rejects.toThrow('core down')
+    // An Error NAMED CoreUnanswered that is not one is rethrown, never shown as ours.
+    withReads().storesList.mockRejectedValue(Object.assign(new Error('x'), { name: 'CoreUnanswered', ref: 'deadbeef', digest: 'deadbeef' }))
+    await expect(call()).rejects.toMatchObject({ name: 'CoreUnanswered', message: 'x' })
+  })
+
+  it('P2 FIX 3 — one outage, one line: the read that hung first mints the ref and writes the line; a later timer finds the ref and writes nothing, carrying the same ref', async () => {
+    const spy = withReads()
+    const actor = await practiceActor()
+    spy.menusList.mockImplementation(hang)
+    spy.customersList.mockImplementation(hang)
+    const first = actor.reads.menusList().catch((e: unknown) => e as CoreUnanswered)
+    await jest.advanceTimersByTimeAsync(100)
+    const second = actor.reads.customersList().catch((e: unknown) => e as CoreUnanswered)
+    await jest.advanceTimersByTimeAsync(4900)
+    const atFirst = coreLines().length
+    await jest.advanceTimersByTimeAsync(100)
+    const [a, b] = [(await first) as CoreUnanswered, (await second) as CoreUnanswered]
+    expect([atFirst, coreLines().length, a.read, b.read, b.ref === a.ref, (coreLines()[0][1] as { read: string }).read]).toEqual([1, 1, 'menusList', 'customersList', true, 'menusList'])
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('P2 FIX 3 — a sibling that REJECTS first (no ref yet): the hung read\'s own timer is the outage\'s first, so it writes the one line at its fire, and only one', async () => {
+    const spy = withReads()
+    const actor = await practiceActor()
+    spy.menusList.mockRejectedValue(new Error('core down'))
+    spy.customersList.mockImplementation(hang)
+    const all = Promise.all([actor.reads.menusList(), actor.reads.customersList()]).catch((e: unknown) => e as Error)
+    expect(((await all) as Error).message).toBe('core down')
+    expect(coreLines()).toHaveLength(0)
+    await jest.advanceTimersByTimeAsync(5000)
+    await jest.advanceTimersByTimeAsync(5000)
+    expect([coreLines().length, (coreLines()[0][1] as { read: string }).read, jest.getTimerCount()]).toEqual([1, 'customersList', 0])
+  })
+
+  it('P2 — readCanManageCardColor: a hung actor read → false at 5,000 ms; the bound\'s one line and NO card-colour line (the log-skip)', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    const r = await at5000(() => data.readCanManageCardColor())
+    expect([r.early, r.out]).toEqual([false, { ok: true, v: false }])
+    expect([coreLines().length, quiet.mock.calls.filter((c) => c[0] === '[business card colour] core did not answer:').length]).toEqual([1, 0])
   })
 })
