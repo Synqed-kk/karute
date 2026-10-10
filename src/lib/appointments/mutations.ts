@@ -411,7 +411,7 @@ async function insertP3IntentOrThrow(
  *  → 'burn_failed' (staff can act). A throw leaves the written row pending. */
 async function attemptP3(synqed: MutationClient, p: P3Intent): Promise<{ burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null; row: IntentRow }> {
   const core = synqed as unknown as Parameters<typeof systemDepsFor>[1]
-  const row = await attemptIntent({ store: p.store, synqed: core, ...systemDepsFor(p.row, core) }, p.row).catch(() => p.row)
+  const row = await attemptIntent({ store: p.store, synqed: core, ...systemDepsFor(p.row, core, p.store) }, p.row).catch(() => p.row)
   if (row.state !== 'refused') return { burnError: null, row }
   return { burnError: row.refused_code === 'no_units' ? 'below_zero' : row.refused_code === 'already_redeemed' ? 'already_burned' : 'burn_failed', row }
 }

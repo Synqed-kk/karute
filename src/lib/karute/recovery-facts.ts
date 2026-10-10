@@ -24,7 +24,7 @@ import {
 } from '@/lib/customers/identity'
 import { getAppointmentsByDateWithClient, isRecordingTarget } from '@/lib/appointments/by-date'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listAllPackUsageWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
+import { applyLedgerToPacks, cookieUsageLedger, listAllPackUsageWithClient, listCustomerPacksWithClient, type UsageLedgerRef } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
@@ -93,6 +93,9 @@ export async function buildRecoveryDayFacts(
      * dropped (F-1). Ids the client already legitimately holds — no new tier.
      */
     pinnedCustomerIds?: (string | null | undefined)[]
+    /** § 6b: the ledger the pack numbers fold in. Omitted = the cookie
+     *  session's (web action); the facade passes usageLedgerFor(businessId). */
+    ledger?: UsageLedgerRef | null
     /** reservation.status label resolver (getTranslations), kept a plain fn so
      *  this module stays loadable by both builds + jest. */
     statusLabel: (key: 'in_session' | 'completed' | 'booked') => string
@@ -111,10 +114,11 @@ export async function buildRecoveryDayFacts(
   // The three remaining reads are independent — fire them together. Both
   // best-effort reads degrade to "no detail", never to a wrong number; the
   // history read is TRI-STATE (see RecoveryDayFacts.redeemed).
+  const ledgerRef = input.ledger === undefined ? cookieUsageLedger() : Promise.resolve(input.ledger)
   const [appts, staffRes, packUsage, history] = await Promise.all([
     getAppointmentsByDateWithClient(synqed, dateYmd, { storeId, nameById }),
     synqed.staff.list({ page_size: 200 }).catch(() => ({ staff: [] })),
-    listAllPackUsageWithClient(synqed as SynqedClient).catch(() => null),
+    ledgerRef.then((l) => listAllPackUsageWithClient(synqed as SynqedClient, l)).catch(() => null),
     synqed.packs
       .listRecentRedemptions(historySince(dateYmd))
       .then((rows) =>
@@ -181,7 +185,8 @@ export async function buildRecoveryDayFacts(
   // Per-customer real rows, fanned out in ONE batch — a single customer's
   // read failing nulls the WHOLE batch (never a row with a guessed target).
   const ownRowsByCustomer = await Promise.all(
-    relevantIds.map((cid) => listCustomerPacksWithClient(synqed, cid)),
+    relevantIds.map(async (cid) =>
+      (await applyLedgerToPacks(await listCustomerPacksWithClient(synqed, cid), cid, await ledgerRef)).packs),
   )
     .then((rows) => new Map(relevantIds.map((cid, i) => [cid, rows[i]])))
     .catch(() => null)

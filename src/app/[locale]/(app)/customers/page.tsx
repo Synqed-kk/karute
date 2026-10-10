@@ -15,7 +15,7 @@ import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
-import { listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
+import { usageLedgerFor, listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
 import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 export default async function CustomersPage({
@@ -89,7 +89,7 @@ export default async function CustomersPage({
   // back as empty maps until the ticket_packs migration applies (graceful).
   const [enrichment, packUsageRaw, lifecycles, orgSettings, burnRows] = await Promise.all([
     t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
-    listAllPackUsage(),
+    usageLedgerFor(businessId).then(listAllPackUsage), // § 6b the ledger-aware read
     listAllLifecycles(),
     getOrgSettings(),
     listBurnRedemptions(),

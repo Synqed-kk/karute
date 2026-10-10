@@ -824,7 +824,7 @@ export async function settlePending(opts: {
         }
         s.attempted += 1
         let leasedByThisPass = false
-        const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed), onLease: () => { leasedByThisPass = true } }, row)
+        const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
         if (out.state === 'settled') s.settled += 1
         else if (out.state === 'refused') s.refused += 1
         else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
@@ -999,9 +999,19 @@ export function systemRepick(synqed: Pick<SynqedClient, 'packs'>): (row: IntentR
  *  recovery use is refused 'already_redeemed' when the customer already has a
  *  use on that JST day. ONE function: recordUse's first attempt (packs.core) and
  *  every settle-pass replay of a recovery row (R2). A throw = pending. */
-export function recoveryDayPrecheck(synqed: Pick<SynqedClient, 'packs'>): (row: IntentRow) => Promise<Precheck> {
+export function recoveryDayPrecheck(synqed: Pick<SynqedClient, 'packs'>, ledger?: Pick<LedgerStore, 'listForCustomers'>): (row: IntentRow) => Promise<Precheck> {
   return async (row) => {
     if (row.ledger_source !== 'recovery' || row.appointment_id) return { ok: true }
+    // § 6b `uses`: an EARLIER open (held/pending/parked) ledger use for this
+    // customer on this JST day is a use, the same as a core row (two rows never
+    // refuse each other; an explicit another_session answer stands).
+    if (ledger && !row.another_session) {
+      const rows = await ledger.listForCustomers(row.business_id, [row.customer_id])
+      if (rows.some((r) => r.id !== row.id && r.kind === 'use' && r.customer_id === row.customer_id && OPEN.includes(r.state) &&
+        day(r.redeemed_on) === day(row.redeemed_on) && (!row.created_at || !r.created_at || r.created_at < row.created_at))) {
+        return { refuse: 'already_redeemed' }
+      }
+    }
     const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
     const rows = await synqed.packs.listRecentRedemptions(since)
     return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
@@ -1025,12 +1035,12 @@ export function phoneTenancyPrecheck(synqed: Pick<SynqedClient, 'packs' | 'appoi
 /** The per-row attempt deps EVERY sender uses on a replay (R2: every pre-check
  *  inside every attempt): a phone row re-proves tenancy first; then P3 → the
  *  booking re-check + history probe, recovery → the D5 customer-day guard. */
-export function systemDepsFor(row: IntentRow, synqed: Pick<SynqedClient, 'packs' | 'appointments'>): Pick<AttemptDeps, 'precheck' | 'repick'> {
+export function systemDepsFor(row: IntentRow, synqed: Pick<SynqedClient, 'packs' | 'appointments'>, ledger?: Pick<LedgerStore, 'listForCustomers'>): Pick<AttemptDeps, 'precheck' | 'repick'> {
   const p3 = row.ledger_source === 'no_show' || row.ledger_source === 'cancel'
   const checks: Array<(r: IntentRow) => Promise<Precheck>> = []
   if (row.audit_payload?.origin === 'phone') checks.push(phoneTenancyPrecheck(synqed))
   if (p3) checks.push(p3Precheck(synqed))
-  if (row.ledger_source === 'recovery') checks.push(recoveryDayPrecheck(synqed))
+  if (row.ledger_source === 'recovery') checks.push(recoveryDayPrecheck(synqed, ledger))
   return {
     ...(checks.length ? { precheck: async (r: IntentRow) => {
       for (const c of checks) { const out = await c(r); if (!('ok' in out)) return out }

@@ -8,6 +8,7 @@
 // booked-customer data. Never a tenancy oracle: the business-scoped client
 // simply returns no rows for a day outside it.
 
+import { usageLedgerFor } from '@/lib/packs/store'
 import { getTranslations } from 'next-intl/server'
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
@@ -63,6 +64,7 @@ export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
         dateYmd: date,
         storeId: clamp.storeId ?? undefined,
         pinnedCustomerIds,
+        ledger: await usageLedgerFor(ctx.identity.businessId), // § 6b
         statusLabel: (key) => t(key),
       }),
     )

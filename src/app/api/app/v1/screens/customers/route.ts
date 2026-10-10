@@ -27,6 +27,7 @@ import {
   listAllLifecyclesWithClient,
   listAllPackUsageWithClient,
   listBurnRedemptionsWithClient,
+  usageLedgerFor,
   warn,
 } from '@/lib/packs/store'
 import { monthlyBurnByCustomer } from '@/lib/packs/burn'
@@ -115,7 +116,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     const [enrichment, packUsage, lifecycles, rawSettings, burnRows, storeStaffIds] =
       await Promise.all([
         enrichCustomers(ctx.identity.businessId, customerIds),
-        listAllPackUsageWithClient(synqed),
+        usageLedgerFor(ctx.identity.businessId).then((l) => listAllPackUsageWithClient(synqed, l)), // § 6b
         listAllLifecyclesWithClient(synqed),
         // Only ticket_packs_enabled is needed; the shared cached reader lives in
         // a 'use server' file and must stay unexported (see ask-ai route).

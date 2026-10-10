@@ -230,7 +230,7 @@ async function redeemThroughLedger(
         // happens either way; only the truth the client is told differs.
         // S126 W3: the body is recoveryDayPrecheck in the ledger module — the
         // SAME function the settle pass runs for a recovery row (R2, one definition).
-        return recoveryDayPrecheck(synqed)(row)
+        return recoveryDayPrecheck(synqed, ledger.store)(row)
       },
     },
     {
