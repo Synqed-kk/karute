@@ -736,12 +736,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [reserveBusy, setReserveBusy] = useState(false)
   const [reserveSavedAt, setReserveSavedAt] = useState<string | null>(props.saveReservePolicy?.updatedAt ?? null)
   const reserveLinked = props.saveReservePolicy !== undefined
-  const reserveBasedOn = useRef(props.saveReservePolicy?.basedOn ?? '')
+  // S69 round 2 — the token is React STATE, never a ref: it is committed in the same update as the baseline it vouches
+  // for, so a render React abandons (a navigation's transition) can never leave it ahead of `saved`.
+  const [reserveBasedOn, setReserveBasedOn] = useState(props.saveReservePolicy?.basedOn ?? '')
   /** S69 (Greptile #1157 P1) — THE ONE WAY the save token moves: `basedOn` vouches for the six in `saved`, so it never
    *  advances apart from them. The dials take `draft` (core's row, or a stale answer's merge), the baseline core's
-   *  row, 最終変更 its stamp — all in this one transition (a 200, a stale answer, a re-read of this store). */
+   *  row, 最終変更 its stamp — all set in this one batch, so they commit together. Its only callers: the re-read check
+   *  just below (render time, setState only), saveReserveSection's stale answer, and saveReserveSection's 200. */
   const adoptReserveRow = useCallback((basedOn: string, row: ReservePolicy, updatedAt: string | null, draft: ReservePolicy) => {
-    reserveBasedOn.current = basedOn
+    setReserveBasedOn(basedOn)
     setValues((prev) => ({ ...prev, ...reserveValuesOf(draft) }))
     setSaved((prev) => ({ ...prev, ...reserveValuesOf(row) }))
     setReserveSavedAt(updatedAt)
@@ -1153,7 +1156,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setReserveFail(null)
     let result: ReservePolicyAnswer
     try {
-      result = await putReservePolicy(save, policy, reserveBasedOn.current)
+      result = await putReservePolicy(save, policy, reserveBasedOn) // the committed token
     } catch {
       // S68 round 2 — a thrown save shows the failure line under 保存する, like no answer at all
       result = { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
@@ -1175,7 +1178,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     }
     commitSection(target, true)
     adoptReserveRow(result.basedOn, result.row, result.updatedAt, result.row) // S67 F2 — 最終変更 follows core's answer, no second GET
-  }, [values, saved, commitSection, adoptReserveRow])
+  }, [values, saved, reserveBasedOn, commitSection, adoptReserveRow])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */

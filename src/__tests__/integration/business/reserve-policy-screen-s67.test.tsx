@@ -33,6 +33,8 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 
 import { render, fireEvent, act, cleanup } from '@testing-library/react'
 import type { ReactElement } from 'react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { LOGIN, POLICIES, STORE, TENANT, recordedReads } from './practice-door-recorded'
@@ -42,9 +44,10 @@ import { policyHash } from '@/business/lib/practice-door/reserve-policy'
 const SIX = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_min: 15 as const, cancel_free_until_hours: 12, cancel_late_pct: 30, no_show_pct: 100 }
 const mockUi = {
   tokyo: null as null | (() => Promise<unknown>),
+  other: {} as Record<string, () => Promise<unknown>>, // S69 round 2 — another store's own row
   reads(): CoreReads {
     const base = recordedReads()
-    return { ...base, storePolicyGet: async (id: string) => (id === STORE.tokyo ? (mockUi.tokyo ? mockUi.tokyo() : { ...POLICIES[id], ...SIX, updated_at: '2026-10-07T01:00:00Z' }) : base.storePolicyGet(id)) } as CoreReads
+    return { ...base, storePolicyGet: async (id: string) => (id === STORE.tokyo ? (mockUi.tokyo ? mockUi.tokyo() : { ...POLICIES[id], ...SIX, updated_at: '2026-10-07T01:00:00Z' }) : mockUi.other[id] ? mockUi.other[id]() : base.storePolicyGet(id)) } as CoreReads
   },
 }
 
@@ -81,6 +84,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   mockUi.tokyo = null
+  mockUi.other = {}
   cleanup()
   global.fetch = realFetch
   jest.useRealTimers()
@@ -396,5 +400,79 @@ describe('Reserve S69 — the save token and the grid’s last good state', () =
     replies = [{ status: 200, body: { ok: true, row: { ...SIX, reserve_start_grid_min: null }, basedOn: 'h' } }]
     await press()
     expect(fetchLog[0].body.policy.reserve_start_grid_min).toBeNull()
+  })
+})
+
+// S69 fix round 2 — the token is React state committed with the baseline it vouches for (no ref written in render),
+// and a number field's last good state follows a value that changes from outside the field.
+describe('Reserve S69 — round 2: the token is committed state; the last good state follows outside changes', () => {
+  const pageOf = (store: string) => SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) }) as Promise<ReactElement>
+  const theirs = { ...SIX, no_show_pct: 50 }
+  const grid = () => inp('お客様が選べる開始時刻')
+  const mountKeep = async (wrap: (el: ReactElement) => ReactElement = (el) => el) => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'reserve-acceptance' }) })) as ReactElement
+    const r = render(wrap(el))
+    await act(async () => {})
+    return r
+  }
+
+  it('(d) a stale answer with current: null → the token does not move; the next save carries the displayed baseline’s', async () => {
+    await mountKeep()
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    replies = [
+      { status: 409, body: { ok: false, reason: 'stale', message: STALE_LINE, current: null, basedOn: 'gone' } },
+      { status: 200, body: { ok: true, row: DRAFT, basedOn: 'h' } },
+    ]
+    await press()
+    expect(alertLine()).toBe(STALE_LINE)
+    expect(daysInput().value).toBe('22')
+    await press()
+    expect(fetchLog.map((f) => f.body.basedOn)).toEqual([policyHash(SIX), policyHash(SIX)])
+  })
+
+  it('(f) a same-key re-read, then a different-store remount → the second store shows its own six and its own token', async () => {
+    const { rerender } = await mountKeep()
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...theirs, updated_at: STAMP })
+    const again = await pageOf(STORE.tokyo)
+    await act(async () => { rerender(again) })
+    await settle()
+    expect(inp('無断キャンセル料').value).toBe('50')
+    // only the admitted store reads its six live (sample-facade STORE_PLANE_OVERRIDES), so the other store shows its own
+    // SAMPLE six and carries no token at all: nothing of テスト東京店's re-read survives the remount, and no PUT is sent
+    const gym = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym, section: 'reserve-acceptance' }) })) as ReactElement
+    await act(async () => { rerender(gym) })
+    await settle()
+    expect([daysInput().value, inp('直前締切').value, grid().value, inp('無断キャンセル料').value]).toEqual(['30', '120', '60', '100'])
+    await press()
+    expect(fetchLog.length).toBe(0)
+    // and back to テスト東京店 (a third row by now): the fresh mount shows that row and saves against its own token
+    const THIRD = { ...SIX, cancel_late_pct: 40 }
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...THIRD, updated_at: STAMP })
+    const back = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'reserve-acceptance' }) })) as ReactElement
+    await act(async () => { rerender(back) })
+    await settle()
+    expect([inp('当日キャンセル料').value, inp('無断キャンセル料').value]).toEqual(['40', '100'])
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    replies = [{ status: 200, body: { ok: true, row: { ...THIRD, booking_open_days: 22 }, basedOn: 'h' } }]
+    await press()
+    expect(fetchLog[0].body.storeId).toBe(STORE.tokyo)
+    expect(fetchLog[0].body.policy).toEqual({ ...THIRD, booking_open_days: 22 })
+    expect(fetchLog[0].body.basedOn).toBe(policyHash(THIRD))
+  })
+
+  it('(SHOULD-FIX) the token is committed state set only in adoptReserveRow — no ref, nothing written to it during render', () => {
+    // A behavioural repro is not feasible here: under act() a transition held by a suspending sibling is not kept
+    // uncommitted — the next urgent render already shows the re-read's row (measured on cd37d0c35: 無断キャンセル料 read
+    // 50 right after an urgent edit), so jsdom cannot hold a render that ran but never committed. The class is pinned
+    // on the code instead: the token lives in React state and moves in ONE place, beside the baseline it vouches for.
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
+    expect(src).not.toMatch(/reserveBasedOn\s*=\s*useRef/)
+    expect(src).not.toContain('reserveBasedOn.current')
+    expect(src).toContain("const [reserveBasedOn, setReserveBasedOn] = useState(props.saveReservePolicy?.basedOn ?? '')")
+    expect(src.match(/setReserveBasedOn\(/g)?.length).toBe(1)
+    const adopt = src.slice(src.indexOf('const adoptReserveRow = useCallback('), src.indexOf('}, [])', src.indexOf('const adoptReserveRow = useCallback(')))
+    expect(adopt).toContain('setReserveBasedOn(basedOn)')
+    expect(adopt).toContain('setSaved((prev) => ({ ...prev, ...reserveValuesOf(row) }))')
+    expect(src).toContain('result = await putReservePolicy(save, policy, reserveBasedOn) // the committed token')
   })
 })
