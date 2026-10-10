@@ -5,9 +5,9 @@
  *   set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SYNQED_CORE_URL, SYNQED_CORE_API_KEY,
  *   KARUTE_LEDGER_CUTOVER_DAY and PROOF_LIVE=1 in the shell, then
  *   ./node_modules/.bin/jest src/__tests__/integration/s125-use-ledger-live-proof.test.ts --runInBand
- *   (S126 note: in the s125 worktree, whose node_modules is a symlink, jest does not transform the
- *   real @synqed-kk/client ESM — 「Unexpected token 'export'」 — so no test loads the real SDK there;
- *   the live run needs a checkout where it does. Unproven which; the file itself compiles under tsc.)
+ *   (S126 F12: jest.config.ts now lets the real @synqed-kk/client through next/jest's
+ *   node_modules ignore, so this file loads the real SDK; with PROOF_LIVE=1 and the env
+ *   unset it loads every module, then stops on the env check before any call.)
  *
  * S125/S126 live proof of the ticket-use ledger (design v4.2 R1, § 5, § 6a). SKIPPED unless
  * PROOF_LIVE === '1'. Tenant = the Dev Salon (fb44dd68, dev@karute.test) ONLY: the business id is
@@ -61,13 +61,15 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
   let store: import('@/lib/packs/use-ledger').LedgerStore
 
   beforeAll(async () => {
-    const missing = ENV_NAMES.filter((n) => !process.env[n])
-    if (missing.length) throw new Error(`missing env: ${missing.join(', ')}`)
-    businessId = assertDevSalon(DEV_SALON)
+    // F12: load the REAL modules first (an import makes no call), so PROOF_LIVE=1 with the
+    // env unset proves the file loads the real SDK under jest and stops on the env check.
     const { newSynqedClient } = await import('@/lib/synqed/client')
     const { defaultLedgerStore } = await import('@/lib/packs/use-ledger')
     const { listCustomerPacksWithClient } = await import('@/lib/packs/store')
     const { SynqedClient: Sdk } = await import('@synqed-kk/client')
+    const missing = ENV_NAMES.filter((n) => !process.env[n])
+    if (missing.length) throw new Error(`missing env: ${missing.join(', ')}`)
+    businessId = assertDevSalon(DEV_SALON)
     real = newSynqedClient(businessId)
     dead = new Sdk({ baseUrl: DEAD_HOST, apiKey: process.env.SYNQED_CORE_API_KEY!, businessId })
     store = await defaultLedgerStore()

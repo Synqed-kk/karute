@@ -49,5 +49,15 @@ const config: Config = {
   transformIgnorePatterns: ['/node_modules/(?!(@synqed-kk|zod|next-intl|use-intl)/)'],
 }
 
-// createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
-export default createJestConfig(config)
+// next/jest PREPENDS its own '/node_modules/(?!.pnpm)(?!(geist|next/…)/)' ignore
+// entry, and a file is ignored when ANY pattern matches, so the allow-list above
+// never took effect: the real @synqed-kk/client could not load (S126 F12,
+// 「Unexpected token 'export'」). Add a (?!@synqed-kk/) lookahead to that one
+// entry; every other entry stays as next/jest builds it.
+// createJestConfig is async so next/jest can load the Next.js config.
+const withNext = createJestConfig(config)
+export default async (): Promise<Config> => {
+  const c = await withNext()
+  const lets = (p: string) => (p.startsWith('/node_modules/') && !p.includes('@synqed-kk') ? `/node_modules/(?!@synqed-kk/)${p.slice('/node_modules/'.length)}` : p)
+  return { ...c, transformIgnorePatterns: (c.transformIgnorePatterns ?? []).map(lets) }
+}
