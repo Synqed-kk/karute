@@ -31,14 +31,16 @@ import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { setPlannedStatus, todayStatusFixes } from './close-out'
 import { namePoolFor, STAFF_NAMES } from './names'
-import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, plan, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { liveLine, readLiveCalendar } from './live-calendar'
 
 export type FillCore = Pick<
   SynqedClient,
   'orgSettings' | 'stores' | 'staff' | 'staffStores' | 'storePolicies' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords'
 >
 type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions' | 'todayStatus'
-interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[] }
+interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[]
+  dropped?: { bookings: number; karutes: number; dates: string[] } } // S95: what the live calendar removed from this run's plan
 export interface Manifest {
   businessId: string
   // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
@@ -296,7 +298,9 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
+  let calLine: string | null = null // S95 D4: the store's live-calendar line, first in the summary
   const summary = () => {
+    if (calLine) log(calLine)
     log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
     run.skipped.forEach((l) => log(`skipped: ${l}`))
     ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
@@ -332,7 +336,22 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
   }
 
   try {
-    const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
+    const p0 = plan(recipe, storeCtx(storeId, st), today, st.epoch)
+    let cal: LiveCalendar
+    try {
+      cal = await readLiveCalendar(core, storeId, p0.window, read, recipe.policy.weekly_hours, log, policy)
+    } catch (e) {
+      if (e instanceof Saturated) throw e
+      // S95 D3: never an unfiltered plan against live core — this store stops before any write, loud (exit 1)
+      if (!prior && sent === 0) delete m.stores[storeId]
+      run.errors.push(`live calendar: read failed, nothing written for this store: ${message(e)}`)
+      summary()
+      return 1
+    }
+    // S95 D1: the live calendar only removes (plan.ts applyLiveCalendar — the pass plan() runs for StoreCtx.liveCalendar)
+    const p = applyLiveCalendar(p0, cal)
+    calLine = liveLine(cal, p0, p)
+    run.dropped = { bookings: p.dropped.length, karutes: p0.karutes.length - p.karutes.length, dates: [...new Set(p.dropped.map((d) => d.date))].sort() }
     if (policy.source === 'default')
       await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
@@ -409,6 +428,8 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       const a = window.find((x) => x.id === id && x.store_id === storeId)
       if (a) mine.set(key, a) // the recorded id wins over a tag match for the same key
     }
+    // S95: a booking written before its day was closed is the store's to handle — never touched, said once per run
+    for (const d of p.dropped) if (mine.has(d.key)) run.skipped.push(`appointments ${d.key}: booking ${mine.get(d.key)!.id} is on ${d.date}, which the live calendar now closes (${d.why}), left alone`)
     // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
     const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
       const [start, end] = [Date.parse(a.startsAt), Date.parse(a.endsAt) + p.resources.find((r) => r.name === a.resource)!.cleanup_minutes * 60_000]
@@ -573,12 +594,18 @@ export async function runCli(argv: string[], makeClient: () => Promise<FillCore>
   const targets = targetsFor(store, type)
   if (cmd === 'plan') {
     const m = load()
+    // S95 D3: reads (never writes) the live calendar when core's env is set; offline = the snapshot plan, said once
+    const live = process.env.SYNQED_CORE_URL && process.env.SYNQED_CORE_API_KEY ? makeClient() : null
+    if (!live) log('live calendar: not read (no core env)')
     for (const storeId of targets) {
       const t = registry.stores[storeId].type
       const st = m.stores[storeId]
       const r = await loadRecipe(t, storeId, st?.pastDays)
       const hours = st?.weeklyHours ?? r.policy.weekly_hours
-      const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
+      const p0 = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
+      const cal = live ? await readLiveCalendar(await live, storeId, p0.window, (fn) => withRetry(fn, false, io.sleep), r.policy.weekly_hours, log) : null
+      const p = cal ? applyLiveCalendar(p0, cal) : p0
+      if (cal) log(storeId, liveLine(cal, p0, p))
       log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
       if (rest.includes('--rows')) for (const a of p.appointments)
         log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))

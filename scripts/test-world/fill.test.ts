@@ -23,7 +23,7 @@ const paged = (key: string, rows: unknown[], { page = 1, page_size = 20 }: Q = {
 }
 const conflict = (msg: string) => Object.assign(new Error(msg), { status: 409 })
 
-function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[] } = {}) {
+function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[]; closed?: string[]; special?: { date: string; open: string; close: string }[]; calendarFails?: boolean } = {}) {
   let n = 0
   const t = { staff: [] as Row[], links: new Map<string, string[]>(), resources: [] as Row[], menus: [] as Row[], customers: [] as Row[], packs: [] as Row[], burns: [] as Row[], appts: [] as Row[], karutes: [] as Row[] }
   const stats = { writes: 0, policy: null as null | Record<string, unknown>, updates: [] as { id: string; status: unknown }[] }
@@ -52,7 +52,12 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
       set: async (id: string, ids: string[]) => (stats.writes++, t.links.set(id, ids), { ok: true }),
     },
     storePolicies: {
-      get: async () => stats.policy ?? { source: 'default', weekly_hours: o.defaultHours ?? null },
+      get: async () => ({ special_open_days: o.special ?? [], updated_at: '2026-09-01T00:00:00Z', ...(stats.policy ?? { source: 'default', weekly_hours: o.defaultHours ?? null }) }),
+      // like core: YYYY-MM-DD range, `to` exclusive
+      listClosedDays: async (sid: string, q: { from?: string; to?: string } = {}) => {
+        if (o.calendarFails) throw Object.assign(new Error('closed days unavailable'), { status: 400 })
+        return { closed_days: (o.closed ?? []).filter((d) => (!q.from || d >= q.from) && (!q.to || d < q.to)).map((date, i) => ({ id: `cd-${i}`, store_id: sid, date, reason: '店内研修（テスト）', created_by: 'dev', created_at: '2026-09-28T00:00:00Z' })) }
+      },
       set: async (_: string, i: Record<string, unknown>) => (stats.writes++, (stats.policy = { ...i, source: 'custom' })),
     },
     resources: { list: async () => ({ resources: t.resources }), create: async (i: Record<string, unknown>) => add(t.resources, i) },
