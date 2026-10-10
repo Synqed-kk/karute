@@ -579,8 +579,8 @@ export function summarize(p: Plan, today: string, hours: WeeklyHours, cal?: Live
   const by = <T,>(xs: T[], f: (x: T) => string) => xs.reduce<Record<string, number>>((o, x) => ((o[f(x)] = (o[f(x)] ?? 0) + 1), o), {})
   const visits = Object.values(by(p.appointments, (a) => a.member)).sort((a, b) => a - b)
   let days = 0
-  // S96: with a live calendar the open days are the live calendar's (liveHoursOn), the same view the bookings were filtered by
-  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += (cal ? liveHoursOn(cal, d) : hoursOn(hours, d)) ? 1 : 0
+  // S96: a day counts only when open in BOTH views — the snapshot hours plan() lays bookings on AND the live calendar — the only days bookings can exist
+  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += hoursOn(hours, d) && (!cal || liveHoursOn(cal, d)) ? 1 : 0
   const redeems = redeemsOf(p)
   const full = p.packs.filter((k) => redeems(k).length === k.size).length
   return {

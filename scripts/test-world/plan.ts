@@ -413,12 +413,6 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
   return store.liveCalendar ? applyLiveCalendar(out, store.liveCalendar) : out
 }
 
-/** S95 D1 — THE LIVE CALENDAR ONLY REMOVES, NEVER MOVES. The last pass over a finished plan: a booking core would refuse is
- *  dropped with its karute; every other row is the very object the plan made (layout, chain, statuses untouched — the slot
- *  layout is order-dependent, so nothing is added, moved or re-laid). Closed: an ad-hoc closed date (with a special-open
- *  entry too = still closed, Karute's reading of core's order is not core-confirmed and dropping never causes a refusal);
- *  else the special-open window or the live weekday's hours, a null weekday = closed. Packs are left as planned (fill burns
- *  only on a COMPLETED booking in core). */
 /** S96 — THE one answer to "is the store open on this date, and when" under the live calendar (null = closed): a closed-day
  *  row closes the date (a special-open entry too = still closed), else the special-open window, else the live weekday.
  *  applyLiveCalendar and summarize's open-day count both read it. */
@@ -427,6 +421,12 @@ export function liveHoursOn(cal: LiveCalendar, ymd: string): { open: string; clo
   return cal.specialOpen.get(ymd) ?? hoursOn(cal.weeklyHours, ymd)
 }
 
+/** S95 D1 — THE LIVE CALENDAR ONLY REMOVES, NEVER MOVES. The last pass over a finished plan: a booking core would refuse is
+ *  dropped with its karute; every other row is the very object the plan made (layout, chain, statuses untouched — the slot
+ *  layout is order-dependent, so nothing is added, moved or re-laid). Closed: an ad-hoc closed date (with a special-open
+ *  entry too = still closed, Karute's reading of core's order is not core-confirmed and dropping never causes a refusal);
+ *  else the special-open window or the live weekday's hours, a null weekday = closed. Packs are left as planned (fill burns
+ *  only on a COMPLETED booking in core). */
 export function applyLiveCalendar(p: Plan, cal: LiveCalendar): Plan {
   const why = (a: PlannedAppointment): DropWhy | null => {
     const h = liveHoursOn(cal, a.date)

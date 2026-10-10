@@ -1027,14 +1027,28 @@ async function main() {
       assert.equal(await apply(fo.core, opts(empty())), 0)
       assert.equal(await apply(fx.core, opts(empty())), 0)
       const on = (t: { burns: object[] }) => t.burns.filter((b) => (b as { redeemed_on?: unknown }).redeemed_on === rd).length
-      assert.ok(on(fo.t) >= 1 && on(fx.t) === 0, `S96: no redemption is written on the closed ${rd}`)
+      assert.ok(on(fo.t) >= 1 && on(fx.t) === 0, `S96 (regression pin: the write was already skipped): no redemption is written on the closed ${rd}`)
       // S96 follow-up — the bookings-per-open-day divisor counts open days from the live calendar (liveHoursOn)
       const h = recipe.policy.weekly_hours
       const noClosed = { weeklyHours: h, closedDates: new Set<string>(), specialOpen: new Map() }
       const oneClosed = { ...noClosed, closedDates: new Set([rd]) }
       const [o0, o1, oSnap] = [summarize(pf, TODAY, h, noClosed).openDays, summarize(pf, TODAY, h, oneClosed).openDays, summarize(pf, TODAY, h).openDays]
       assert.ok(o0 === oSnap && o1 === o0 - 1, `S96: one closed day in the window → the open-day divisor drops by one (${o0} → ${o1})`)
-      console.log(`✓ S96 openDays: live calendar with closed ${rd} → divisor ${o0} → ${o1}`)
+      let shut = pf.window.from
+      while (hoursOn(h, shut)) shut = addDays(shut, 1)
+      const oSpecial = summarize(pf, TODAY, h, { ...noClosed, specialOpen: new Map([[shut, { open: '10:00', close: '19:00' }]]) }).openDays
+      assert.equal(oSpecial, o0, `S96: a special-open day on a recipe-closed day (${shut}) does not raise the divisor`)
+      console.log(`✓ S96 openDays: live calendar with closed ${rd} → divisor ${o0} → ${o1}; special-open on recipe-closed ${shut} → ${oSpecial}`)
+      // S96 1b — "fully used" follows redeemsOf: closing the day of a full pack's last redemption drops M by one
+      const fullOf = (s: { packs: string }) => Number(/\((\d+) fully used\)/.exec(s.packs)![1])
+      const dk = new Map(base.appointments.map((a) => [a.key, a.date]))
+      const fulls = base.packs.filter((k) => k.redeem.length === k.size)
+      const fd = fulls.map((k) => dk.get(k.redeem[k.redeem.length - 1])!).find((d) => fulls.filter((k) => k.redeem.some((x) => dk.get(x) === d)).length === 1)!
+      assert.ok(fd, 'S96 fixture: a day holding the last redemption of exactly one full pack')
+      const pFull = applyLiveCalendar(base, { ...noClosed, closedDates: new Set([fd]) })
+      const [m0, m1] = [fullOf(summarize(base, TODAY, h)), fullOf(summarize(pFull, TODAY, h))]
+      assert.equal(m1, m0 - 1, `S96: closing ${fd} drops "fully used" by one (${m0} → ${m1})`)
+      console.log(`✓ S96 fully used: closed ${fd} → ${m0} → ${m1}`)
       console.log(`✓ S96 redeemsOf: closed ${rd} → redemptions ${sb.redemptions} → ${sf.redemptions}, packs unchanged, burns on ${rd} ${on(fo.t)} → ${on(fx.t)}`)
     }
   }
