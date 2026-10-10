@@ -23,6 +23,7 @@ import {
   setLifecycleActionWithClient,
   type CreatePackActionInput,
   type RedeemSessionActionInput,
+  type RedeemSessionResult,
   type SetLifecycleActionInput,
 } from '@/lib/packs/packs.core'
 
@@ -93,7 +94,7 @@ export async function setPackStatusAction(
  *  a UI-side change, deliberately out of this PR's fence. */
 export async function redeemSessionAction(
   input: RedeemSessionActionInput,
-): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+): Promise<RedeemSessionResult> {
   // An outage (the identity read failed) is not an anonymous burn: refuse,
   // never write created_by: null (Round 3 leg 2, 2026-09-25, D-S16-4,
   // discussed, default). A resolved null is refused too (D-S20-1, lead): a
@@ -118,6 +119,10 @@ export async function redeemSessionAction(
     return null
   })
   if (!synqed) return { ok: false, error: 'write failed' }
+  // R1 (design v4.2): the gesture is written to the use ledger before core is
+  // asked. No ledger = no core call: the device-held shape (PR-B's client
+  // wrapper replays it), never an unledgered burn.
+  // (the core resolves this session's ledger itself; no ledger = no core call)
   const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   // D7 (⚖ 8/21 ②) — recovery-resolved burns are visible to reconcile. VERIFIED
@@ -136,7 +141,8 @@ export async function redeemSessionAction(
   // facade twin could carry no per-call detail; it can, and now does. What is
   // still missing on BOTH is a queryable source column, which stays the OPTIONAL
   // Anthony one-liner: add 'recovery' to the redemption source enum.
-  if (result.ok && input.recovery) {
+  // D7 tags a LANDED recovery burn only: a pending/held use has no redemption yet
+  if (result.ok && (result.state ?? 'settled') === 'settled' && input.recovery) {
     await auditWeb({
       category: 'customer',
       action: 'customer.pack_redeem',

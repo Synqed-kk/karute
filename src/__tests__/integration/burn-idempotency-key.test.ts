@@ -80,6 +80,7 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => fakeSynqed,
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { POST as packRedeem } from '@/app/api/app/v1/customers/[id]/packs/redeem/route'
 import { addRedemptionWithClient } from '@/lib/packs/store'
 import { cancelAppointmentCore, markNoShowAppointmentCore } from '@/lib/appointments/mutations'

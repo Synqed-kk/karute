@@ -130,7 +130,7 @@ export async function updatePackStatus(
 export async function findCustomerAppointmentForDate(
   customerId: string,
   dateYmd: string,
-): Promise<string | null> {
+): Promise<string | null | 'unknown'> {
   return findCustomerAppointmentForDateWithClient(await getSynqedClient(), customerId, dateYmd)
 }
 
@@ -140,7 +140,7 @@ export async function findCustomerAppointmentForDateWithClient(
   synqed: Pick<SynqedClient, 'appointments'>,
   customerId: string,
   dateYmd: string,
-): Promise<string | null> {
+): Promise<string | null | 'unknown'> {
   try {
     const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
     const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
@@ -158,7 +158,9 @@ export async function findCustomerAppointmentForDateWithClient(
     return (candidates.find((a) => a.starts_at >= nowIso) ?? candidates[0]).id
   } catch (err) {
     warn('findCustomerAppointmentForDate', err)
-    return null
+    // H15 (design v4.2 R2): a failed lookup is NOT "no booking" — the ledger
+    // keeps the use pending instead of sending it walk-in shaped.
+    return 'unknown'
   }
 }
 
@@ -201,7 +203,7 @@ export async function addRedemption(
 export async function addRedemptionWithClient(
   synqed: Pick<SynqedClient, 'packs'>,
   input: AddRedemptionInput,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string } | AddRedemptionFailure> {
   try {
     const payload = {
       pack_id: input.packId,
@@ -230,12 +232,36 @@ export async function addRedemptionWithClient(
     // an i18n key (never res.error, which carries English internals), so it
     // branches on this to show the 残回数ゼロ message vs the generic failure.
     if (isBelowZeroGuardError(err)) {
-      return { ok: false, error: 'below_zero' }
+      return { ok: false, error: 'below_zero', ...coreFailureFacts(err) }
     }
     if (isDuplicateRedemptionError(err)) {
-      return { ok: false, error: 'already_redeemed' }
+      return { ok: false, error: 'already_redeemed', ...coreFailureFacts(err) }
     }
-    return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
+    return { ok: false, error: err instanceof Error ? err.message : 'unknown', ...coreFailureFacts(err) }
+  }
+}
+
+/** A refused redemption, with core's status/code/body kept (R3, design v4.2:
+ *  SynqedError carries them; the ONE classification map lives in
+ *  src/lib/packs/use-ledger.ts). The facts are present only when core
+ *  answered (a SynqedError), so a network/plain error keeps today's shape. */
+export interface AddRedemptionFailure {
+  ok: false
+  error: string
+  status?: number
+  code?: string
+  message?: string
+  body?: Record<string, unknown> | null
+}
+
+function coreFailureFacts(err: unknown): Omit<AddRedemptionFailure, 'ok' | 'error'> {
+  const e = err as { status?: unknown; code?: unknown; body?: unknown; message?: unknown } | null
+  if (!e || typeof e.status !== 'number') return {}
+  return {
+    status: e.status,
+    ...(typeof e.code === 'string' ? { code: e.code } : {}),
+    message: typeof e.message === 'string' ? e.message : '',
+    body: e.body && typeof e.body === 'object' ? (e.body as Record<string, unknown>) : null,
   }
 }
 

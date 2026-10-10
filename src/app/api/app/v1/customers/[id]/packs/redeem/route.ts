@@ -12,6 +12,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
+import { defaultLedgerStore } from '@/lib/packs/use-ledger'
 import {
   proveAppointmentForCustomer,
   proveCustomerInBusiness,
@@ -98,8 +99,16 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
     recovery: parsed.data.recovery,
+    // R1: the phone's key IS the ledger intent id, sent to core unchanged.
+    intentId: idempotencyKey,
     idempotencyKey,
-  })
+  }, { store: await defaultLedgerStore(), businessId: ctx.identity.businessId, ownerUserId: ctx.identity.authUserId })
+  // PR-A keeps TODAY's wire contract: ok:true ONLY for a settled use, so an
+  // installed phone build never reads a pending/held use as 消化しました. The
+  // versioned 2xx {intent_id, state} answer (X-Karute-Ledger) is PR-B.
+  if (result.ok && result.state && result.state !== 'settled') {
+    throw new AppApiError('upstream_unavailable', `redeem ${result.state}`, { reason: result.state })
+  }
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a
     // generic 502.

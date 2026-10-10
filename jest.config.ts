@@ -9,6 +9,10 @@ import nextJest from 'next/jest.js'
 // forks: workers inherit process.env, while assigning TZ inside a test file is
 // a no-op under jest's worker sandbox (calendar-range.test.ts documents that).
 process.env.TZ = 'UTC'
+// use-ledger.ts cutoverDay() has no fallback outside tests (S126 hole 5): this fixed day is the
+// default for every suite; an operator's exported value (the live proof under jest) wins. Empty counts
+// as unset — `??=` would keep '' and cutoverDay() would return null, turning every ledger test pending.
+if (!process.env.KARUTE_LEDGER_CUTOVER_DAY?.trim()) process.env.KARUTE_LEDGER_CUTOVER_DAY = '2026-10-11'
 
 const createJestConfig = nextJest({
   // Provide the path to your Next.js app to load next.config.js and .env files in your test environment

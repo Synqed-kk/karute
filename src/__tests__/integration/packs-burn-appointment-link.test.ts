@@ -79,10 +79,11 @@ describe('findCustomerAppointmentForDate (CHANGE 1 resolver)', () => {
     expect(await findCustomerAppointmentForDate('cust-1', '2026-07-05')).toBeNull()
   })
 
-  it('degrades to null (keep-unlinked) when synqed is unreachable', async () => {
+  it("returns 'unknown' (never walk-in shaped) when synqed is unreachable", async () => {
     appointments.list.mockRejectedValue(new Error('core down'))
 
-    expect(await findCustomerAppointmentForDate('cust-1', '2026-07-05')).toBeNull()
+    // S125 H15: 'unknown' = pending, never walk-in shaped
+    expect(await findCustomerAppointmentForDate('cust-1', '2026-07-05')).toBe('unknown')
   })
 })
 

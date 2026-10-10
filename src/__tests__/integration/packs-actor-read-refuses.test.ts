@@ -34,6 +34,7 @@ jest.mock('@/lib/packs/store', () => ({
 }))
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => {}) }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { revalidatePath } from 'next/cache'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import * as core from '@/lib/packs/packs.core'
