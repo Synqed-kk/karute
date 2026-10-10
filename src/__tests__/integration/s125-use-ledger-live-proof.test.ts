@@ -14,7 +14,8 @@
  * hard-asserted before any write and any other business is refused. It prints intent ids and
  * states only — never a key, never a URL. Nothing is deleted: every row it writes ends settled
  * (or withdrawn). It READS the Dev Salon to pick the first customer with an active pack that has
- * at least 4 remaining (four uses are spent, one per scenario).
+ * at least 4 remaining (four uses are spent, one per scenario) AND a core customers row that
+ * resolves (S128: a pack's holder may have no core row; (iv)'s booking needs one).
  *
  * Scenarios (in order, one shared customer + pack; (i)-(ii') are walk-ins = appointmentId null):
  *   (i)   a walk-in use with core reachable → settled.
@@ -94,13 +95,26 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
     real = newSynqedClient(businessId)
     dead = new Sdk({ baseUrl: DEAD_HOST, apiKey: process.env.SYNQED_CORE_API_KEY!, businessId })
     store = await defaultLedgerStore()
-    // Pick by READING the Dev Salon: the first customer with an active pack with ≥ 4 remaining.
+    // Pick by READING the Dev Salon: the first customer with an active pack with ≥ 4 remaining
+    // whose core `customers` row resolves. S128: ticket_packs.customer_id carries no FK to
+    // customers, so a pack can outlive its holder's core row; (iv)'s appointments.create then
+    // fails appointments_customer_id_fkey. Such holders are skipped (read-only: GETs only).
+    const { SynqedError: PickError } = await import('@synqed-kk/client')
     const active = await real.packs.listActivePacks()
+    const tried: string[] = []
     for (const cid of [...new Set(active.map((p) => p.customer_id))]) {
       const pack = (await listCustomerPacksWithClient(real, cid)).find((p) => p.status === 'active' && p.remaining >= 4)
-      if (pack) { customerId = cid; packId = pack.id; break }
+      if (!pack) { tried.push(`${cid}:no-pack>=4`); continue }
+      const row = await real.customers.get(cid).catch((e: unknown) => {
+        if (e instanceof PickError && e.status === 404) return null // no core row → appointments refuse it
+        throw e
+      })
+      if (!row || row.id !== cid) { tried.push(`${cid}:no-core-customer-row(pack ${pack.id})`); continue }
+      customerId = cid; packId = pack.id; break
     }
-    if (!customerId) throw new Error('no Dev Salon customer has an active pack with ≥ 4 remaining')
+    if (!customerId) {
+      throw new Error(`no Dev Salon customer has both a core customers row and an active pack with ≥ 4 remaining; tried ${tried.length}: ${tried.join(', ')}`)
+    }
     console.log('[live-proof] picked a Dev Salon customer + pack by reading (ids not printed)')
   })
 
