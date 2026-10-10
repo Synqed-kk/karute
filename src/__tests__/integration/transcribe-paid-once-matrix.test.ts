@@ -517,7 +517,7 @@ const installLocks = (locks: unknown) => {
 const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   let finish!: () => void
   providerHolds.push(new Promise<void>((r) => (finish = r)))
-  // r1a: attempt 1 finishes once the 再試行 has returned as a no-op (it starts no run, so nothing is queued);
+  // r1a: attempt 1 finishes at the explicit finish() below, 40 ticks after the 再試行 returned as a no-op (no run, no POST, so no 409 - the callback here never fires);
   // r1b: attempt 1 finishes only at the SECOND 409, so the retry first rides two capped waits.
   onStillWorking = lock === 'held' ? () => finish() : () => stillWorkingServed >= 2 && finish()
   const lockManager = testLockManager()
