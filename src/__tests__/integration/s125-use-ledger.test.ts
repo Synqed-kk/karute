@@ -41,6 +41,7 @@ function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; fail
       const r = rows.find((x) => x.business_id === b && x.id === id)
       if (!r || r.state !== w.state) return null
       if (w.attempts !== undefined && r.attempts !== w.attempts) return null
+      if (w.settledCoreId !== undefined && r.settled_core_id !== w.settledCoreId) return null
       if (w.leaseFreeAt && r.leased_until && !(r.leased_until < w.leaseFreeAt)) return null
       if (patch.settled_core_id && rows.some((x) => x !== r && x.business_id === b && x.settled_core_id === patch.settled_core_id)) {
         throw new Error('duplicate key value violates unique constraint "pack_use_intents_settled_core_unique"')
@@ -57,7 +58,7 @@ function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; fail
       return rows.filter((r) => r.business_id === b && states.includes(r.state)).slice(0, limit).map((r) => ({ ...r }))
     },
     async listOpenBusinessIds(states: IntentRow['state'][]) { return [...new Set(rows.filter((r) => states.includes(r.state)).map((r) => r.business_id))] },
-    async claimedCoreIds(b: string, ids: string[]) { return new Set(rows.filter((r) => r.business_id === b && r.settled_core_id && ids.includes(r.settled_core_id)).map((r) => r.settled_core_id as string)) },
+    async claimedCoreIds(b: string, ids: string[]) { return new Map(rows.filter((r) => r.business_id === b && r.settled_core_id && ids.includes(r.settled_core_id)).map((r) => [r.settled_core_id as string, r.id])) },
   }
   return st
 }
@@ -375,6 +376,30 @@ describe('S125 use ledger — the numbered list', () => {
     const out = await settlePending({ store, clientFor: () => fakeCore() as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW, budgetMs: 0 })
     expect(seen).toEqual([false])
     expect(out.businesses).toBe(0)
+  })
+
+  test('C · two booked intents, one core row → one settled, one withdrawn duplicate_of; the card counts one. An own-key result outranks a matched claim', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const store = memStore()
+    const core = fakeCore({ recent: [{ id: 'core-1', customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: TODAY, source: 'manual' }] })
+    core.packs.addRedemption.mockResolvedValueOnce({ id: 'core-1' })
+      .mockRejectedValueOnce(coreErr(500, 'Unique constraint failed (P2002) pack_redemptions_active_appointment_unique'))
+    const a = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000c1', pack_picked_by: 'staff' })
+    const b = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000c2', pack_picked_by: 'staff' })
+    await store.insertIgnore(a); await store.insertIgnore(b)
+    expect(await attemptIntent(deps(store, core), a)).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
+    expect(await attemptIntent(deps(store, core), b)).toMatchObject({ state: 'withdrawn', withdrawn_by: 'system', last_error_code: `duplicate_of:${a.id}` })
+    expect(displayRemaining(9, usageFromRows(store.rows).get('cust-1'), 'pack-A')).toBe(9) // core's 10 → 9 already; nothing open subtracts again
+
+    const s2 = memStore(); const c2 = fakeCore()
+    c2.packs.addRedemption.mockResolvedValueOnce({ id: 'core-W1' })
+    const w1 = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000c3', appointment_id: null, pack_picked_by: 'staff' })
+    const w2 = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000c4', appointment_id: null, pack_picked_by: 'staff', attempts: 1,
+      state: 'settled', settled_core_id: 'core-W1', resolved_by: 'matched:core-W1' })
+    await s2.insertIgnore(w1); await s2.insertIgnore(w2)
+    expect(await attemptIntent(deps(s2, c2), w1)).toMatchObject({ state: 'settled', settled_core_id: 'core-W1', resolved_by: 'system' })
+    expect(s2.rows.find((r) => r.id === w2.id)).toMatchObject({ state: 'pending', settled_core_id: null, last_error_code: 'match_outranked' })
+    err.mockRestore()
   })
 })
 

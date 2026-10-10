@@ -130,6 +130,8 @@ export interface Where {
   state: IntentState
   attempts?: number
   leaseFreeAt?: string
+  /** CAS on the claim itself (S126 hole 3: a matched claim outranked). */
+  settledCoreId?: string
 }
 
 export interface LedgerStore {
@@ -147,8 +149,9 @@ export interface LedgerStore {
    *  EVERY page (the settle budget, S126 F) and at most
    *  SETTLE_BUSINESS_PAGES_MAX pages are read in one pass. */
   listOpenBusinessIds(states: IntentState[], more: () => boolean): Promise<string[]>
-  /** Which of these core ids some intent already claimed (settled_core_id). */
-  claimedCoreIds(businessId: string, coreIds: string[]): Promise<Set<string>>
+  /** Which of these core ids some intent already claimed: core id → the
+   *  claiming intent's id (settled_core_id). */
+  claimedCoreIds(businessId: string, coreIds: string[]): Promise<Map<string, string>>
 }
 
 const T = 'pack_use_intents'
@@ -178,6 +181,7 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
     async update(businessId, id, where, patch) {
       let q = db.from(T).update(patch).eq('business_id', businessId).eq('id', id).eq('state', where.state)
       if (where.attempts !== undefined) q = q.eq('attempts', where.attempts)
+      if (where.settledCoreId) q = q.eq('settled_core_id', where.settledCoreId)
       if (where.leaseFreeAt) q = q.or(`leased_until.is.null,leased_until.lt."${where.leaseFreeAt}"`)
       const { data, error } = await q.select('*')
       fail(error)
@@ -221,12 +225,12 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
       return out
     },
     async claimedCoreIds(businessId, coreIds) {
-      const out = new Set<string>()
+      const out = new Map<string, string>()
       for (let i = 0; i < coreIds.length; i += IN_CHUNK) {
-        const { data, error } = await db.from(T).select('settled_core_id').eq('business_id', businessId)
+        const { data, error } = await db.from(T).select('id,settled_core_id').eq('business_id', businessId)
           .in('settled_core_id', coreIds.slice(i, i + IN_CHUNK))
         fail(error)
-        for (const r of (data ?? []) as Array<{ settled_core_id: string }>) out.add(r.settled_core_id)
+        for (const r of (data ?? []) as Array<{ id: string; settled_core_id: string }>) out.set(r.settled_core_id, r.id)
       }
       return out
     },
@@ -350,7 +354,7 @@ const day = (s: string) => s.slice(0, 10)
 
 /** Window = min(frozen redeemed_on, gesture day) → today. Returns the core row
  *  this intent should settle to, or null (only then may it be sent). */
-export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<string>, today: string, cutover: string): string | null {
+export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: { has(id: string): boolean }, today: string, cutover: string): string | null {
   const gestureDay = ymdInJst(new Date(intent.gesture_at))
   const start = intent.redeemed_on < gestureDay ? intent.redeemed_on : gestureDay
   const inWindow = rows.filter(
@@ -370,7 +374,8 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<st
   return m?.id ?? null
 }
 
-async function runPreRead(synqed: Pick<SynqedClient, 'packs'>, store: LedgerStore, row: IntentRow, now: Date): Promise<string | null> {
+interface PreRead { match: CoreRow | null; mine: CoreRow[]; claimed: Map<string, string> }
+async function runPreRead(synqed: Pick<SynqedClient, 'packs'>, store: LedgerStore, row: IntentRow, now: Date): Promise<PreRead> {
   const cutover = cutoverDay()
   if (!cutover) throw new CutoverUnsetError('KARUTE_LEDGER_CUTOVER_DAY unset or not a JST yyyy-mm-dd')
   const gestureDay = ymdInJst(new Date(row.gesture_at))
@@ -379,7 +384,8 @@ async function runPreRead(synqed: Pick<SynqedClient, 'packs'>, store: LedgerStor
   const rows = (await synqed.packs.listRecentRedemptions(since)) as unknown as CoreRow[]
   const mine = rows.filter((r) => r.customer_id === row.customer_id)
   const claimed = await store.claimedCoreIds(row.business_id, mine.map((r) => r.id))
-  return preReadMatch(row, mine, claimed, ymdInJst(now), cutover)
+  const id = preReadMatch(row, mine, claimed, ymdInJst(now), cutover)
+  return { match: mine.find((r) => r.id === id) ?? null, mine, claimed }
 }
 
 // ── R2 booking lookup that never turns an error into "no booking" (H15) ──────
@@ -416,15 +422,37 @@ async function reread(store: LedgerStore, row: IntentRow): Promise<IntentRow> {
 }
 
 async function settleTo(store: LedgerStore, row: IntentRow, coreId: string, now: Date, by: string): Promise<IntentRow> {
+  const claim: Partial<IntentRow> = { state: 'settled', settled_core_id: coreId, settled_at: iso(now), resolved_by: by, leased_until: null }
   try {
-    const done = await store.update(row.business_id, row.id, { state: 'pending' }, {
-      state: 'settled', settled_core_id: coreId, settled_at: iso(now), resolved_by: by, leased_until: null,
-    })
-    return done ?? (await reread(store, row))
+    return (await store.update(row.business_id, row.id, { state: 'pending' }, claim)) ?? (await reread(store, row))
   } catch {
-    // the one-claim unique index (another intent took this core row) — re-read, stay pending
+    // the one-claim unique index: another intent already holds this core row
+    const ownerId = (await store.claimedCoreIds(row.business_id, [coreId])).get(coreId)
+    const owner = ownerId && ownerId !== row.id
+      ? (await store.getAllById(ownerId)).find((r) => r.business_id === row.business_id)
+      : undefined
+    if (owner && by === 'system' && owner.resolved_by?.startsWith('matched:')) {
+      // S126 hole 3 (b): this row's OWN key made the core row, so its result
+      // outranks a matched claim. The matcher goes back to pending (CAS on its
+      // claim) and will send under its own key; then this row claims.
+      const freed = await store.update(row.business_id, owner.id, { state: 'settled', settledCoreId: coreId }, {
+        state: 'pending', settled_core_id: null, settled_at: null, resolved_by: null, leased_until: null, last_error_code: 'match_outranked',
+      })
+      if (freed) return (await store.update(row.business_id, row.id, { state: 'pending' }, claim)) ?? (await reread(store, row))
+    } else if (owner && by !== 'system' && row.appointment_id && owner.appointment_id === row.appointment_id) {
+      // a sibling intent for the SAME booking holds it: one booking = one burn
+      return withdrawDuplicate(store, row, owner.id, now)
+    }
     return reread(store, row)
   }
+}
+
+/** S126 hole 3: a duplicate of a use another intent already settled — withdrawn
+ *  by the system (reason duplicate_of:<intent id>), never pending forever. */
+async function withdrawDuplicate(store: LedgerStore, row: IntentRow, ownerId: string, now: Date): Promise<IntentRow> {
+  return (await store.update(row.business_id, row.id, { state: 'pending' }, {
+    state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', last_error_code: `duplicate_of:${ownerId}`, leased_until: null,
+  })) ?? (await reread(store, row))
 }
 
 async function keepPending(store: LedgerStore, row: IntentRow, patch: Partial<IntentRow>): Promise<IntentRow> {
@@ -443,8 +471,8 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
   const replay = start.attempts > 0
   try {
     if (replay || row.withdraw_requested_at) {
-      const match = await runPreRead(synqed, store, row, now)
-      if (match) return settleTo(store, row, match, now, `matched:${match}`)
+      const { match } = await runPreRead(synqed, store, row, now)
+      if (match) return settleTo(store, row, match.id, now, `matched:${match.id}`)
       if (row.withdraw_requested_at) {
         return (await store.update(row.business_id, row.id, { state: 'pending' }, {
           state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
@@ -484,8 +512,12 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       const c = classifyCoreFailure(res, Boolean(p.appointment_id))
       const err = { last_error_status: res.status ?? null, last_error_text: res.message ?? res.error }
       if (c.kind === 'booked_duplicate') {
-        const match = await runPreRead(synqed, store, cur, now)
-        if (match) return settleTo(store, cur, match, now, `matched:${match}`)
+        const pr = await runPreRead(synqed, store, cur, now)
+        if (pr.match) return settleTo(store, cur, pr.match.id, now, `matched:${pr.match.id}`)
+        // S126 hole 3: this booking's core row is already claimed by ANOTHER intent
+        // → this row is a duplicate (one booking = one burn): withdrawn, never pending forever
+        const owner = pr.mine.map((r) => (r.appointment_id === cur.appointment_id ? pr.claimed.get(r.id) : undefined)).find((x) => x && x !== cur.id)
+        if (owner) return withdrawDuplicate(store, cur, owner, now)
         return keepPending(store, cur, { ...err, last_error_code: 'booked_duplicate_unmatched', leased_until: null })
       }
       if (c.kind === 'refused') {

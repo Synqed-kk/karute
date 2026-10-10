@@ -20,6 +20,7 @@ export function memLedgerStore(): LedgerStore {
       const r = rows.find((x) => x.business_id === b && x.id === id)
       if (!r || r.state !== w.state) return null
       if (w.attempts !== undefined && r.attempts !== w.attempts) return null
+      if (w.settledCoreId !== undefined && r.settled_core_id !== w.settledCoreId) return null
       if (w.leaseFreeAt && r.leased_until && !(r.leased_until < w.leaseFreeAt)) return null
       Object.assign(r, patch)
       return { ...r }
@@ -31,7 +32,7 @@ export function memLedgerStore(): LedgerStore {
     async listOpen(b, states, limit) { return rows.filter((r) => r.business_id === b && states.includes(r.state)).slice(0, limit) },
     async listOpenBusinessIds(states) { return [...new Set(rows.filter((r) => states.includes(r.state)).map((r) => r.business_id))] },
     async claimedCoreIds(b, ids) {
-      return new Set(rows.filter((r) => r.business_id === b && r.settled_core_id && ids.includes(r.settled_core_id)).map((r) => r.settled_core_id as string))
+      return new Map(rows.filter((r) => r.business_id === b && r.settled_core_id && ids.includes(r.settled_core_id)).map((r) => [r.settled_core_id as string, r.id]))
     },
   }
 }
