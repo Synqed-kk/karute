@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -548,7 +548,7 @@ async function main() {
       // Keep the original bed/part-of-day characterization intact on its original thirty-person recipe.
       // The expanded profile's keys are checked separately against the captured pre-change golden.
       const legacy = { ...r, customers: r.customers.slice(0, 30), profile: undefined, legacyMembers: undefined,
-        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, cancelShare: .08 } }
+        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, futureDays: 14, cancelShare: .08 } }
       const legacyPlans = [plan(legacy, ctxT, TODAY, TODAY), plan(legacy, ctxT, addDays(TODAY, 7), TODAY)]
       const perBed = legacyPlans[0].appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
       if (type === 'beauty_chiropractic') assert.deepEqual(perBed, { 'ベッド1': 74, 'ベッド2': 68, 'ベッド3': 79, '個室': 14 }, `${type}: q1 bookings per bed`)
@@ -817,6 +817,34 @@ async function main() {
   assert.equal(reported, startedWrites, `writes sent ${reported}, write requests started ${startedWrites}`)
   console.log(`✓ S90 writes sent after a stop at 3 in flight: ${reported} reported = ${startedWrites} started`)
   console.log(`✓ S90 withRetry: EMAXCONN tried ${tries}×; a 5xx read-back re-ran ${r5.s.calls - r5.s.failedAt} requests through the limiter (max in flight ${r5.s.max}, min gap ${Math.min(...gaps(rerun))} ms)`)
+  }
+
+  // S94 (Greptile P2): widening registry futureDays 14 → 30 only ADDS days — every booking the 14-day plan holds (the 新規
+  // start span is frozen at 14, NEW_START_FUTURE_DAYS) is the same whole object in the 30-day plan, for every registry store,
+  // with the manifest's shape (recorded pastDays, legacyThrough and realismFrom), same today and epoch
+  {
+    const [epoch, today, saved] = ['2026-09-24', '2026-10-10', registry.futureDays]
+    const at = async (sid: string, futureDays: number) => {
+      registry.futureDays = futureDays
+      try {
+        const r = await loadRecipe(registry.stores[sid].type, sid, registry.pastDays)
+        return plan(r, storeCtx(sid, { weeklyHours: r.policy.weekly_hours, pastDays: registry.pastDays, legacyThrough: today, realismFrom: addDays(today, -1) }), today, epoch)
+      } finally { registry.futureDays = saved }
+    }
+    const stable: string[] = []
+    for (const sid of Object.keys(registry.stores)) {
+      const [p14, p30] = [await at(sid, 14), await at(sid, 30)]
+      const end = addDays(today, 14)
+      assert.ok(p14.window.to === end && p30.window.to === addDays(today, 30) && p14.appointments.every((a) => a.date <= end), `${sid}: the 14-day plan ends at today + 14`)
+      assert.ok(p14.customers.some((c) => c.isNew) && p14.appointments.length > 0, `${sid}: the store has 新規 customers and bookings`)
+      assert.deepEqual(p30.appointments.filter((a) => a.date <= end), p14.appointments, `${sid}: every booking inside today + 14 is identical (whole object) at futureDays 30`)
+      const k30 = new Map(p30.appointments.map((a) => [a.key, a]))
+      assert.ok(p14.appointments.every((a) => k30.has(a.key)) && p30.appointments.length > p14.appointments.length, `${sid}: the 30-day plan is a strict superset of the 14-day plan`)
+      const kar30 = new Map(p30.karutes.map((k) => [k.key, k]))
+      assert.deepEqual(p14.karutes.map((k) => kar30.get(k.key)), p14.karutes, `${sid}: every karute of the 14-day plan is identical at futureDays 30`)
+      stable.push(`${registry.stores[sid].type}@${sid.slice(0, 8)} ${p14.appointments.length}⊂${p30.appointments.length}`)
+    }
+    console.log(`✓ S94 horizon 14 → 30: every 14-day booking + karute unchanged, ${stable.length} stores (${stable.join(', ')})`)
   }
 
   console.log('✓ fill: all assertions passed')
