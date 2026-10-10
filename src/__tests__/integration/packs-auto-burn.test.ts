@@ -31,6 +31,7 @@ jest.mock('@/lib/packs/store', () => ({
   addRedemptionWithClient: (_s: unknown, input: unknown) => addRedemption(input),
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { autoBurnForBusiness, autoBurnRecentDays } from '@/lib/packs/auto-burn'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { ymdInJst } from '@/lib/date/jst'

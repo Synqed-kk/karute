@@ -4,6 +4,7 @@ import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions
 import { addRedemptionWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
+import { defaultLedgerStore, readLedgerUsage } from '@/lib/packs/use-ledger'
 import { audit } from '@/lib/audit'
 
 // 自動消化 — the server-side burn for completed bookings (packet 11). The fix
@@ -370,6 +371,17 @@ export async function autoBurnForBusiness(
     s.skippedUnknown = candidates.length
     return s
   }
+  // S125 H2 (design § 3): P4 READS the use ledger, never writes it and keeps no
+  // key. A customer-day with a held/pending/parked WALK-IN use is STALLED (the
+  // skip stalls the marker, so the day is retried next tick), never dropped;
+  // an unreadable ledger stalls the whole day, fail-closed like the history.
+  const ledgerUse = await defaultLedgerStore()
+    .then((st) => readLedgerUsage(st, businessId, [...new Set(candidates.map((a) => a.customer_id))]))
+    .catch(() => ({ ok: false }) as const)
+  if (!ledgerUse.ok) {
+    s.skippedUnknown = candidates.length
+    return s
+  }
 
   for (const appt of candidates) {
     // Per-candidate containment (round 2 G2). "Never throws" was a contract
@@ -390,6 +402,10 @@ export async function autoBurnForBusiness(
       // pushed back into `history` below before the next iteration reads it.
       if (history.some((r) => r.customer_id === appt.customer_id && r.redeemed_on === on)) {
         s.skippedSameDay += 1
+        continue
+      }
+      if ((ledgerUse.byCustomer.get(appt.customer_id)?.openWalkInByDay.get(on) ?? 0) > 0) {
+        s.skippedUnknown += 1
         continue
       }
 
