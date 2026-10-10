@@ -11,7 +11,7 @@
 // only: no delete, no new row, notes untouched. Pin (fill.ts's): the hard Dev Salon id + assertDevSalon before any
 // booking is read; the store in registry.json; the manifest (Dev Salon id, type = registry type, epoch + hours) read,
 // never written.
-// Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed). Exit: 0 ok · 1 error, REFUSED or a failed write.
+// Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed). Exit: 0 ok · 1 error, REFUSED, a failed write, or STOP: connection limit (no write after it).
 import { existsSync, readFileSync } from 'node:fs'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, type FillCore, type Manifest } from './fill'
@@ -20,6 +20,9 @@ import { addDays, isLegacyMember, jstIso, loaderSet, plan, stillPlanned, type Pl
 
 /** The status_reason every loader status write carries (loaderSet() reads its prefix: the row stays the loader's). */
 export const CLOSE_OUT_REASON = 'テストデータ close-out'
+
+// copied from fill.ts:175 (isSaturated, not exported there): the same pattern over the message, the error code and the JSON body
+const isSaturated = (e: unknown) => ((x) => /EMAXCONN|max client connections|max clients reached|too many clients/i.test(`${e instanceof Error ? e.message : String(e)} ${x?.code ?? ''} ${JSON.stringify(x?.body ?? '')}`))(e as { code?: unknown; body?: unknown } | null)
 
 /** The ONE status write shared by fill.ts and close-out.ts (realism.ts has its own, with a ledger): the planned status, acted by the booking's own staff, close-out's reason. */
 export const setPlannedStatus = (core: Pick<FillCore, 'appointments'>, r: Pick<Appointment, 'id' | 'staff_id'>, status: PlannedAppointment['status']) =>
@@ -81,6 +84,8 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
       counts[a.status][1]++
     } catch (e) {
       failed++
+      // core's database is full: stop at once, no further write (fill.ts's saturation stop)
+      if (isSaturated(e)) { log(`STOP: connection limit — booking ${r.id}: ${e instanceof Error ? e.message : String(e)}; no further writes`); break }
       log(`FAILED: appointments ${tag}: booking ${r.id}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
