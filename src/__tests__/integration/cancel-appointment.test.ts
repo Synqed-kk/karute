@@ -97,11 +97,28 @@ const apptGet = jest.fn(async () => ({
 const listRecentRedemptions = jest.fn(
   async (_since: string): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> => [],
 )
+// S126 R-S126-1 a: read-after-write per client (one client per action) — a
+// get() after this client's update() returns the booking merged with what was
+// written, so the R2 re-check inside the first P3 attempt reads the status
+// write back. The spies still see every call; fixture only.
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({
-    appointments: { update: apptUpdate, get: apptGet },
-    packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
-  })),
+  getSynqedClient: jest.fn(async () => {
+    let written: Record<string, unknown> | null = null
+    return {
+      appointments: {
+        update: async (...a: unknown[]) => {
+          const out = await (apptUpdate as jest.Mock)(...a)
+          written = { ...written, ...(a[1] as Record<string, unknown>) }
+          return out
+        },
+        get: async (...a: unknown[]) => {
+          const b = await (apptGet as jest.Mock)(...a)
+          return b && written ? { ...b, ...written } : b
+        },
+      },
+      packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
+    }
+  }),
 }))
 
 const listCustomerPacks = jest.fn(async (_id: string): Promise<unknown[]> => [])
@@ -390,7 +407,9 @@ describe('cancelAppointment — burn on same-day-contact', () => {
   // original burn even after the booking moved forward in time.
   it('a booking rescheduled FORWARD past its original burn still catches the earlier redemption (no double-burn)', async () => {
     const ORIGINAL_DATE = '2026-06-01'
-    apptGet.mockResolvedValueOnce({
+    // S126 (R-S126-1 e): every read, not Once — the R2 re-check inside the
+    // attempt reads the booking a second time (fixture only).
+    apptGet.mockResolvedValue({
       id: 'appt-1',
       customer_id: 'cust-1',
       store_id: 'store-1',
@@ -643,6 +662,9 @@ describe('cancelAppointment — audit', () => {
       reason: 'cancel-same-day-contact',
       burn_pack: true,
       burn_error: null,
+      // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+      intent_id: expect.any(String),
+      ledger_state: 'settled',
     })
   })
 
