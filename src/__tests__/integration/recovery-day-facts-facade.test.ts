@@ -106,7 +106,7 @@ jest.mock('@/lib/packs/packs.core', () => ({
 // in source order).
 const proveAppointmentForCustomer = jest.fn(async (..._args: unknown[]) => {})
 jest.mock('@/lib/app-api/customer-facade', () => {
-  const provePackForCustomer = jest.fn(async (..._a: unknown[]) => {})
+  const provePackForCustomer = jest.fn<Promise<void>, unknown[]>(async () => {})
   return {
     proveCustomerInBusiness: jest.fn(async () => {}),
     provePackForCustomer,
