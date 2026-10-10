@@ -558,13 +558,13 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       }
     }
     const pre = deps.precheck ? await deps.precheck(cur) : ({ ok: true } as const)
-    if ('withdraw' in pre) return withdrawBySystem(store, cur, now, pre.withdraw, pre.withdraw)
-    if ('refuse' in pre) return refuse(store, cur, pre.refuse, now)
+    if ('withdraw' in pre) return await withdrawBySystem(store, cur, now, pre.withdraw, pre.withdraw)
+    if ('refuse' in pre) return await refuse(store, cur, pre.refuse, now)
     if (!cur.pack_id && !cur.frozen_payload && cur.pack_picked_by === 'system' && deps.repick) {
       // § 2: pack_id null until the first successful pick (P3 after a pack-read
       // ERROR). A pick error throws → pending (§ 6a); no pack with units → no_units.
       const picked = await deps.repick(cur, new Set())
-      if (!picked) return refuse(store, cur, 'no_units', now)
+      if (!picked) return await refuse(store, cur, 'no_units', now)
       const draft = cur.audit_payload?.draft_payload as Omit<CorePayload, 'pack_id'> | undefined
       cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
         pack_id: picked, frozen_payload: draft ? { ...draft, pack_id: picked } : null,
@@ -573,7 +573,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     const tried = new Set<string>()
     for (;;) {
       const p = cur.repick_payload ?? cur.frozen_payload
-      if (!p) return keepPending(store, cur, { leased_until: null, last_error_code: 'no_payload' })
+      if (!p) return await keepPending(store, cur, { leased_until: null, last_error_code: 'no_payload' })
       tried.add(p.pack_id)
       const res = await addRedemptionWithClient(synqed, {
         packId: p.pack_id, customerId: p.customer_id, redeemedOn: p.redeemed_on, appointmentId: p.appointment_id,
@@ -590,8 +590,8 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
         // S126 hole 3: this booking's core row is already claimed by ANOTHER intent
         // → this row is a duplicate (one booking = one burn): withdrawn, never pending forever
         const owner = pr.mine.map((r) => (r.appointment_id === cur.appointment_id ? pr.claimed.get(r.id) : undefined)).find((x) => x && x !== cur.id)
-        if (owner) return withdrawDuplicate(store, cur, owner, now)
-        return keepPending(store, cur, { ...err, last_error_code: 'booked_duplicate_unmatched', leased_until: null })
+        if (owner) return await withdrawDuplicate(store, cur, owner, now)
+        return await keepPending(store, cur, { ...err, last_error_code: 'booked_duplicate_unmatched', leased_until: null })
       }
       if (c.kind === 'refused') {
         if (c.code === 'no_units' && cur.pack_picked_by === 'system' && deps.repick) {
@@ -603,12 +603,12 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
             continue
           }
         }
-        return refuse(store, cur, c.code, now, err)
+        return await refuse(store, cur, c.code, now, err)
       }
       if (c.alarm) {
         reportFailure({ product: 'karute', kind: 'ledger.attempt_unproven', business_id: cur.business_id, ref: cur.id, facts: { code: c.code, status: c.status } })
       }
-      return keepPending(store, cur, {
+      return await keepPending(store, cur, {
         ...err, last_error_code: c.code,
         // answered → the key is free again (core released it); unanswered → keep the lease (R5)
         leased_until: c.retryAfterMs ? plus(now, c.retryAfterMs) : c.answered ? null : cur.leased_until,

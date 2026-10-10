@@ -77,6 +77,33 @@ describe('17 — R2: a P3 attempt re-checks the booking status, every attempt', 
   })
 })
 
+describe('C7 / R-S127-4 — a thrown store write inside attemptIntent never aborts the settle pass', () => {
+  it('a withdrawBySystem write that throws leaves the row pending with the lease released, and the pass still reaches the NEXT business', async () => {
+    const B2 = '00000000-0000-4000-8000-0000000000b2'
+    const base = memLedgerStore()
+    const store: LedgerStore = {
+      ...base,
+      async update(b, id, w, patch) {
+        if (b === B && patch.state === 'withdrawn') throw new Error('store write failed')
+        return base.update(b, id, w, patch)
+      },
+    }
+    const r1 = await p3(store)                                   // B: booking restored → the system withdraws → the write throws
+    const r2 = await insertP3Intent(store, {                     // B2: still NO_SHOW → sent and settled
+      businessId: B2, ownerUserId: null, source: 'no_show', customerId: 'cust-2', appointmentId: 'appt-1',
+      bookingDay: '2026-10-09', packId: 'pack-1', createdBy: 'staff-1',
+    })
+    const restored = fakeCore('CONFIRMED'); const noShow = fakeCore('NO_SHOW')
+    const sum = await settlePending({ store, clientFor: (b) => (b === B ? restored.synqed : noShow.synqed), rotate: (ids) => [...ids], dailyPass: false })
+    expect(sum.attempted).toBe(2)
+    const [a] = await store.getAllById(r1.id); const [b] = await store.getAllById(r2.id)
+    expect(a).toMatchObject({ state: 'pending', leased_until: null, last_error_code: 'precheck_error' })
+    expect(restored.addRedemption).not.toHaveBeenCalled()
+    expect(b).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
+    expect(noShow.addRedemption).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('A4 — the settle pass clock', () => {
   it('the 08:30 JST pass is the daily pass; the hourly passes are not', () => {
     expect(isDailyPass(new Date('2026-10-09T23:30:00Z'))).toBe(true)
