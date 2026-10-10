@@ -31,6 +31,7 @@ jest.mock('@/lib/packs/store', () => ({
   addRedemptionWithClient: (_s: unknown, input: unknown) => addRedemption(input),
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { autoBurnForBusiness, autoBurnRecentDays } from '@/lib/packs/auto-burn'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { ymdInJst } from '@/lib/date/jst'
@@ -817,6 +818,39 @@ describe('自動消化 — every stall disjunct holds the marker back', () => {
     const out = await autoBurnRecentDays(client(), 'biz-1')
     expect(out.map((s) => s.errors)).toEqual([1, 0, 0])
     expect(out[1].burned).toBe(1)
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+  // S127 R-S127-2: only a PENDING walk-in (waiting for core) stalls the
+  // business-wide marker; a HELD one (waiting on a human) skips the candidate
+  // without stalling it.
+  const walkInOn0705 = async (state: 'held' | 'pending') => {
+    const { memLedgerStore } = jest.requireActual('./helpers/ledger-fake')
+    const store = memLedgerStore()
+    await store.insertIgnore({
+      id: `walk-in-${state}`, business_id: 'biz-1', customer_id: 'cust-1', kind: 'use', state,
+      appointment_id: null, pack_id: 'pack-1', redeemed_on: '2026-07-05', staff_resolution: null,
+    })
+    jest.spyOn(jest.requireMock('@/lib/packs/use-ledger'), 'defaultLedgerStore').mockImplementation(async () => store)
+    apptList.mockImplementation(async (o: unknown) =>
+      ymdInJst(new Date((o as { from: string }).from)) === '2026-07-05'
+        ? page([appt({ starts_at: '2026-07-05T03:00:00.000Z', ends_at: '2026-07-05T04:00:00.000Z', created_at: '2026-07-05T03:00:00.000Z' })])
+        : page([]),
+    )
+  }
+
+  it('a HELD walk-in on day D skips that candidate but does NOT stall D’s marker', async () => {
+    await walkInOn0705('held')
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out[0]).toMatchObject({ date: '2026-07-05', candidates: 1, burned: 0, skippedOpenWalkIn: 1, skippedUnknown: 0 })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-06' },
+    })
+  })
+
+  it('a PENDING walk-in on day D stalls D’s marker (retried next tick)', async () => {
+    await walkInOn0705('pending')
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out[0]).toMatchObject({ date: '2026-07-05', candidates: 1, burned: 0, skippedOpenWalkIn: 0, skippedUnknown: 1 })
     expect(orgSettingsUpsert).not.toHaveBeenCalled()
   })
 })

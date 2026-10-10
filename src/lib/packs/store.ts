@@ -339,6 +339,109 @@ export interface CustomerPackUsage {
   hasActivePack: boolean
   /** First active counted pack with sessions left — the この日に消化 target. */
   firstPackId?: string | null
+  /** § 6b `uses`: this customer's open ledger uses (held + pending + parked). */
+  ledgerUses?: number
+  /** § 6b: the open ledger uses themselves — a burn for every "was it used" read. */
+  ledgerOpenUses?: Array<{ appointmentId: string | null; redeemedOn: string }>
+  /** § 6b: the pending (not held) open uses as dated, priced rows for 今月消化. */
+  ledgerBurns?: BurnRedemption[]
+  /** § 6a: the ledger read FAILED — the numbers are the server's (残数確認中). */
+  ledgerUnreadable?: true
+}
+
+/** § 6b: the ledger a usage read folds in (Karute's own pack_use_intents). */
+export interface UsageLedgerRef {
+  store: import('./use-ledger').LedgerStore
+  businessId: string
+}
+
+/** A business's ledger for a usage read; null = unavailable (server numbers stand). */
+export async function usageLedgerFor(businessId: string | null | undefined): Promise<UsageLedgerRef | null> {
+  if (!businessId) return null
+  try {
+    return { store: await (await import('./use-ledger')).defaultLedgerStore(), businessId }
+  } catch {
+    return null
+  }
+}
+
+/** The cookie session's ledger (web pages); null = unavailable. */
+export async function cookieUsageLedger(): Promise<UsageLedgerRef | null> {
+  try {
+    const l = await (await import('./use-ledger')).defaultLedgerContext()
+    return l.businessId ? { store: l.store, businessId: l.businessId } : null
+  } catch {
+    return null
+  }
+}
+
+type LedgerFold = { ok: false } | {
+  ok: true
+  /** pack-level (every customer's rows on that pack_id) */
+  byPack: import('./use-ledger').CustomerLedgerUsage | undefined
+  byCustomer: Map<string, import('./use-ledger').CustomerLedgerUsage>
+  rows: import('./use-ledger').IntentRow[]
+}
+
+/** § 6b the ONE ledger read behind every usage number. */
+async function foldLedger(ledger: UsageLedgerRef, customerIds: string[]): Promise<LedgerFold> {
+  if (customerIds.length === 0) return { ok: true, byPack: undefined, byCustomer: new Map(), rows: [] }
+  try {
+    const m = await import('./use-ledger')
+    const rows = await ledger.store.listForCustomers(ledger.businessId, customerIds)
+    return {
+      ok: true,
+      byPack: m.usageFromRows(rows.map((r) => ({ ...r, customer_id: '*' }))).get('*'),
+      byCustomer: m.usageFromRows(rows),
+      rows: rows.filter((r) => r.kind === 'use' && ['held', 'pending', 'parked'].includes(r.state)),
+    }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** § 6a display number per pack: server − pending − held + pending undos. */
+function foldRemaining(fold: LedgerFold | null, serverRemaining: number, packId: string): number {
+  if (!fold?.ok || !fold.byPack) return serverRemaining
+  const u = fold.byPack
+  return Math.max(0, serverRemaining - (u.pendingByPack.get(packId) ?? 0) - (u.heldByPack.get(packId) ?? 0) + (u.pendingUndoByPack.get(packId) ?? 0))
+}
+
+/** § 6b for one customer's packs (TicketPackCard, the record page's target,
+ *  the burnable pre-check): each pack's `remaining` becomes the § 6a number.
+ *  `ledgerUnreadable` = the read failed → the caller shows 残数確認中. */
+export async function applyLedgerToPacks<P extends { id: string; remaining: number }>(
+  packs: P[],
+  customerId: string,
+  ledger?: UsageLedgerRef | null,
+): Promise<{ packs: P[]; ledgerUnreadable: boolean }> {
+  const ref = ledger === undefined ? await cookieUsageLedger() : ledger
+  if (!ref) return { packs, ledgerUnreadable: true }
+  // § 6a H8/N6 (F7): a shared pack's pending use counts on the holder's AND the
+  // visitor's card — fold every eligible customer the packs read carries.
+  const ids = new Set([customerId])
+  for (const p of packs) {
+    if ('eligible_customer_ids' in p && Array.isArray(p.eligible_customer_ids)) {
+      for (const id of p.eligible_customer_ids) if (typeof id === 'string') ids.add(id)
+    }
+  }
+  const fold = await foldLedger(ref, [...ids])
+  if (!fold.ok) return { packs, ledgerUnreadable: true }
+  return { packs: packs.map((p) => foldPack(p, foldRemaining(fold, p.remaining, p.id))), ledgerUnreadable: false }
+}
+
+/** Greptile #1163 F1: one card, one balance — the dots (redeemedCount) and the
+ *  未消化 ¥ (unconsumedValue) follow the folded remaining. Only fields the pack
+ *  already carries move; a null/absent factor keeps core's value; an unchanged
+ *  remaining leaves the pack exactly as core sent it. */
+function foldPack<P extends { id: string; remaining: number }>(p: P, r: number): P {
+  if (r === p.remaining) return { ...p }
+  const out: P & { redeemedCount?: number; unconsumedValue?: number } = { ...p, remaining: r }
+  const size = 'pack_size' in p ? p.pack_size : undefined
+  const price = 'unit_price' in p ? p.unit_price : undefined
+  if ('redeemedCount' in p && typeof size === 'number') out.redeemedCount = Math.max(0, size - r)
+  if ('unconsumedValue' in p && typeof price === 'number') out.unconsumedValue = r * price
+  return out
 }
 
 /** Bulk pack usage for the customer LIST page — two business-scoped reads,
@@ -348,6 +451,8 @@ export interface CustomerPackUsage {
  *  wrapper below keeps today's graceful-empty behavior. */
 export async function listAllPackUsageWithClient(
   synqed: SynqedClient,
+  /** § 6b (R-S126-3 a): omitted = the cookie session's ledger; null = unavailable → 残数確認中. */
+  ledger?: UsageLedgerRef | null,
 ): Promise<Map<string, CustomerPackUsage>> {
   const map = new Map<string, CustomerPackUsage>()
   const [packs, redPackIds] = await Promise.all([
@@ -358,9 +463,14 @@ export async function listAllPackUsageWithClient(
   for (const pid of redPackIds) {
     countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
   }
+  const ref = ledger === undefined ? await cookieUsageLedger() : ledger
+  const fold: LedgerFold = !ref ? { ok: false } : await foldLedger(ref, [...new Set(packs.flatMap((p) => [
+      p.customer_id,
+      ...('eligible_customer_ids' in p && Array.isArray(p.eligible_customer_ids) ? p.eligible_customer_ids as string[] : []),
+    ]))])
   for (const p of packs) {
     if (p.kind !== 'pack') continue
-    const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
+    const remaining = foldRemaining(fold, Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0)), p.id)
     // The installed SDK passes additive wire fields through unchanged. Validate
     // the optional list until consumers upgrade to the new declaration.
     const eligible = 'eligible_customer_ids' in p && Array.isArray(p.eligible_customer_ids)
@@ -382,12 +492,28 @@ export async function listAllPackUsageWithClient(
       map.set(customerId, cur)
     }
   }
+  if (!fold.ok) for (const u of map.values()) u.ledgerUnreadable = true
+  if (fold.ok) {
+    for (const [customerId, u] of map) {
+      const mine = fold.rows.filter((r) => r.customer_id === customerId)
+      if (mine.length === 0) continue // no open use: the object stays today's shape
+      u.ledgerUses = mine.length
+      u.ledgerOpenUses = mine.map((r) => ({ appointmentId: r.appointment_id, redeemedOn: r.redeemed_on }))
+      // 今月消化 ¥: a pending use prices as its pack's unit_price, as a landed row does
+      // (an unknown pack = null = the stat hides, never a partial sum).
+      const burns = mine.filter((r) => r.state !== 'held').map((r) => {
+        const price = packs.find((p) => p.id === r.pack_id)?.unit_price
+        return { customer_id: r.customer_id, redeemed_on: r.redeemed_on, unit_price: typeof price === 'number' ? price : null }
+      })
+      if (burns.length > 0) u.ledgerBurns = burns
+    }
+  }
   return map
 }
 
-export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
+export async function listAllPackUsage(ledger?: UsageLedgerRef | null): Promise<Map<string, CustomerPackUsage>> {
   try {
-    return await listAllPackUsageWithClient(await getSynqedClient())
+    return await listAllPackUsageWithClient(await getSynqedClient(), ledger)
   } catch (err) {
     warn('listAllPackUsage', err)
     return new Map()

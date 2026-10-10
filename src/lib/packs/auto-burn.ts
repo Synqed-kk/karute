@@ -4,6 +4,7 @@ import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions
 import { addRedemptionWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
+import { defaultLedgerStore, readLedgerUsage } from '@/lib/packs/use-ledger'
 import { audit } from '@/lib/audit'
 
 // 自動消化 — the server-side burn for completed bookings (packet 11). The fix
@@ -47,6 +48,13 @@ import { audit } from '@/lib/audit'
 //   row and exposes no removed-redemption read), so the next hourly pass can
 //   re-charge it. Once the day is settled the marker below makes an undo stick,
 //   exactly as before.
+//   S127 (R-S127-2): the marker stalls only on a walk-in still waiting for
+//   core (PENDING). A held walk-in waits on a human and a parked one on the
+//   daily pass, so they are skipped without stalling the marker. RESIDUAL:
+//   within a day that still has a PENDING walk-in, a staff undo of an
+//   auto-burn can be re-charged by the next tick. The structural close is an
+//   auto-burn that respects a staff undo (an undo mark it never re-burns), a
+//   PR-B must-have.
 //
 // Money rules, same discipline as the no-show burn (appointments/mutations.ts):
 //   • fail CLOSED — an errored read SKIPS the burn and is REPORTED, never
@@ -102,6 +110,10 @@ export interface AutoBurnSummary {
   skippedNoPack: number
   /** Fail-closed skips: a read that errored, so we could not prove it safe. */
   skippedUnknown: number
+  /** S127 (R-S127-2): a HELD or PARKED walk-in use on that customer-day. The
+   *  candidate is skipped (never double-charged) but the day marker is NOT
+   *  stalled: neither state is resolved by the auto-burn waiting. */
+  skippedOpenWalkIn: number
   /** The DB below-zero trigger refused — surfaced, never silently swallowed. */
   belowZero: number
   errors: number
@@ -122,6 +134,7 @@ const empty = (
   skippedSameDay: 0,
   skippedNoPack: 0,
   skippedUnknown: 0,
+  skippedOpenWalkIn: 0,
   belowZero: 0,
   errors: 0,
 })
@@ -370,6 +383,18 @@ export async function autoBurnForBusiness(
     s.skippedUnknown = candidates.length
     return s
   }
+  // S125 H2 (design § 3): P4 READS the use ledger, never writes it and keeps no
+  // key. A customer-day with a PENDING walk-in use is STALLED (the skip stalls
+  // the marker, so the day is retried next tick), never dropped; a HELD or
+  // PARKED walk-in skips the candidate WITHOUT stalling the marker (R-S127-2);
+  // an unreadable ledger stalls the whole day, fail-closed like the history.
+  const ledgerUse = await defaultLedgerStore()
+    .then((st) => readLedgerUsage(st, businessId, [...new Set(candidates.map((a) => a.customer_id))]))
+    .catch(() => ({ ok: false }) as const)
+  if (!ledgerUse.ok) {
+    s.skippedUnknown = candidates.length
+    return s
+  }
 
   for (const appt of candidates) {
     // Per-candidate containment (round 2 G2). "Never throws" was a contract
@@ -390,6 +415,15 @@ export async function autoBurnForBusiness(
       // pushed back into `history` below before the next iteration reads it.
       if (history.some((r) => r.customer_id === appt.customer_id && r.redeemed_on === on)) {
         s.skippedSameDay += 1
+        continue
+      }
+      const walkIns = ledgerUse.byCustomer.get(appt.customer_id)
+      if ((walkIns?.pendingWalkInByDay.get(on) ?? 0) > 0) {
+        s.skippedUnknown += 1
+        continue
+      }
+      if ((walkIns?.openWalkInByDay.get(on) ?? 0) > 0) {
+        s.skippedOpenWalkIn += 1
         continue
       }
 

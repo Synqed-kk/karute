@@ -17,7 +17,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import { CustomerReengagementSlot } from '@/components/customers/redesign/profile/CustomerReengagementSlot'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
-import { getCustomerLifecycleChecked, listCustomerPacks } from '@/lib/packs/store'
+import { getCustomerLifecycleChecked, listCustomerPacks, applyLedgerToPacks } from '@/lib/packs/store'
 import { buildCustomerProfileScreen } from '@/lib/customers/profile-screen'
 
 interface CustomerProfilePageProps {
@@ -73,7 +73,7 @@ export default async function CustomerProfilePage({
     aiPassport,
     orgSettingsForPassport,
     lifecycleRead,
-    packs,
+    packsRead,
   ] = await Promise.all([
     getCustomerContact(id),
     getStaffList(),
@@ -114,8 +114,8 @@ export default async function CustomerProfilePage({
     // (store degrades gracefully).
     orgSettingsPromise.then((settings) =>
       (settings?.ticket_packs_enabled ?? true)
-        ? listCustomerPacks(id)
-        : Promise.resolve([]),
+        ? listCustomerPacks(id).then((p) => applyLedgerToPacks(p, id)) // § 6b / § 6a
+        : Promise.resolve({ packs: [], ledgerUnreadable: false }),
     ),
   ])
 
@@ -136,7 +136,8 @@ export default async function CustomerProfilePage({
     aiPassport,
     orgSettingsForPassport,
     lifecycleRead,
-    packs,
+    packs: packsRead.packs, // § 6a folded remaining
+    ledgerUnreadable: packsRead.ledgerUnreadable, // § 6a 残数確認中
   })
 
   return (

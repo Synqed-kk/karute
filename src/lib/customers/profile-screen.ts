@@ -69,6 +69,8 @@ export interface CustomerProfileScreen {
   photos: CustomerPhoto[]
   customerMemory: CustomerMemory
   packs: PackWithUsage[]
+  /** § 6a: the ledger read failed — the card shows 残数確認中. Absent otherwise. */
+  ledgerUnreadable?: true
   lifecycle: CustomerLifecycle | null
   hasNextBooking: boolean
   ticketsEnabled: boolean
@@ -110,6 +112,8 @@ export interface BuildCustomerProfileScreenArgs {
   orgSettingsForPassport: { business_type?: string; ticket_packs_enabled?: boolean } | null
   lifecycleRead: Awaited<ReturnType<typeof getCustomerLifecycleChecked>>
   packs: PackWithUsage[]
+  /** § 6a: applyLedgerToPacks' flag, carried to TicketPackCard. */
+  ledgerUnreadable?: boolean
 }
 
 export async function buildCustomerProfileScreen(
@@ -398,6 +402,7 @@ export async function buildCustomerProfileScreen(
     photos,
     customerMemory,
     packs,
+    ...(args.ledgerUnreadable ? { ledgerUnreadable: true as const } : {}),
     lifecycle,
     hasNextBooking: !!enrichment.get(id)?.nextAppointmentIso,
     ticketsEnabled,

@@ -11,6 +11,7 @@ import {
   listCustomerPacks,
   getCustomerLifecycleChecked,
   listAllPackUsage,
+  applyLedgerToPacks,
 } from '@/lib/packs/store'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -132,7 +133,7 @@ export default async function SessionsPage({
           .then((r) => r.consent)
           .catch(() => null),
       getKaruteRecords: (id, limit) => getCustomerKaruteRecords(id, limit),
-      listPacks: (id) => listCustomerPacks(id),
+      listPacks: (id) => listCustomerPacks(id).then(async (p) => (await applyLedgerToPacks(p, id)).packs), // § 6b
       getLifecycle: (id) => getCustomerLifecycleChecked(id),
     },
   })

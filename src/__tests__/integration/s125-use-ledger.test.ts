@@ -14,10 +14,11 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedC
 import {
   attemptIntent, classifyCoreFailure, displayRemaining, preReadMatch, readLedgerUsage, recordUse,
   settlePending, usageFromRows, cutoverDay, CUTOVER_FLOOR_DAY, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
-  MAX_CALLER_DURATION_MS,
+  MAX_CALLER_DURATION_MS, p3Precheck,
   supabaseLedgerStore, BUSINESS_PAGE, SETTLE_BUSINESS_PAGES_MAX,
   type IntentRow, type LedgerStore, type Where,
 } from '@/lib/packs/use-ledger'
+import { CANCEL_REASON_SAME_DAY_CONTACT } from '@/lib/appointments/status'
 
 const B = '11111111-1111-4111-8111-111111111111'
 const B2 = '22222222-2222-4222-8222-222222222222'
@@ -315,7 +316,10 @@ describe('S125 use ledger — the numbered list', () => {
   })
 
   test('settle pass: pending rows of every business with open rows; parked resumes on the daily pass', async () => {
-    const store = memStore(); const core = fakeCore()
+    const store = memStore()
+    // S126 W1 (fixture only): the P3 rows' R2 re-check reads the booking — a NO_SHOW
+    // booking on the rows' redeemed_on, and an empty history (listRecentRedemptions → []).
+    const core = { ...fakeCore(), appointments: { get: jest.fn().mockResolvedValue({ status: 'NO_SHOW', status_reason: null, starts_at: `${TODAY}T03:00:00.000Z`, created_at: `${TODAY}T00:00:00.000Z` }) } }
     // S126 hole 2: an attempts-0 row is the pass's only once older than MAX_CALLER_DURATION_MS
     await store.insertIgnore(sysRow({ id: 's1', pack_picked_by: 'staff', created_at: OLD }))
     await store.insertIgnore(sysRow({ id: 's2', business_id: B2, pack_picked_by: 'staff', state: 'parked' }))
@@ -406,7 +410,11 @@ describe('S125 use ledger — the numbered list', () => {
   })
 
   test('D · the settle pass leaves a fresh P3 row (attempts 0, younger than MAX_CALLER_DURATION_MS) to its own request; an older one is attempted', async () => {
-    const store = memStore(); const core = fakeCore()
+    const store = memStore(); const base = fakeCore()
+    // S126 A2 finisher (fixture only, the d26dd7ca2 shape): the older P3 row's R2 re-check reads
+    // its booking before the send — a NO_SHOW booking on the row's redeemed_on keeps it a no-show
+    // use; without appointments.get the precheck throws (precheck_error) and the row stays pending.
+    const core = { ...base, appointments: { ...base.appointments, get: jest.fn().mockResolvedValue({ status: 'NO_SHOW', status_reason: null, starts_at: `${TODAY}T03:00:00.000Z`, created_at: `${TODAY}T00:00:00.000Z` }) } }
     await store.insertIgnore(sysRow({ id: 'd-fresh', created_at: new Date(NOW.getTime() - 1_000).toISOString() }))
     await store.insertIgnore(sysRow({ id: 'd-old', appointment_id: 'appt-2', created_at: OLD }))
     const out = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW })
@@ -480,3 +488,50 @@ function sysRow(over: Partial<IntentRow> = {}): IntentRow {
     ...over,
   }
 }
+
+describe('Greptile #1163 F3 — the walk-in fallback in preReadMatch never serves a booking-bound intent', () => {
+  // an unclaimed, no-appointment manual core row after the cutover day — someone else's walk-in
+  const stray = { id: 'w', customer_id: 'cust-1', appointment_id: null, redeemed_on: TODAY, source: 'manual' }
+  const appt = (status: string, status_reason: string | null = null) =>
+    ({ status, status_reason, starts_at: `${TODAY}T03:00:00.000Z`, created_at: `${TODAY}T00:00:00.000Z` })
+  const p3Core = (booking: ReturnType<typeof appt>) => {
+    const base = fakeCore({ recent: [stray] })
+    return { ...base, appointments: { ...base.appointments, get: jest.fn().mockResolvedValue(booking) } }
+  }
+  const replayDeps = (store: LedgerStore, core: ReturnType<typeof p3Core>) => deps(store, core as never, { precheck: p3Precheck(core as never) })
+  const CASES = [
+    ['no_show', {}, appt('NO_SHOW')],
+    ['cancel', { audit_payload: { burn_pack: true } }, appt('CANCELLED', CANCEL_REASON_SAME_DAY_CONTACT)],
+  ] as const
+
+  it.each(CASES)('(a/c) preReadMatch for a %s intent on appt-1 never adopts the stray no-appointment row', (source, over) => {
+    expect(preReadMatch(sysRow({ ledger_source: source, ...over }), [stray], new Set(), TODAY, CUT)).toBeNull()
+  })
+
+  it.each(CASES)('(b/d) a REPLAY of a %s intent sends with appointment_id appt-1 and does not settle to the stray row', async (source, over, booking) => {
+    const store = memStore(); const core = p3Core(booking)
+    const row = sysRow({ id: `aaaaaaaa-0000-4000-8000-0000000f3${source === 'cancel' ? 'c' : 'a'}00`.slice(0, 36), ledger_source: source, attempts: 1, ...over })
+    await store.insertIgnore(row)
+    const out = await attemptIntent(replayDeps(store, core), row)
+    expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
+    expect(core.packs.addRedemption.mock.calls[0][0]).toMatchObject({ appointment_id: 'appt-1' })
+    expect(out).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
+    expect(out?.settled_core_id).not.toBe('w')
+  })
+
+  it('(e) PIN — a booked MANUAL intent still matches an unclaimed no-appointment row (A1 behaviour)', () => {
+    expect(preReadMatch(sysRow({ ledger_source: 'manual' }), [stray], new Set(), TODAY, CUT)).toBe('w')
+    expect(preReadMatch(sysRow({ ledger_source: 'backfill' }), [stray], new Set(), TODAY, CUT)).toBe('w')
+    expect(preReadMatch(sysRow({ ledger_source: 'recovery' }), [stray], new Set(), TODAY, CUT)).toBe('w')
+  })
+
+  it('restore variant — a no_show whose booking was restored while pending: the replay withdraws (status_changed), never settles to the stray row', async () => {
+    const store = memStore(); const core = p3Core(appt('SCHEDULED'))
+    const row = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000f3b00', attempts: 1 })
+    await store.insertIgnore(row)
+    const out = await attemptIntent(replayDeps(store, core), row)
+    expect(out).toMatchObject({ state: 'withdrawn' })
+    expect(out?.settled_core_id ?? null).toBeNull()
+    expect(core.packs.addRedemption).not.toHaveBeenCalled()
+  })
+})

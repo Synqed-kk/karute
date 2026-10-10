@@ -31,6 +31,8 @@ import {
   getCustomerLifecycleCheckedWithClient,
   listAllPackUsageWithClient,
   type CustomerPackUsage,
+  applyLedgerToPacks,
+  usageLedgerFor,
 } from '@/lib/packs/store'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { isTerminalStatus } from '@/lib/appointments/status'
@@ -238,7 +240,7 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
             businessId,
             customers.map((c) => c.id),
           ).catch(() => new Map<string, CustomerEnrichment>()),
-          listAllPackUsageWithClient(synqed).catch(
+          usageLedgerFor(businessId).then((l) => listAllPackUsageWithClient(synqed, l)).catch(
             () => new Map<string, CustomerPackUsage>(),
           ),
         ])
@@ -259,7 +261,9 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
             .then((r) => r.consent as { granted_at?: string | null } | null)
             .catch(() => null),
         getKaruteRecords: (id, limit) => getCustomerKaruteRecordsWithClient(synqed, id, limit),
-        listPacks: (id) => listCustomerPacksWithClient(synqed, id).catch(() => []),
+        // § 6b: the record page's packs (resolveOutcomeMode's input) read the ledger-aware remaining.
+        listPacks: (id) => listCustomerPacksWithClient(synqed, id)
+          .then(async (p) => (await applyLedgerToPacks(p, id, await usageLedgerFor(businessId))).packs).catch(() => []),
         getLifecycle: (id) => getCustomerLifecycleCheckedWithClient(synqed, id),
       },
     })

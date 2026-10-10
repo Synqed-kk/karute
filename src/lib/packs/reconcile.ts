@@ -13,6 +13,8 @@ import {
   listAllLifecycles,
   listAllLifecyclesWithClient,
   listAllPackUsage,
+  usageLedgerFor,
+  type CustomerPackUsage,
   listAllPackUsageWithClient,
   listRecentRedemptions,
   listRecentRedemptionsWithClient,
@@ -42,6 +44,13 @@ export interface ReconcileData {
 
 const LOOKBACK_DAYS = 7
 
+/** § 6b (H2): a held / pending / parked ledger use IS a burn — the visit must
+ *  not reappear as unprocessed while the use is on its way to core. */
+function ledgerRedemptions(usage: Map<string, CustomerPackUsage>) {
+  return [...usage].flatMap(([customerId, u]) =>
+    (u.ledgerOpenUses ?? []).map((x) => ({ customerId, appointmentId: x.appointmentId, redeemedOn: x.redeemedOn })))
+}
+
 /** storeId = the CLAMPED resolveStoreScope().storeId (never a raw cookie).
  *  Store-filters the appointment window server-side so the 未処理来店 todos
  *  only surface the viewer's own store's visits (#465 family). The karute
@@ -60,7 +69,7 @@ export async function loadUnprocessedVisits(
 
     const [usage, lifecycles, dismissalRows, redemptions, customers] =
       await Promise.all([
-        listAllPackUsage(),
+        listAllPackUsage(), // § 6b the ledger-aware read (omitted = the cookie session's ledger)
         listAllLifecycles(),
         listVisitReconcileDismissals(LOOKBACK_DAYS + 1),
         listRecentRedemptions(LOOKBACK_DAYS + 1),
@@ -122,11 +131,11 @@ export async function loadUnprocessedVisits(
       holders: usage,
       lifecycles,
       appointments: mapped,
-      redemptions: redemptions.map((r) => ({
+      redemptions: [...redemptions.map((r) => ({
         customerId: r.customer_id,
         appointmentId: r.appointment_id,
         redeemedOn: r.redeemed_on,
-      })),
+      })), ...ledgerRedemptions(usage)],
       dismissals,
       todayJst,
     })
@@ -166,7 +175,7 @@ export async function loadUnprocessedVisitsWithClient(
 
   const [usage, lifecycles, dismissalRows, redemptions, customers] =
     await Promise.all([
-      listAllPackUsageWithClient(synqed),
+      usageLedgerFor(businessId).then((l) => listAllPackUsageWithClient(synqed, l)), // § 6b
       listAllLifecyclesWithClient(synqed),
       listVisitReconcileDismissalsWithClient(synqed, LOOKBACK_DAYS + 1),
       listRecentRedemptionsWithClient(synqed, LOOKBACK_DAYS + 1),
@@ -224,11 +233,11 @@ export async function loadUnprocessedVisitsWithClient(
     holders: usage,
     lifecycles,
     appointments: mapped,
-    redemptions: redemptions.map((r) => ({
+    redemptions: [...redemptions.map((r) => ({
       customerId: r.customer_id,
       appointmentId: r.appointment_id,
       redeemedOn: r.redeemed_on,
-    })),
+    })), ...ledgerRedemptions(usage)],
     dismissals,
     todayJst,
   })

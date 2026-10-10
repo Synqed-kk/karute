@@ -19,6 +19,7 @@ import {
   listAllLifecycles,
   listAllLifecyclesWithClient,
   listAllPackUsage,
+  usageLedgerFor,
   listAllPackUsageWithClient,
   listRecentContacts,
   listRecentContactsWithClient,
@@ -53,7 +54,7 @@ export async function getPackAlerts(
   const empty = emptyPackAlerts()
   const [usageAll, lifecyclesAll, dismissed, customers, businessId, recentContacts] =
     await Promise.all([
-      listAllPackUsage(),
+      listAllPackUsage(), // § 6b the ledger-aware read (omitted = the cookie session's ledger)
       listAllLifecycles(),
       listActiveDismissals(),
       getCachedCustomerList(),
@@ -156,7 +157,7 @@ export async function getPackAlertsWithClient(
   const empty = emptyPackAlerts()
   const [usageAll, lifecyclesAll, dismissed, customers, recentContacts] =
     await Promise.all([
-      listAllPackUsageWithClient(synqed),
+      usageLedgerFor(businessId).then((l) => listAllPackUsageWithClient(synqed, l)), // § 6b
       listAllLifecyclesWithClient(synqed),
       listActiveDismissalsWithClient(synqed),
       getCachedCustomerListFor(businessId),

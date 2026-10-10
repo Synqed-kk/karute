@@ -27,7 +27,7 @@ import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { getCachedMenuOptionsFor, scopeMenuOptions } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
-import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageWithClient, type CustomerPackUsage, usageLedgerFor } from '@/lib/packs/store'
 import {
   customerLensFor,
   storeDivisorRosterForBusiness,
@@ -367,7 +367,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         // `newCountKnown` reads this null and withholds instead of guessing;
         // the row-level pack pill degrades to "no pack" either way, which is
         // this same graceful-catch contract the header comment describes.
-        ? listAllPackUsageWithClient(synqed).catch(() => null)
+        ? usageLedgerFor(ctx.identity.businessId).then((l) => listAllPackUsageWithClient(synqed, l)).catch(() => null) // § 6b
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 

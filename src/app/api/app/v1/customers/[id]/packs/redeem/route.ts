@@ -14,9 +14,8 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
 import { defaultLedgerStore } from '@/lib/packs/use-ledger'
 import {
-  proveAppointmentForCustomer,
   proveCustomerInBusiness,
-  provePackForCustomer,
+  proveRedeemTargets,
   requireIdempotencyKey,
   resolveSelfStaffId,
 } from '@/lib/app-api/customer-facade'
@@ -78,15 +77,12 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
   }
 
   // Pack tenancy: the packId must belong to THIS customer (in this business).
-  await provePackForCustomer(synqed, id, parsed.data.packId)
-
   // G5 (audit round 2, Greptile P1, ACCEPTED): an EXPLICIT client-sent
   // appointmentId must be proven to belong to this customer before it can
   // burn — same idiom as provePackForCustomer just above. null/absent skips
   // this (core derives the pairing server-side, today's path unchanged).
-  if (typeof parsed.data.appointmentId === 'string') {
-    await proveAppointmentForCustomer(synqed, id, parsed.data.appointmentId)
-  }
+  // S126 W3: both proofs are ONE function the settle pass re-runs (R2).
+  await proveRedeemTargets(synqed, id, parsed.data.packId, parsed.data.appointmentId)
 
   const staffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const result = await redeemSessionActionWithClient(synqed, staffId, {
@@ -102,7 +98,7 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     // R1: the phone's key IS the ledger intent id, sent to core unchanged.
     intentId: idempotencyKey,
     idempotencyKey,
-  }, { store: await defaultLedgerStore(), businessId: ctx.identity.businessId, ownerUserId: ctx.identity.authUserId })
+  }, { store: await defaultLedgerStore(), businessId: ctx.identity.businessId, ownerUserId: ctx.identity.authUserId, origin: 'phone' })
   // PR-A keeps TODAY's wire contract: ok:true ONLY for a settled use, so an
   // installed phone build never reads a pending/held use as 消化しました. The
   // versioned 2xx {intent_id, state} answer (X-Karute-Ledger) is PR-B.

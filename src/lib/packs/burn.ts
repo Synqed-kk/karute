@@ -76,6 +76,14 @@ export function monthlyBurnByCustomer(
   return { byCustomer, unpricedCustomers: [...unpriced] }
 }
 
+/** § 6b: the open (pending) ledger uses the usage reader carries, as dated
+ *  rows — 今月消化 counts a use from the moment it is recorded. */
+export function ledgerBurnRows(
+  usage: ReadonlyMap<string, { ledgerBurns?: readonly BurnRedemption[] }> | null | undefined,
+): BurnRedemption[] {
+  return usage ? [...usage.values()].flatMap((u) => u.ledgerBurns ?? []) : []
+}
+
 /** Rounded % change vs the previous same-period window; null when there is
  *  no previous-window burn to compare against (a % of zero is meaningless). */
 export function burnDeltaPct(mtd: number, prev: number): number | null {

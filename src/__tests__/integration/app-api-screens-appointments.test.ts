@@ -173,7 +173,11 @@ const listAllPackUsageWithClient = jest.fn(
       ],
     ]),
 )
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 jest.mock('@/lib/packs/store', () => ({
+  // S126 § 6b (R-S126-3 b): the reader's ledger seams stay real; the ledger is the use-ledger fake
+  usageLedgerFor: jest.requireActual('@/lib/packs/store').usageLedgerFor,
+  applyLedgerToPacks: jest.requireActual('@/lib/packs/store').applyLedgerToPacks,
   listAllPackUsageWithClient: (...a: unknown[]) => listAllPackUsageWithClient(...a),
 }))
 

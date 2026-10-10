@@ -11,7 +11,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { listCustomerPacksWithClient } from '@/lib/packs/store'
+import { applyLedgerToPacks, listCustomerPacksWithClient, usageLedgerFor } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 
 export const runtime = 'nodejs'
@@ -26,7 +26,10 @@ export const GET = facadeHandler<Params>('customer.pack.burnable', async (ctx) =
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   try {
-    const target = pickRedemptionTarget(await listCustomerPacksWithClient(synqed, id))
+    // § 6b: the pre-check reads the ledger-aware remaining (pending/held taken off).
+    const { packs } = await applyLedgerToPacks(
+      await listCustomerPacksWithClient(synqed, id), id, await usageLedgerFor(ctx.identity.businessId))
+    const target = pickRedemptionTarget(packs)
     return ok(ctx, {
       summary: target ? { packId: target.id, remaining: target.remaining } : null,
     })

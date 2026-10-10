@@ -76,6 +76,8 @@ interface CustomerProfileViewProps {
   /** 回数券 + lifecycle (卒業/離客/口コミ) — server-loaded via the packs store.
    *  Empty until the ticket_packs migration is applied (graceful). */
   packs?: PackWithUsage[]
+  /** § 6a: the ledger read failed → TicketPackCard shows 残数確認中. */
+  ledgerUnreadable?: boolean
   lifecycle?: CustomerLifecycle | null
   /** Org-level 回数券 master switch. Off → the pack card shows only the
    *  lifecycle row (卒業/離客/口コミ stays — it's customer state, not tickets). */
@@ -104,6 +106,7 @@ export function CustomerProfileView({
   photos,
   customerMemory,
   packs = [],
+  ledgerUnreadable = false,
   lifecycle = null,
   hasNextBooking = false,
   ticketsEnabled = true,
@@ -162,6 +165,7 @@ export function CustomerProfileView({
       <TicketPackCard
         customerId={customer.id}
         packs={packs}
+        ledgerUnreadable={ledgerUnreadable}
         lifecycle={lifecycle}
         hasNextBooking={hasNextBooking}
         avgIntervalDays={customer.visitPace?.avgIntervalDays ?? null}

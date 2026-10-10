@@ -27,9 +27,10 @@ import {
   listAllLifecyclesWithClient,
   listAllPackUsageWithClient,
   listBurnRedemptionsWithClient,
+  usageLedgerFor,
   warn,
 } from '@/lib/packs/store'
-import { monthlyBurnByCustomer } from '@/lib/packs/burn'
+import { ledgerBurnRows, monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -115,7 +116,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     const [enrichment, packUsage, lifecycles, rawSettings, burnRows, storeStaffIds] =
       await Promise.all([
         enrichCustomers(ctx.identity.businessId, customerIds),
-        listAllPackUsageWithClient(synqed),
+        usageLedgerFor(ctx.identity.businessId).then((l) => listAllPackUsageWithClient(synqed, l)), // § 6b
         listAllLifecyclesWithClient(synqed),
         // Only ticket_packs_enabled is needed; the shared cached reader lives in
         // a 'use server' file and must stay unexported (see ask-ai route).
@@ -133,7 +134,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
     // Page parity (page.tsx): same null-coalescing split — byCustomer stays
     // null (hides the stat), unpricedCustomers degrades to [] (nothing to hide).
-    const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+    const burn = burnRows ? monthlyBurnByCustomer([...burnRows, ...ledgerBurnRows(packUsage)]) : null
     burnByCustomer = burn?.byCustomer ?? null
     burnUnpricedIds = burn?.unpricedCustomers ?? []
 

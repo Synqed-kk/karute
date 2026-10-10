@@ -11,8 +11,10 @@
 // a conditional UPDATE … WHERE state = <prior state> (zero rows = a lost race).
 // ⚖ no hardcoded durations: every threshold below is ONE named export.
 
-import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
-import { ymdInJst } from '@/lib/date/jst'
+import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, listCustomerPacksWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { CANCEL_REASON_SAME_DAY_CONTACT } from '@/lib/appointments/status'
+import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -401,6 +403,9 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: { has(
   if (intent.appointment_id) {
     const own = inWindow.find((r) => r.appointment_id === intent.appointment_id)
     if (own) return own.id
+    // Greptile #1163 F3: booking-bound intents (no_show · cancel · auto) match on
+    // appointment_id ONLY — the null-row fallback is for walk-in sources.
+    if (!HOLDABLE.includes(intent.ledger_source)) return null
     const nullRow = inWindow.find(
       (r) => r.appointment_id === null && day(r.redeemed_on) > cutover && !['qr', 'pos', 'import'].includes(r.source),
     )
@@ -491,13 +496,25 @@ async function settleTo(store: LedgerStore, row: IntentRow, coreId: string, now:
 /** S126 hole 3: a duplicate of a use another intent already settled — withdrawn
  *  by the system (reason duplicate_of:<intent id>), never pending forever. */
 async function withdrawDuplicate(store: LedgerStore, row: IntentRow, ownerId: string, now: Date): Promise<IntentRow> {
-  return (await store.update(row.business_id, row.id, { state: 'pending' }, {
-    state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', last_error_code: `duplicate_of:${ownerId}`, leased_until: null,
-  })) ?? (await reread(store, row))
+  return withdrawBySystem(store, row, now, 'duplicate_of', `duplicate_of:${ownerId}`)
 }
 
 async function keepPending(store: LedgerStore, row: IntentRow, patch: Partial<IntentRow>): Promise<IntentRow> {
   return (await store.update(row.business_id, row.id, { state: 'pending' }, patch)) ?? (await reread(store, row))
+}
+
+/** A SYSTEM withdrawal (CAS from pending). § 7 (⚖ 9/30 black box): a P3
+ *  (no-show / cancel) row withdrawn by the system — expected on a restore —
+ *  is never silent: one alarm per withdrawal, with the reason. */
+async function withdrawBySystem(store: LedgerStore, row: IntentRow, now: Date, reason: string, code?: string): Promise<IntentRow> {
+  const done = await store.update(row.business_id, row.id, { state: 'pending' }, {
+    state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null, ...(code ? { last_error_code: code } : {}),
+  })
+  if (!done) return reread(store, row)
+  if (done.ledger_source === 'no_show' || done.ledger_source === 'cancel') {
+    reportFailure({ product: 'karute', kind: 'ledger.p3_withdrawn', business_id: done.business_id, ref: done.id, facts: { reason } })
+  }
+  return done
 }
 
 export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promise<IntentRow> {
@@ -530,11 +547,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     if (replay || cur.withdraw_requested_at) {
       const { match } = await runPreRead(synqed, store, cur, now)
       if (match) return await settleTo(store, cur, match.id, now, `matched:${match.id}`)
-      if (cur.withdraw_requested_at) {
-        return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
-          state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
-        })) ?? (await reread(store, cur))
-      }
+      if (cur.withdraw_requested_at) return await withdrawBySystem(store, cur, now, 'withdraw_requested')
     }
     // S128 F2: the ONE hold check, before a walk-in's FIRST send (never sent yet:
     // its first attempt, or the attempt that just resolved its booking). An
@@ -548,16 +561,22 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       }
     }
     const pre = deps.precheck ? await deps.precheck(cur) : ({ ok: true } as const)
-    if ('withdraw' in pre) {
-      return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
-        state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', last_error_code: pre.withdraw, leased_until: null,
-      })) ?? (await reread(store, cur))
+    if ('withdraw' in pre) return await withdrawBySystem(store, cur, now, pre.withdraw, pre.withdraw)
+    if ('refuse' in pre) return await refuse(store, cur, pre.refuse, now)
+    if (!cur.pack_id && !cur.frozen_payload && cur.pack_picked_by === 'system' && deps.repick) {
+      // § 2: pack_id null until the first successful pick (P3 after a pack-read
+      // ERROR). A pick error throws → pending (§ 6a); no pack with units → no_units.
+      const picked = await deps.repick(cur, new Set())
+      if (!picked) return await refuse(store, cur, 'no_units', now)
+      const draft = cur.audit_payload?.draft_payload as Omit<CorePayload, 'pack_id'> | undefined
+      cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
+        pack_id: picked, frozen_payload: draft ? { ...draft, pack_id: picked } : null,
+      })) ?? cur
     }
-    if ('refuse' in pre) return refuse(store, cur, pre.refuse, now)
     const tried = new Set<string>()
     for (;;) {
       const p = cur.repick_payload ?? cur.frozen_payload
-      if (!p) return keepPending(store, cur, { leased_until: null, last_error_code: 'no_payload' })
+      if (!p) return await keepPending(store, cur, { leased_until: null, last_error_code: 'no_payload' })
       tried.add(p.pack_id)
       const res = await addRedemptionWithClient(synqed, {
         packId: p.pack_id, customerId: p.customer_id, redeemedOn: p.redeemed_on, appointmentId: p.appointment_id,
@@ -574,8 +593,8 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
         // S126 hole 3: this booking's core row is already claimed by ANOTHER intent
         // → this row is a duplicate (one booking = one burn): withdrawn, never pending forever
         const owner = pr.mine.map((r) => (r.appointment_id === cur.appointment_id ? pr.claimed.get(r.id) : undefined)).find((x) => x && x !== cur.id)
-        if (owner) return withdrawDuplicate(store, cur, owner, now)
-        return keepPending(store, cur, { ...err, last_error_code: 'booked_duplicate_unmatched', leased_until: null })
+        if (owner) return await withdrawDuplicate(store, cur, owner, now)
+        return await keepPending(store, cur, { ...err, last_error_code: 'booked_duplicate_unmatched', leased_until: null })
       }
       if (c.kind === 'refused') {
         if (c.code === 'no_units' && cur.pack_picked_by === 'system' && deps.repick) {
@@ -587,12 +606,12 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
             continue
           }
         }
-        return refuse(store, cur, c.code, now, err)
+        return await refuse(store, cur, c.code, now, err)
       }
       if (c.alarm) {
         reportFailure({ product: 'karute', kind: 'ledger.attempt_unproven', business_id: cur.business_id, ref: cur.id, facts: { code: c.code, status: c.status } })
       }
-      return keepPending(store, cur, {
+      return await keepPending(store, cur, {
         ...err, last_error_code: c.code,
         // answered → the key is free again (core released it); unanswered → keep the lease (R5)
         leased_until: c.retryAfterMs ? plus(now, c.retryAfterMs) : c.answered ? null : cur.leased_until,
@@ -636,6 +655,8 @@ export interface RecordUseInput {
   recovery?: boolean
   anotherSession?: boolean
   karuteRecordId?: string | null
+  /** 'phone' = the facade route (audit_payload.origin); absent = the web action. */
+  origin?: 'phone'
 }
 export type UseState = 'settled' | 'pending' | 'held' | 'refused' | 'withdrawn'
 export interface RecordUseResult {
@@ -740,6 +761,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
         // written once: now when the booking is known, else on the first successful lookup
         frozen_payload: resolved ? payload : null,
         audit_payload: {
+          ...(input.origin ? { origin: input.origin } : {}),
           ...(g.gestureAtClientRaw ? { gesture_at_client: g.gestureAtClientRaw } : {}),
           ...(resolved ? {} : { draft_payload: payload }),
         },
@@ -799,28 +821,50 @@ export async function settlePending(opts: {
     s.businesses += 1
     const synqed = opts.clientFor(businessId)
     const rows = await opts.store.listOpen(businessId, states, SETTLE_ROWS_PER_BUSINESS, 'retry')
+    // R-S126-10 (c), cold read F2: one customer's rows run one after another in
+    // created_at order, so an earlier row's claim lands before the next row's R4
+    // pre-read; customers run in parallel (SETTLE_CONCURRENCY).
+    const byCustomer = new Map<string, IntentRow[]>()
+    for (const r of rows) byCustomer.set(r.customer_id, [...(byCustomer.get(r.customer_id) ?? []), r])
+    const groups = [...byCustomer.values()].map((g) => g.sort((x, y) => (x.created_at ?? '').localeCompare(y.created_at ?? '')))
     let next = 0
     const worker = async () => {
-      while (next < rows.length && clock().getTime() < deadline) {
-        let row = rows[next++]
-        if (ownedByWriter(row, clock())) continue
-        if (row.state === 'parked') {
-          row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
-        }
-        s.attempted += 1
-        let leasedByThisPass = false
-        const out = await attemptIntent({ store: opts.store, synqed, now: clock, onLease: () => { leasedByThisPass = true } }, row)
-        if (out.state === 'settled') s.settled += 1
-        else if (out.state === 'refused') s.refused += 1
-        else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
-          clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
-          // S128 F3 + G1: park only a row no other sender holds mid-flight. This
-          // pass leased it → CAS on exactly the lease its attempt left (out is the
-          // persisted RETURNING row; an UNANSWERED attempt keeps its own lease);
-          // it did not → the lease must be free now.
-          const leaseWhere: Partial<Where> = leasedByThisPass ? { leasedUntilEq: out.leased_until ?? null } : { leaseFreeAt: iso(clock()) }
-          const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, ...leaseWhere }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
-          if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
+      while (next < groups.length && clock().getTime() < deadline) {
+        for (const first of groups[next++]) {
+          if (clock().getTime() >= deadline) break
+          let row = first
+          if (ownedByWriter(row, clock())) continue
+          // S127 delta read item 3 + S129: one try per row covers the parked→pending
+          // resume update, the attempt (lease claim, reread, the catch-block write)
+          // and the park update; a throw from any of them never rejects the pass. It
+          // is alarmed ledger.attempt_threw with facts.stage = resume | attempt | park
+          // (counters stay as they were when it threw) and the row is skipped.
+          let stage: 'resume' | 'attempt' | 'park' = 'resume'
+          try {
+            if (row.state === 'parked') {
+              row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
+            }
+            let leasedByThisPass = false
+            stage = 'attempt'
+            const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
+            s.attempted += 1
+            if (out.state === 'settled') s.settled += 1
+            else if (out.state === 'refused') s.refused += 1
+            else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
+              clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
+              // S128 F3 + G1: park only a row no other sender holds mid-flight. This
+              // pass leased it → CAS on exactly the lease its attempt left (out is the
+              // persisted RETURNING row; an UNANSWERED attempt keeps its own lease);
+              // it did not → the lease must be free now.
+              const leaseWhere: Partial<Where> = leasedByThisPass ? { leasedUntilEq: out.leased_until ?? null } : { leaseFreeAt: iso(clock()) }
+              stage = 'park'
+              const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, ...leaseWhere }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
+              if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
+            }
+          } catch (error) {
+            reportFailure({ product: 'karute', kind: 'ledger.attempt_threw', business_id: businessId, ref: row.id, facts: { error: error instanceof Error ? error.message : String(error), stage } })
+            continue
+          }
         }
       }
     }
@@ -852,6 +896,10 @@ export interface CustomerLedgerUsage {
   noPackPending: number
   /** open uses (held+pending+parked) per JST day — the double-guard number */
   usesByDay: Map<string, number>
+  /** held/pending/parked WALK-IN uses per JST day — P4 skips that customer-day (H2) */
+  openWalkInByDay: Map<string, number>
+  /** PENDING walk-in uses per JST day — the only ones that stall P4's day marker (R-S127-2) */
+  pendingWalkInByDay: Map<string, number>
   /** refused-unresolved rows: SHOWN, never block */
   refused: IntentRow[]
 }
@@ -859,7 +907,7 @@ export interface CustomerLedgerUsage {
 export type LedgerUsageRead = { ok: true; byCustomer: Map<string, CustomerLedgerUsage> } | { ok: false }
 
 function emptyUsage(): CustomerLedgerUsage {
-  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), refused: [] }
+  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), openWalkInByDay: new Map(), pendingWalkInByDay: new Map(), refused: [] }
 }
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
 
@@ -872,6 +920,8 @@ export function usageFromRows(rows: IntentRow[]): Map<string, CustomerLedgerUsag
     if (!OPEN.includes(r.state)) continue
     if (r.kind === 'undo') { if (r.pack_id && r.state !== 'held') bump(u.pendingUndoByPack, r.pack_id); continue }
     bump(u.usesByDay, day(r.redeemed_on))
+    if (r.appointment_id === null) bump(u.openWalkInByDay, day(r.redeemed_on))
+    if (r.appointment_id === null && r.state === 'pending') bump(u.pendingWalkInByDay, day(r.redeemed_on))
     if (!r.pack_id) { u.noPackPending += 1; continue }
     bump(r.state === 'held' ? u.heldByPack : u.pendingByPack, r.pack_id)
   }
@@ -890,4 +940,144 @@ export async function readLedgerUsage(store: LedgerStore, businessId: string, cu
 export function displayRemaining(serverRemaining: number, u: CustomerLedgerUsage | undefined, packId: string): number {
   if (!u) return serverRemaining
   return Math.max(0, serverRemaining - (u.pendingByPack.get(packId) ?? 0) - (u.heldByPack.get(packId) ?? 0) + (u.pendingUndoByPack.get(packId) ?? 0))
+}
+
+// ── P3 (no-show / same-day cancel) — the intent BEFORE the status write ──────
+/** The 08:30 JST pass (vercel.json `30 23 * * *` UTC) is the daily pass that also retries parked rows (§ 5a). */
+export const DAILY_PASS_JST_HOUR = 8
+export function isDailyPass(now: Date): boolean {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', hour: 'numeric', hourCycle: 'h23' }).format(now)) === DAILY_PASS_JST_HOUR
+}
+
+export interface P3IntentInput {
+  businessId: string
+  ownerUserId: string | null
+  intentId?: string
+  source: 'no_show' | 'cancel'
+  customerId: string
+  appointmentId: string
+  /** the booking day (JST) — redeemed_on for P3 (R6) */
+  bookingDay: string
+  /** null = the pack read ERRORED (§ 6a): the attempt picks inside (§ 2) */
+  packId: string | null
+  createdBy: string | null
+}
+
+/** R1 for P3: insert-first, read back. THROWS on any ledger failure, so the
+ *  caller aborts the whole no-show / cancel before its status write (§ 3 R1). */
+export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: Date = new Date()): Promise<IntentRow> {
+  const id = i.intentId ?? globalThis.crypto.randomUUID()
+  const owned = (rows: IntentRow[]) => {
+    if (rows.some((r) => r.business_id !== i.businessId)) throw new Error('foreign_key')
+    return rows[0]
+  }
+  if (!owned(await store.getAllById(id))) {
+    const payload: Omit<CorePayload, 'pack_id'> = {
+      customer_id: i.customerId, redeemed_on: i.bookingDay, appointment_id: i.appointmentId,
+      karute_record_id: null, source: 'manual', created_by: i.createdBy ?? null, counts_as_visit: false,
+    }
+    await store.insertIgnore({
+      id, business_id: i.businessId, owner_user_id: i.ownerUserId, kind: 'use',
+      ledger_source: i.source, core_source: 'manual', customer_id: i.customerId,
+      pack_id: i.packId, pack_picked_by: 'system', appointment_id: i.appointmentId, appointment_resolved: true,
+      gesture_at: iso(now), gesture_at_client: null, clock_suspect: false,
+      redeemed_on: i.bookingDay, counts_as_visit: false, another_session: false,
+      frozen_payload: i.packId ? { ...payload, pack_id: i.packId } : null,
+      audit_payload: i.packId ? { burn_pack: true } : { burn_pack: true, draft_payload: payload },
+      state: 'pending', attempts: 0, held_at: null, held_against: null,
+    })
+  }
+  const row = owned(await store.getAllById(id))
+  if (!row) throw new Error('ledger read-back empty')
+  return row
+}
+
+/** The burn-dedup window: a day before the EARLIER of starts_at and created_at
+ *  (rationale at mutations.ts, the burnWindowSince note). ONE definition. */
+export function burnWindowSince(appt: { starts_at: string; created_at: string }): string {
+  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
+  return ymdInJst(new Date(anchor - 86_400_000))
+}
+
+/** R2 for a P3 intent, re-run inside EVERY attempt: the booking must still be
+ *  NO_SHOW, or CANCELLED with reason same-day-contact and burnPack (Liam 7/10
+ *  pairing, mutations.ts cancel path); anything else → withdrawn (system,
+ *  status_changed), never sent. Then the ONE-booking-ONE-burn history probe
+ *  (mutations.ts appointmentAlreadyBurned). A throw = pending (attemptIntent). */
+export function p3Precheck(synqed: Pick<SynqedClient, 'packs' | 'appointments'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    if (!row.appointment_id) return { withdraw: 'status_changed' }
+    const appt = (await synqed.appointments.get(row.appointment_id)) as
+      | { status?: string; status_reason?: string | null; starts_at: string; created_at: string } | null
+    const burnPack = row.audit_payload?.burn_pack === true
+    const still = appt?.status === 'NO_SHOW' ||
+      (appt?.status === 'CANCELLED' && appt.status_reason === CANCEL_REASON_SAME_DAY_CONTACT && burnPack)
+    if (!appt || !still) return { withdraw: 'status_changed' }
+    const history = await synqed.packs.listRecentRedemptions(burnWindowSince(appt))
+    if (history.some((r) => r.appointment_id === row.appointment_id)) return { refuse: 'already_redeemed' }
+    return { ok: true }
+  }
+}
+
+/** R3-pick for a SYSTEM-picked pack: the next FIFO pack with units, never one already tried. */
+export function systemRepick(synqed: Pick<SynqedClient, 'packs'>): (row: IntentRow, tried: Set<string>) => Promise<string | null> {
+  return async (row, tried) => {
+    const packs = await listCustomerPacksWithClient(synqed as SynqedClient, row.customer_id)
+    return pickRedemptionTarget(packs.filter((p) => !tried.has(p.id)))?.id ?? null
+  }
+}
+
+/** D5 (R-B6 ⑦, rationale at packs.core.ts redeemThroughLedger): a WALK-IN
+ *  recovery use is refused 'already_redeemed' when the customer already has a
+ *  use on that JST day. ONE function: recordUse's first attempt (packs.core) and
+ *  every settle-pass replay of a recovery row (R2). A throw = pending. */
+export function recoveryDayPrecheck(synqed: Pick<SynqedClient, 'packs'>, ledger?: Pick<LedgerStore, 'listForCustomers'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    if (row.ledger_source !== 'recovery' || row.appointment_id) return { ok: true }
+    // § 6b `uses`: an EARLIER open (held/pending/parked) ledger use for this
+    // customer on this JST day is a use, the same as a core row (two rows never
+    // refuse each other; an explicit another_session answer stands).
+    if (ledger && !row.another_session) {
+      const rows = await ledger.listForCustomers(row.business_id, [row.customer_id])
+      if (rows.some((r) => r.id !== row.id && r.kind === 'use' && r.customer_id === row.customer_id && OPEN.includes(r.state) &&
+        day(r.redeemed_on) === day(row.redeemed_on) && (!row.created_at || !r.created_at || r.created_at < row.created_at))) {
+        return { refuse: 'already_redeemed' }
+      }
+    }
+    const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
+    const rows = await synqed.packs.listRecentRedemptions(since)
+    return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
+      ? { refuse: 'already_redeemed' }
+      : { ok: true }
+  }
+}
+
+/** The facade route's tenancy proofs (customer-facade proveRedeemTenancy, the
+ *  route's own function) for a phone row. Those proofs fold a read ERROR and a
+ *  real mismatch into the same not_found, so ANY throw here = pending (never
+ *  withdrawn on a guess); the row parks + alarms on the daily pass. */
+export function phoneTenancyPrecheck(synqed: Pick<SynqedClient, 'packs' | 'appointments'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    const { proveRedeemTenancy } = await import('@/lib/app-api/customer-facade')
+    await proveRedeemTenancy(synqed as never, row.customer_id, row.pack_id ?? '', row.appointment_id)
+    return { ok: true }
+  }
+}
+
+/** The per-row attempt deps EVERY sender uses on a replay (R2: every pre-check
+ *  inside every attempt): a phone row re-proves tenancy first; then P3 → the
+ *  booking re-check + history probe, recovery → the D5 customer-day guard. */
+export function systemDepsFor(row: IntentRow, synqed: Pick<SynqedClient, 'packs' | 'appointments'>, ledger?: Pick<LedgerStore, 'listForCustomers'>): Pick<AttemptDeps, 'precheck' | 'repick'> {
+  const p3 = row.ledger_source === 'no_show' || row.ledger_source === 'cancel'
+  const checks: Array<(r: IntentRow) => Promise<Precheck>> = []
+  if (row.audit_payload?.origin === 'phone') checks.push(phoneTenancyPrecheck(synqed))
+  if (p3) checks.push(p3Precheck(synqed))
+  if (row.ledger_source === 'recovery') checks.push(recoveryDayPrecheck(synqed, ledger))
+  return {
+    ...(checks.length ? { precheck: async (r: IntentRow) => {
+      for (const c of checks) { const out = await c(r); if (!('ok' in out)) return out }
+      return { ok: true } as const
+    } } : {}),
+    ...(row.pack_picked_by === 'system' ? { repick: systemRepick(synqed) } : {}),
+  }
 }

@@ -37,6 +37,8 @@ import { orgSettingsWithClient } from '@/actions/org-settings'
 import {
   getCustomerLifecycleCheckedWithClient,
   listCustomerPacksWithClient,
+  applyLedgerToPacks,
+  usageLedgerFor,
 } from '@/lib/packs/store'
 import { buildCustomerProfileScreen } from '@/lib/customers/profile-screen'
 
@@ -115,7 +117,7 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
       memoryItemsRead,
       orgSettingsForPassport,
       lifecycleRead,
-      packs,
+      packsRead,
       aiPassport,
     ] = await Promise.all([
       getCustomerContactForBusiness(businessId, id),
@@ -140,8 +142,11 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
       orgSettingsPromise.then((s) =>
         (s?.ticket_packs_enabled ?? true)
           ? // Packs stay page-parity graceful (not on the must-throw list).
-            listCustomerPacksWithClient(synqed, id).catch(() => [])
-          : Promise.resolve([]),
+            // § 6b: the facade folds the business's ledger (never a cookie context)
+            listCustomerPacksWithClient(synqed, id)
+              .then(async (p) => applyLedgerToPacks(p, id, await usageLedgerFor(businessId)))
+              .catch(() => ({ packs: [], ledgerUnreadable: false }))
+          : Promise.resolve({ packs: [], ledgerUnreadable: false }),
       ),
       orgSettingsPromise.then((s) =>
         getCachedPassportForBusiness(id, s?.business_type ?? null),
@@ -165,7 +170,8 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
       aiPassport,
       orgSettingsForPassport,
       lifecycleRead,
-      packs,
+      packs: packsRead.packs,
+      ledgerUnreadable: packsRead.ledgerUnreadable,
     })
     return toCustomerProfileScreenDTO(customer, screen)
   } catch (err) {

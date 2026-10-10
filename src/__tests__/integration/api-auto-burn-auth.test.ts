@@ -11,6 +11,9 @@ jest.mock('@/lib/packs/auto-burn', () => ({
   autoBurnRecentDays: (...a: unknown[]) => autoBurnRecentDays(...(a as [])),
 }))
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn(() => ({})) }))
+// S126 W1: the route's settle pass (auto-burn/route.ts:50-56) built the REAL ledger
+// store from the env URL; with a non-local placeholder the fetch hung past jest's 5 s.
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 
 beforeEach(() => {
   jest.clearAllMocks()

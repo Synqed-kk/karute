@@ -53,6 +53,9 @@ interface TicketPackCardProps {
   /** Org-level 回数券 master switch. Off → only the lifecycle row renders
    *  (卒業/離客/口コミ is customer state, not a ticket feature). */
   ticketsEnabled?: boolean
+  /** § 6a: the ledger read failed — each counted pack shows 残数確認中 in place
+   *  of its number; the use button stays live (the server gate still runs). */
+  ledgerUnreadable?: boolean
 }
 
 export function TicketPackCard({
@@ -62,6 +65,7 @@ export function TicketPackCard({
   hasNextBooking = false,
   avgIntervalDays = null,
   ticketsEnabled = true,
+  ledgerUnreadable = false,
 }: TicketPackCardProps) {
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
@@ -101,6 +105,7 @@ export function TicketPackCard({
               key={p.id}
               pack={p}
               customerId={customerId}
+              ledgerUnreadable={ledgerUnreadable}
               hasNextBooking={hasNextBooking}
               avgIntervalDays={avgIntervalDays}
               hasNewerActive={packs.some(
@@ -182,9 +187,11 @@ function PackRow({
   otherRemaining = 0,
   hasNextBooking = false,
   avgIntervalDays = null,
+  ledgerUnreadable = false,
 }: {
   pack: PackWithUsage
   customerId: string
+  ledgerUnreadable?: boolean
   hasNewerActive?: boolean
   otherRemaining?: number
   hasNextBooking?: boolean
@@ -234,7 +241,9 @@ function PackRow({
     setBusy(false)
     setConfirming(false)
     if (res.ok) {
-      toast.success(t('redeemDone'))
+      // § 6a: pending = success (the mock's toast); held = 確認待ち, never an error
+      if (res.state === 'held') toast.info(t('redeemHeld'))
+      else toast.success(t('redeemDone'))
       router.refresh()
     } else {
       toast.error(t(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
@@ -272,7 +281,9 @@ function PackRow({
             ? t('closedLabel')
             : exhausted
               ? t('exhaustedLabel')
-              : t('remaining', { n: pack.remaining })}
+              : ledgerUnreadable && pack.kind === 'pack'
+                ? t('ledgerUnreadable')
+                : t('remaining', { n: pack.remaining })}
         </span>
       </div>
 

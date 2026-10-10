@@ -60,6 +60,10 @@ const APPT = {
   created_at: '2026-08-25T02:00:00.000Z',
   store_id: null,
 }
+// S126 R-S126-1 a: read-after-write — get() returns the booking merged with the
+// last update(), so the R2 re-check inside the first P3 attempt reads the status
+// write back. Reset per test (beforeEach); fixture only.
+let apptWritten: Record<string, unknown> = {}
 const fakeSynqed = {
   packs: {
     addRedemption: (...a: unknown[]) => addRedemption(...(a as [])),
@@ -71,8 +75,11 @@ const fakeSynqed = {
   },
   appointments: {
     list: async () => ({ appointments: [] }),
-    get: async () => APPT,
-    update: async () => APPT,
+    get: async () => ({ ...APPT, ...apptWritten }),
+    update: async (_id: string, patch: Record<string, unknown>) => {
+      apptWritten = { ...apptWritten, ...patch }
+      return { ...APPT, ...apptWritten }
+    },
   },
 }
 jest.mock('@/lib/synqed/client', () => ({
@@ -119,6 +126,7 @@ const sdkOptions = (n: number) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
+  apptWritten = {}
   addRedemption.mockResolvedValue({ id: 'red-1' })
 })
 
@@ -211,6 +219,7 @@ describe('booking-linked burn — the key reaches the SDK', () => {
       idempotencyKey: 'booking-action-key',
     }
     await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor, UNCLAMPED)
+    apptWritten = {} // fixture (S126): the booking restored between the two gestures, else the second is already_terminal
     await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor, UNCLAMPED)
     expect(addRedemption).toHaveBeenCalledTimes(2)
     expect(sdkOptions(1)?.idempotencyKey).toBe(sdkOptions(0)?.idempotencyKey)

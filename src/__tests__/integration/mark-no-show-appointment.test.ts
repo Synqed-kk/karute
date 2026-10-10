@@ -77,11 +77,29 @@ const apptGet = jest.fn(async () => ({
 const listRecentRedemptions = jest.fn(
   async (_since: string): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> => [],
 )
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
+// Read-after-write (S126 R-S126-2 a): each getSynqedClient() client's get returns
+// apptGet's booking merged with what THAT client's update wrote, so the R2
+// re-check inside the first P3 attempt reads the status write back. The spies
+// apptGet/apptUpdate still see every call; scoped per client (one per action).
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({
-    appointments: { update: apptUpdate, get: apptGet },
-    packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
-  })),
+  getSynqedClient: jest.fn(async () => {
+    let written: Record<string, unknown> = {}
+    return {
+      appointments: {
+        update: async (...a: unknown[]) => {
+          const out = await (apptUpdate as jest.Mock)(...a)
+          written = { ...written, ...(a[1] as Record<string, unknown>) }
+          return out
+        },
+        get: async (...a: unknown[]) => {
+          const b = await (apptGet as jest.Mock)(...a)
+          return b ? { ...b, ...written } : b
+        },
+      },
+      packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
+    }
+  }),
 }))
 
 const listCustomerPacks = jest.fn(async (_id: string): Promise<unknown[]> => [])
@@ -347,6 +365,9 @@ describe('markNoShowAppointment — audit', () => {
       store_id: 'store-1',
       burn_pack: true,
       burn_error: null,
+      // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+      intent_id: expect.any(String),
+      ledger_state: 'settled',
     })
   })
 
@@ -357,7 +378,8 @@ describe('markNoShowAppointment — audit', () => {
     addRedemption.mockResolvedValueOnce({ ok: false, error: 'burn_failed' })
     const lines = await auditLines(async () => {
       const res = await markNoShowAppointment('appt-1', { burnPack: true })
-      expect(res).toEqual({ success: true, burnError: 'burn_failed' })
+      // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+      expect(res).toEqual({ success: true })
     })
     expect(lines).toHaveLength(1)
     expect(lines[0].detail).toEqual({
@@ -365,7 +387,10 @@ describe('markNoShowAppointment — audit', () => {
       customer_id: 'cust-1',
       store_id: 'store-1',
       burn_pack: true,
-      burn_error: 'burn_failed',
+      // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+      burn_error: null,
+      intent_id: expect.any(String),
+      ledger_state: 'pending',
     })
   })
 
