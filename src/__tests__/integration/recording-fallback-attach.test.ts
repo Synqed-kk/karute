@@ -51,6 +51,8 @@ jest.mock('@/lib/karute/take-store', () => ({
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
   readTakeTranscript: async () => null,
   stampTakeTranscript: async () => {},
+  // S53 A4: the fallback's key pin (take-store's own is pinned in take-durability).
+  pinTakeFallback: async () => {},
   isStoppedTake: () => false,
   markTakeFinalized: (id: string, path: string) => markTakeFinalized(id, path),
   markTakeSecureError: (id: string, code: string) => markTakeSecureError(id, code),

@@ -73,6 +73,11 @@ import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
+// ⚖ S114 (F-CT-7): this door pays for a transcription (runMeteredTranscription,
+// door 'discard'), and the 330 s lease (TRANSCRIPT_LEASE_TTL_MS) assumes every
+// paying route stops by 300 s — the same pin as /api/ai/transcribe,
+// /api/app/v1/ai/transcribe and /api/jobs/process.
+export const maxDuration = 300
 
 export const GET = facadeHandler('recordings.discards.transcript', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.manage')

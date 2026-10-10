@@ -353,6 +353,19 @@ export function findAuditedCoresWeakenings(mainV, headV) {
   return weakenings
 }
 
+/** file::call → Set of symbols, unioned across every entry with that key
+ *  (insertion order = first appearance, so unique-key lists iterate as before). */
+function groupAllowlistSymbols(list) {
+  const byId = new Map()
+  for (const e of list) {
+    const id = `${e.file}::${e.call}`
+    const symbols = byId.get(id) ?? new Set()
+    for (const symbol of e.symbols ?? []) symbols.add(symbol)
+    byId.set(id, symbols)
+  }
+  return byId
+}
+
 export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
   if (bootstrapping) {
     console.log(
@@ -369,11 +382,16 @@ export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
     ['RAW_SUPABASE_WRITE_ALLOWLIST', mainV.rawAllowlist, headV.rawAllowlist],
   ]
   for (const [listName, mainList, headList] of allowlistSources) {
-    const mainById = new Map(mainList.map((e) => [`${e.file}::${e.call}`, e]))
-    for (const entry of headList) {
-      const id = `${entry.file}::${entry.call}`
-      const mainEntry = mainById.get(id)
-      if (!mainEntry) {
+    // Symbols are COLLECTED across every entry sharing a file::call key, on
+    // BOTH sides (S94 fold 2): a plain `new Map(list.map(...))` kept only the
+    // LAST entry per key, so a policy legitimately split into several entries
+    // for one file::call (6ea587a76: three transcript-memo.ts ::
+    // storage.recordings.upload entries) read the earlier entries' symbols as
+    // "additions" even when HEAD == main. Unique keys behave exactly as before.
+    const mainById = groupAllowlistSymbols(mainList)
+    for (const [id, headSymbols] of groupAllowlistSymbols(headList)) {
+      const mainSymbols = mainById.get(id)
+      if (!mainSymbols) {
         // Key carries the LIST and the FILE too (blind-round find,
         // 2026-07-28): a bare call string collided with action names, and
         // omitting the file let one line cover the same call added to any
@@ -388,8 +406,7 @@ export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
       // grants amnesty to a NEW site the entry never covered before — the
       // same "newly-legalized silent write" class as a brand-new entry, just
       // scoped one level deeper.
-      const mainSymbols = new Set(mainEntry.symbols ?? [])
-      for (const symbol of entry.symbols ?? []) {
+      for (const symbol of headSymbols) {
         if (!mainSymbols.has(symbol)) {
           weakenings.push({
             key: `${listName}:${id}#${symbol}`,

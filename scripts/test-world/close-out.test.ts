@@ -102,6 +102,16 @@ async function main() {
   const o = await run(true, fake(DEV_SALON_BUSINESS_ID, owned.id))
   const n0 = want.filter((w) => w.input.status === owned.want).length
   assert.deepEqual([o.code, byId(o.calls), o.lines.filter((l) => l.startsWith('FAILED: ') || l.startsWith(`${owned.want}: `))], [1, byId(want.filter((w) => w.id !== owned.id)), [`FAILED: appointments ${owned.key}: booking ${owned.id}: busy`, `${owned.want}: planned ${n0} · written ${n0 - 1}`]], '(o) a rejected write: a FAILED line, planned not written, exit 1, every other row still written')
+  // saturation stop (fill.ts's): the first write that reports EMAXCONN stops the loop; no further write is attempted
+  const full = fake()
+  let tries = 0
+  full.core.appointments.update = (async () => { tries++; throw Object.assign(new Error('remaining connection slots are reserved'), { code: 'EMAXCONN' }) }) as never
+  const sat = await run(true, full)
+  assert.deepEqual([sat.code, tries, sat.calls.length, sat.lines.filter((l) => l.startsWith('STOP: ')).length, sat.lines.some((l) => l.startsWith('FAILED: '))], [1, 1, 0, 1, false], '(s) EMAXCONN on a write: one STOP line, 1 write attempted of ' + want.length + ', exit 1')
+  assert.match(sat.lines.find((l) => l.startsWith('STOP: '))!, /^STOP: connection limit/, '(s) the STOP line names the connection limit')
+  // a stop on the FIRST write still reports the full eligible set as planned (counted before any write), 0 written
+  assert.ok(sat.lines.find((l) => l.startsWith('STOP: '))!.endsWith(`no further writes (planned ${want.length} · written 0 · left unwritten ${want.length})`), '(s) the STOP line: planned = every eligible booking, written 0, all left unwritten')
+  assert.deepEqual(head(sat.lines).filter((l) => !l.startsWith('STOP: ')), table('apply', false), '(s) a stopped run: the table still shows planned = the full eligible count per status, written 0')
 
   const wrong = fake('00000000-0000-0000-0000-000000000000')
   await assert.rejects(closeOut(wrong.core, STORE, m, NOW, true, () => {}), /not the Dev Salon/, '(g) another business: refused (throws)')
