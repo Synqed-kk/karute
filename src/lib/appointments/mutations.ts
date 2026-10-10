@@ -360,6 +360,16 @@ export const P3_LEDGER_SAVE_ERROR = '保存できませんでした。もう一�
 
 type P3Intent = { store: LedgerStore; row: IntentRow }
 
+/** The P3 pack pick before the intent (design v4.2 § 6a, ruling R-S126-1 f):
+ *  a SUCCESSFUL read with no burnable pack → null (today's no_burnable_pack —
+ *  staff can act, nothing written); a read ERROR → { id: null }: the intent is
+ *  written with pack_id null and the attempt picks inside (§ 2, systemRepick),
+ *  a pick error there = pending — never 「no burnable pack」. */
+async function pickP3Target(synqed: MutationClient, customerId: string): Promise<{ id: string | null } | null> {
+  const packs = await listCustomerPacksWithClient(synqed, customerId).catch(() => null)
+  return packs ? pickRedemptionTarget(packs) : { id: null }
+}
+
 /**
  * The ONE ticket burn of the no-show and same-day-cancel paths, through the
  * use ledger (design v4.2 § 3 R1/R2, R-S125-9). Step 1 runs BEFORE the status
@@ -377,7 +387,7 @@ async function insertP3IntentOrThrow(
   actor: BookingActor,
   appt: { customer_id: string; starts_at: string },
   appointmentId: string,
-  target: { id: string },
+  target: { id: string | null },
   source: 'no_show' | 'cancel',
 ): Promise<P3Intent> {
   try {
@@ -460,17 +470,9 @@ export async function cancelAppointmentCore(
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
     }
 
-    let burnTarget: { id: string } | null = null
+    let burnTarget: { id: string | null } | null = null
     if (burnPack) {
-      // catch→[] mirrors the web listCustomerPacks wrapper (Greptile P1 on
-      // #566): a failed pack read reads as "no burnable pack" — the sheet
-      // gets its documented `code` discriminator, the cancel is blocked, and
-      // the staff can retry; a throw here would strip the code.
-      const target = pickRedemptionTarget(
-        await listCustomerPacksWithClient(synqed, appt.customer_id).catch(
-          () => [],
-        ),
-      )
+      const target = await pickP3Target(synqed, appt.customer_id)
       if (!target) {
         return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
       }
@@ -642,12 +644,8 @@ export async function markNoShowAppointmentCore(
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
     }
 
-    // catch→[] — same web-parity contract as the cancel path above.
-    const target = input.burnPack
-      ? pickRedemptionTarget(
-          await listCustomerPacksWithClient(synqed, appt.customer_id).catch(() => []),
-        )
-      : null
+    // Same pick contract as the cancel path above (pickP3Target).
+    const target = input.burnPack ? await pickP3Target(synqed, appt.customer_id) : null
     if (input.burnPack && !target) {
       return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
     }

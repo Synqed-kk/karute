@@ -23,8 +23,10 @@ jest.mock('@/lib/packs/use-ledger', () => ({
 }))
 jest.mock('@/lib/packs/store', () => ({
   ...jest.requireActual('@/lib/packs/store'),
-  listCustomerPacksWithClient: async () => [{ id: 'pack-1', kind: 'pack', status: 'active', remaining: 3, purchased_at: '2026-01-01' }],
+  listCustomerPacksWithClient: () => mockListPacks(),
 }))
+const PACKS = [{ id: 'pack-1', kind: 'pack', status: 'active', remaining: 3, purchased_at: '2026-01-01' }]
+const mockListPacks = jest.fn(async (): Promise<unknown[]> => PACKS)
 
 import { cancelAppointmentCore, markNoShowAppointmentCore, P3_LEDGER_SAVE_ERROR } from '@/lib/appointments/mutations'
 import { settlePending, type IntentRow } from '@/lib/packs/use-ledger'
@@ -39,9 +41,9 @@ function fakeCore() {
     id: 'appt-1', customer_id: 'cust-1', store_id: null, status: 'SCHEDULED', status_reason: null,
     starts_at: '2026-10-09T03:00:00.000Z', created_at: '2026-10-01T00:00:00.000Z',
   }
-  const addRedemption = jest.fn(async (_i: unknown): Promise<unknown> => ({ id: 'core-1' }))
+  const addRedemption = jest.fn(async (): Promise<unknown> => ({ id: 'core-1' }))
   const update = jest.fn(async (_id: string, patch: Record<string, unknown>) => { Object.assign(booking, patch); return { ...booking } })
-  const get = jest.fn(async (_id: string): Promise<unknown> => ({ ...booking }))
+  const get = jest.fn(async (): Promise<unknown> => ({ ...booking }))
   const synqed = {
     appointments: { get, update },
     packs: { addRedemption, listRecentRedemptions: jest.fn(async () => []), listPacks: jest.fn(async () => []), listRedemptions: jest.fn(async () => []) },
@@ -55,7 +57,7 @@ const LATER = () => new Date(Date.now() + 10 * 60_000) // past the unanswered at
 const settle = (store: Store, synqed: never) => settlePending({ store, clientFor: () => synqed, rotate: (ids) => [...ids], dailyPass: false, now: LATER })
 const genericFailure = () => { throw Object.assign(new Error('socket hang up'), { name: 'TypeError' }) }
 
-beforeEach(() => { mockAudit.mockClear(); mockLedger = { store: memLedgerStore() } })
+beforeEach(() => { mockAudit.mockClear(); mockListPacks.mockReset().mockImplementation(async () => PACKS); mockLedger = { store: memLedgerStore() } })
 
 describe('7 (P3) — the ledger insert fails → the loud error, NO status write', () => {
   it('no-show: insert throws → 保存できませんでした…, appointments.update never called', async () => {
@@ -123,5 +125,34 @@ describe('A26 — a generic core failure on the first P3 attempt', () => {
     const d = lastDetail()
     expect(d).toMatchObject({ burn_pack: true, burn_error: null, ledger_state: 'pending', intent_id: expect.any(String) })
     expect(await rowsOf(mockLedger.store as Store, d.intent_id as string)).toMatchObject({ state: 'pending', ledger_source: 'no_show', attempts: 1 })
+  })
+})
+
+describe('§ 6a (R-S126-1 f) — a pack-read ERROR = pending, never 「no burnable pack」', () => {
+  it('no-show: the pack read throws → status written, use pending with pack_id null, no amber line, nothing sent; a later settle picks and settles', async () => {
+    const c = fakeCore()
+    mockListPacks.mockImplementation(async () => { throw new Error('core down') })
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
+    expect(res).toEqual({ success: true }) // no code:'no_burnable_pack', no burnError
+    expect(c.update).toHaveBeenCalledTimes(1)
+    expect(c.booking.status).toBe('NO_SHOW')
+    expect(c.addRedemption).not.toHaveBeenCalled()
+    const d = lastDetail()
+    expect(d).toMatchObject({ burn_pack: true, burn_error: null, ledger_state: 'pending' })
+    const id = d.intent_id as string
+    expect(await rowsOf(mockLedger.store as Store, id)).toMatchObject({ state: 'pending', pack_id: null, frozen_payload: null, last_error_code: 'precheck_error' })
+    mockListPacks.mockImplementation(async () => PACKS) // the read works again
+    await settle(mockLedger.store as Store, c.synqed)
+    expect(await rowsOf(mockLedger.store as Store, id)).toMatchObject({ state: 'settled', pack_id: 'pack-1', settled_core_id: 'core-1' })
+    expect(c.addRedemption).toHaveBeenCalledTimes(1)
+    expect((c.addRedemption.mock.calls as unknown[][])[0][0]).toMatchObject({ pack_id: 'pack-1', customer_id: 'cust-1', redeemed_on: '2026-10-09', appointment_id: 'appt-1', counts_as_visit: false })
+    expect(JSON.stringify(c.addRedemption.mock.calls[0])).toContain(id) // sent under the intent id
+  })
+  it('a SUCCESSFUL read with no burnable pack keeps today\'s answer: no_burnable_pack, no row, no write', async () => {
+    const c = fakeCore()
+    mockListPacks.mockImplementation(async () => [])
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
+    expect(res).toEqual({ error: expect.any(String), code: 'no_burnable_pack' })
+    expect(c.update).not.toHaveBeenCalled(); expect(c.addRedemption).not.toHaveBeenCalled()
   })
 })

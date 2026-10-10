@@ -556,6 +556,16 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       })) ?? (await reread(store, cur))
     }
     if ('refuse' in pre) return refuse(store, cur, pre.refuse, now)
+    if (!cur.pack_id && !cur.frozen_payload && cur.pack_picked_by === 'system' && deps.repick) {
+      // § 2: pack_id null until the first successful pick (P3 after a pack-read
+      // ERROR). A pick error throws → pending (§ 6a); no pack with units → no_units.
+      const picked = await deps.repick(cur, new Set())
+      if (!picked) return refuse(store, cur, 'no_units', now)
+      const draft = cur.audit_payload?.draft_payload as Omit<CorePayload, 'pack_id'> | undefined
+      cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
+        pack_id: picked, frozen_payload: draft ? { ...draft, pack_id: picked } : null,
+      })) ?? cur
+    }
     const tried = new Set<string>()
     for (;;) {
       const p = cur.repick_payload ?? cur.frozen_payload
@@ -916,7 +926,8 @@ export interface P3IntentInput {
   appointmentId: string
   /** the booking day (JST) — redeemed_on for P3 (R6) */
   bookingDay: string
-  packId: string
+  /** null = the pack read ERRORED (§ 6a): the attempt picks inside (§ 2) */
+  packId: string | null
   createdBy: string | null
 }
 
@@ -929,8 +940,8 @@ export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: 
     return rows[0]
   }
   if (!owned(await store.getAllById(id))) {
-    const payload: CorePayload = {
-      pack_id: i.packId, customer_id: i.customerId, redeemed_on: i.bookingDay, appointment_id: i.appointmentId,
+    const payload: Omit<CorePayload, 'pack_id'> = {
+      customer_id: i.customerId, redeemed_on: i.bookingDay, appointment_id: i.appointmentId,
       karute_record_id: null, source: 'manual', created_by: i.createdBy ?? '', counts_as_visit: false,
     }
     await store.insertIgnore({
@@ -939,7 +950,8 @@ export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: 
       pack_id: i.packId, pack_picked_by: 'system', appointment_id: i.appointmentId, appointment_resolved: true,
       gesture_at: iso(now), gesture_at_client: null, clock_suspect: false,
       redeemed_on: i.bookingDay, counts_as_visit: false, another_session: false,
-      frozen_payload: payload, audit_payload: { burn_pack: true },
+      frozen_payload: i.packId ? { ...payload, pack_id: i.packId } : null,
+      audit_payload: i.packId ? { burn_pack: true } : { burn_pack: true, draft_payload: payload },
       state: 'pending', attempts: 0, held_at: null, held_against: null,
     })
   }
