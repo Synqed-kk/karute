@@ -477,11 +477,15 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     }
 
     // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
+    // QUEUE-S94 item 1: a planned karute whose booking is not COMPLETED in core (realism's future cancel, a NO_SHOW, a skipped
+    // booking) is said once and left out of the planned karutes, so planned = what fill can write
+    const unwritable = new Set<string>()
     const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
     const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
     await pool(p.karutes, async (k) => {
       const aid = done(k.key)
-      if (!aid || karuted.has(aid)) return
+      if (!aid) return void (unwritable.add(k.key), log(`karute skipped: booking ${k.key} is ${apptRow.get(k.key)?.status ?? 'absent'} in core`))
+      if (karuted.has(aid)) return
       await write('karuteRecords', k.key, () => core.karuteRecords.create({
         customer_id: custId.get(k.member)!, store_id: storeId, staff_id: staffId.get(k.staff)!, appointment_id: aid, status: 'APPROVED',
         ai_summary: k.entries.map((l) => `【${l.label}】${l.text}`).join('\n'), service: k.menu, duration_minutes: k.duration, session_date: k.date,
@@ -511,7 +515,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     // The read-back is a diagnostic: its failure never changes the exit code.
     if (o.readBack) {
       try {
-        (await withRetry(() => readBack(core, storeId, p, lim.concurrency), false, o.wait)).forEach((r) => log(r.join(' | ')))
+        (await withRetry(() => readBack(core, storeId, { ...p, karutes: p.karutes.filter((k) => !unwritable.has(k.key)) }, lim.concurrency), false, o.wait)).forEach((r) => log(r.join(' | ')))
       } catch (e) {
         log(e instanceof Saturated ? SATURATED_LINE : `read-back failed (writes unaffected): ${message(e)}`)
       }
