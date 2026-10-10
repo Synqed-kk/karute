@@ -29,10 +29,8 @@ import {
   isTerminalStatus,
   NO_SHOW_REASON_NO_CONTACT,
 } from '@/lib/appointments/status'
-import {
-  addRedemptionWithClient,
-  listCustomerPacksWithClient,
-} from '@/lib/packs/store'
+import { listCustomerPacksWithClient } from '@/lib/packs/store'
+import { attemptIntent, burnWindowSince, defaultLedgerStore, insertP3Intent, systemDepsFor, type IntentRow, type LedgerStore } from '@/lib/packs/use-ledger'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import type { WeekdayKey } from '@/lib/operating-hours'
@@ -328,14 +326,17 @@ export async function createAppointmentCore(
   }
 }
 
-/** Anchor for the burn-dedup window: a day before the EARLIER of starts_at
- *  and created_at (see executeGuardedBurn's doc comment for why) — shared by
- *  the burn guard and deleteAppointmentCore's pre-delete redemption check so
- *  the two windows can never drift apart. */
-function burnWindowSince(appt: { starts_at: string; created_at: string }): string {
-  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
-  return ymdInJst(new Date(anchor - 86_400_000))
-}
+/* burnWindowSince — the burn-dedup window's anchor: a day before the EARLIER
+ * of starts_at and created_at — lives in the use ledger now (one definition,
+ * read by the P3 attempt's history probe AND deleteAppointmentCore's
+ * pre-delete check, so the two windows can never drift apart). Why both
+ * anchors (Fable fix-round finding, 2026-07-27): starts_at is mutable; burn →
+ * restore → reschedule-forward → re-burn would push a starts_at-only window
+ * past an earlier real redemption and double-burn. created_at never changes,
+ * so anchoring to it whenever it's earlier can only WIDEN the window — the
+ * match is exact on appointment_id, so a wider window catches MORE true burns,
+ * never a false positive. Ceiling (council item): a booking BACKDATED before
+ * its own creation date and then cycled could still evade this check. */
 
 /** Tri-state "does this booking already hold a live redemption?" — the ONE
  *  burn-history probe, read by the guarded burn, the pre-delete check, and the
@@ -353,51 +354,60 @@ async function appointmentAlreadyBurned(
     .catch(() => 'unknown' as const)
 }
 
+/** S125 R1 (P3): the action's loud, actionable failure when the use ledger
+ *  cannot take the intent — returned BEFORE any status write (nothing half done). */
+export const P3_LEDGER_SAVE_ERROR = '保存できませんでした。もう一度お試しください'
+
+type P3Intent = { store: LedgerStore; row: IntentRow }
+
 /**
- * The ONE guarded ticket burn — shared by the no-show and the
- * same-day-cancel paths so the money rules can never diverge:
- *   • one appointment burns ONE ticket EVER (the terminal → restore →
- *     re-terminal cycle must not double-burn; the burn-history read is
- *     tri-state and an ERRORED read fails CLOSED — skip + tell staff,
- *     never risk a second charge because the check couldn't run);
- *   • counts_as_visit: false — the customer did not visit;
- *   • always called AFTER the status update (a failed burn can never
- *     strand a spent ticket on a still-active booking).
- * Returns null on success, else the burnError code for the partial-outcome
- * toast (the terminal status IS recorded either way).
+ * The ONE ticket burn of the no-show and same-day-cancel paths, through the
+ * use ledger (design v4.2 § 3 R1/R2, R-S125-9). Step 1 runs BEFORE the status
+ * write: the intent row (booking day, booked, system-picked, counts_as_visit
+ * false, burn_pack true) — a ledger failure THROWS the loud error and the
+ * action stops with nothing written. Step 2 (attemptP3) runs AFTER the status
+ * write: R2 inside the attempt re-reads the booking (still NO_SHOW, or
+ * CANCELLED same-day-contact + burnPack, else withdrawn 'status_changed'), runs
+ * the one-booking-one-burn history probe (burnWindowSince window), and on
+ * no_units re-picks the next FIFO pack before refusing (R3-pick).
+ * Key: the facade's client Idempotency-Key when there is one (one per
+ * gesture); the web action has none, so the intent id is minted here.
  */
-async function executeGuardedBurn(
-  synqed: MutationClient,
-  appt: { customer_id: string; starts_at: string; created_at: string },
+async function insertP3IntentOrThrow(
+  actor: BookingActor,
+  appt: { customer_id: string; starts_at: string },
   appointmentId: string,
   target: { id: string },
-  idempotencyKey?: string,
-): Promise<'below_zero' | 'burn_failed' | 'already_burned' | null> {
-  // The window starts a day before the EARLIER of starts_at and created_at —
-  // not starts_at alone (Fable fix-round finding, 2026-07-27). starts_at is
-  // mutable: burn → restore → reschedule-forward → re-burn would push the
-  // window past an earlier real redemption and double-burn. created_at never
-  // changes, so anchoring to it whenever it's earlier can only WIDEN the
-  // window — the match below is exact on appointment_id, so a wider window
-  // catches MORE true burns, never a false positive.
-  // Ceiling (out of accident scope, council item): a booking BACKDATED before
-  // its own creation date and then cycled could still evade this check —
-  // adversarial-staff territory, not a bug in the normal reschedule flow.
-  const alreadyBurned = await appointmentAlreadyBurned(synqed, appt, appointmentId)
-  if (alreadyBurned === 'unknown') return 'burn_failed'
-  if (alreadyBurned) return 'already_burned'
-  const burn = await addRedemptionWithClient(synqed, {
-    packId: target.id,
-    customerId: appt.customer_id,
-    redeemedOn: ymdInJst(new Date(appt.starts_at)),
-    appointmentId,
-    source: 'manual',
-    countsAsVisit: false,
-    idempotencyKey,
-  })
-  if (!burn.ok) return burn.error === 'below_zero' ? 'below_zero' : 'burn_failed'
-  return null
+  source: 'no_show' | 'cancel',
+): Promise<P3Intent> {
+  try {
+    if (!actor.businessId) throw new Error('no business for the ledger')
+    const store = await defaultLedgerStore()
+    const row = await insertP3Intent(store, {
+      businessId: actor.businessId, ownerUserId: actor.actorId, intentId: actor.idempotencyKey, source,
+      customerId: appt.customer_id, appointmentId, bookingDay: ymdInJst(new Date(appt.starts_at)),
+      packId: target.id, createdBy: null,
+    })
+    return { store, row }
+  } catch {
+    throw new Error(P3_LEDGER_SAVE_ERROR)
+  }
 }
+
+/** The attempt after the status write, and the EXACT burnError map:
+ *  settled / pending / withdrawn → null (no amber line for a generic failure —
+ *  it is pending, ⚖ 10/3, design § 6a) · refused no_units → 'below_zero' ·
+ *  refused already_redeemed → 'already_burned' · any other named final refusal
+ *  → 'burn_failed' (staff can act). A throw leaves the written row pending. */
+async function attemptP3(synqed: MutationClient, p: P3Intent): Promise<{ burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null; row: IntentRow }> {
+  const core = synqed as unknown as Parameters<typeof systemDepsFor>[1]
+  const row = await attemptIntent({ store: p.store, synqed: core, ...systemDepsFor(p.row, core) }, p.row).catch(() => p.row)
+  if (row.state !== 'refused') return { burnError: null, row }
+  return { burnError: row.refused_code === 'no_units' ? 'below_zero' : row.refused_code === 'already_redeemed' ? 'already_burned' : 'burn_failed', row }
+}
+
+/** A26: the audit row carries the intent id + its ledger state. */
+const ledgerDetail = (row: IntentRow | null): Record<string, string> => (row ? { intent_id: row.id, ledger_state: row.state } : {})
 
 /**
  * Cancels a booking (status → CANCELLED). Burns NO tickets unless the staff
@@ -472,6 +482,10 @@ export async function cancelAppointmentCore(
       ...(input?.reason ? { status_reason: input.reason } : {}),
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
     }
+    // R1 (P3): the ledger intent BEFORE the status write; a throw = the loud error, nothing written.
+    const intent = burnPack && burnTarget
+      ? await insertP3IntentOrThrow(actor, appt as typeof appt & { customer_id: string }, appointmentId, burnTarget, 'cancel')
+      : null
     // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
     // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
     // input verbatim, so the field flows through at runtime.
@@ -481,11 +495,11 @@ export async function cancelAppointmentCore(
     )
 
     let burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null = null
-    if (burnPack && burnTarget) {
-      // Same ordering contract as the no-show burn: status FIRST, burn LAST —
-      // a failed burn can never strand a spent ticket, and the partial
-      // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      burnError = await executeGuardedBurn(synqed, appt as typeof appt & { customer_id: string }, appointmentId, burnTarget, actor.idempotencyKey)
+    let ledgerRow: IntentRow | null = null
+    if (intent) {
+      // Same ordering contract as the no-show burn: status FIRST, the core
+      // call LAST — a failed burn can never strand a spent ticket.
+      ({ burnError, row: ledgerRow } = await attemptP3(synqed, intent))
     }
     // 自動消化 parity (packet 11 fix round, blind-round F4) — the SAME rider the
     // no-show path got at L1#6, and the settings copy is why it matters: it
@@ -529,6 +543,7 @@ export async function cancelAppointmentCore(
         reason: input?.reason ?? null,
         burn_pack: burnPack,
         burn_error: burnError,
+        ...ledgerDetail(ledgerRow),
       },
       requestId: actor.requestId,
       source: actor.source,
@@ -644,15 +659,18 @@ export async function markNoShowAppointmentCore(
       status_reason: NO_SHOW_REASON_NO_CONTACT,
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
     }
+    // R1 (P3): the ledger intent BEFORE the status write; a throw = the loud error, nothing written.
+    const intent = target
+      ? await insertP3IntentOrThrow(actor, appt as typeof appt & { customer_id: string }, appointmentId, target, 'no_show')
+      : null
     // SDK-skew cast — see cancelAppointmentCore.
     await synqed.appointments.update(
       appointmentId,
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
 
-    let burnError = target
-      ? await executeGuardedBurn(synqed, appt as typeof appt & { customer_id: string }, appointmentId, target, actor.idempotencyKey)
-      : null
+    const attempted = intent ? await attemptP3(synqed, intent) : null
+    let burnError = attempted?.burnError ?? null
     // 自動消化 correction (packet 11 rider, L1#6). With auto mode on, a booking
     // the cron already burned can still be corrected to NO_SHOW afterwards. The
     // burn path is already safe (guard 1 → 'already_burned', never a second
@@ -689,6 +707,7 @@ export async function markNoShowAppointmentCore(
         store_id: appt.store_id,
         burn_pack: input.burnPack,
         burn_error: burnError,
+        ...ledgerDetail(attempted?.row ?? null),
       },
       requestId: actor.requestId,
       source: actor.source,
@@ -1014,7 +1033,7 @@ export async function deleteAppointmentCore(
     // history keys on appointment_id, so a delete-then-recreate would mint a
     // NEW id and sidestep it entirely — orphaning the burned redemption's
     // evidence and letting the recreated booking burn a second ticket. Same
-    // tri-state fail-CLOSED rule as executeGuardedBurn: an errored read must
+    // tri-state fail-CLOSED rule the P3 history probe has: an errored read must
     // never be silently treated as "never burned" here either. Nothing has
     // mutated yet, so both refusals below carry no audit row. (A deliberate
     // relax of this — e.g. an explicit "delete anyway" override — is a

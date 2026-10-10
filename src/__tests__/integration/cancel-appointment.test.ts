@@ -26,6 +26,7 @@ jest.mock('@synqed-kk/client', () => {
   return { SynqedError }
 })
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({ operating_hours: null })),
 }))
@@ -354,7 +355,8 @@ describe('cancelAppointment — burn on same-day-contact', () => {
     listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
     const res = await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact', burnPack: true })
     expect(addRedemption).not.toHaveBeenCalled()
-    expect(res).toEqual({ success: true, burnError: 'burn_failed' })
+    // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+    expect(res).toEqual({ success: true })
   })
 
   // RETIRED (Fable fix-round FIX 3, 2026-07-27): "plain cancel never reads the
@@ -652,16 +654,20 @@ describe('cancelAppointment — audit', () => {
     addRedemption.mockResolvedValueOnce({ ok: false, error: 'burn_failed' })
     const lines = await auditLines(async () => {
       const res = await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact', burnPack: true })
-      expect(res).toEqual({ success: true, burnError: 'burn_failed' })
+      // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
+      expect(res).toEqual({ success: true })
     })
     expect(lines).toHaveLength(1)
+    // S125 R-S125-9: P3 failure = pending (design § 6a, audit row A26, ⚖ 10/3)
     expect(lines[0].detail).toEqual({
       appointment_id: 'appt-1',
       customer_id: 'cust-1',
       store_id: 'store-1',
       reason: 'cancel-same-day-contact',
       burn_pack: true,
-      burn_error: 'burn_failed',
+      burn_error: null,
+      intent_id: expect.any(String),
+      ledger_state: 'pending',
     })
   })
 })

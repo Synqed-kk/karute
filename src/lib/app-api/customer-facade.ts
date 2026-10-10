@@ -83,6 +83,31 @@ export async function proveAppointmentForCustomer(
   }
 }
 
+/** The redeem route's target proofs (route.ts: the pack is THIS customer's; an
+ *  explicit appointment is THIS customer's). ONE definition — the route calls it
+ *  at the gesture and the use ledger's settle pass re-runs it via
+ *  proveRedeemTenancy inside every replay of a phone intent (design v4.2 R2). */
+export async function proveRedeemTargets(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'packs' | 'appointments'>,
+  customerId: string,
+  packId: string,
+  appointmentId: string | null | undefined,
+): Promise<void> {
+  await provePackForCustomer(synqed, customerId, packId)
+  if (typeof appointmentId === 'string') await proveAppointmentForCustomer(synqed, customerId, appointmentId)
+}
+
+/** All three redeem tenancy proofs (customer, then the targets) — the settle pass's R2 re-check. */
+export async function proveRedeemTenancy(
+  synqed: Parameters<typeof proveCustomerInBusiness>[0] & Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'packs' | 'appointments'>,
+  customerId: string,
+  packId: string,
+  appointmentId: string | null | undefined,
+): Promise<void> {
+  await proveCustomerInBusiness(synqed, customerId)
+  await proveRedeemTargets(synqed, customerId, packId, appointmentId)
+}
+
 /** Prove a photo belongs to this customer (whose tenancy is proven separately) →
  *  a clean 404 on a cross-tenant or wrong-customer photoId BEFORE any delete.
  *  Same shape as provePackForCustomer above: listPhotos IS the ownership

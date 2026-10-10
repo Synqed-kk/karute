@@ -14,7 +14,7 @@
 import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, listCustomerPacksWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { CANCEL_REASON_SAME_DAY_CONTACT } from '@/lib/appointments/status'
-import { ymdInJst } from '@/lib/date/jst'
+import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -638,6 +638,8 @@ export interface RecordUseInput {
   recovery?: boolean
   anotherSession?: boolean
   karuteRecordId?: string | null
+  /** 'phone' = the facade route (audit_payload.origin); absent = the web action. */
+  origin?: 'phone'
 }
 export type UseState = 'settled' | 'pending' | 'held' | 'refused' | 'withdrawn'
 export interface RecordUseResult {
@@ -742,6 +744,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
         // written once: now when the booking is known, else on the first successful lookup
         frozen_payload: resolved ? payload : null,
         audit_payload: {
+          ...(input.origin ? { origin: input.origin } : {}),
           ...(g.gestureAtClientRaw ? { gesture_at_client: g.gestureAtClientRaw } : {}),
           ...(resolved ? {} : { draft_payload: payload }),
         },
@@ -945,6 +948,13 @@ export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: 
   return row
 }
 
+/** The burn-dedup window: a day before the EARLIER of starts_at and created_at
+ *  (rationale at mutations.ts, the burnWindowSince note). ONE definition. */
+export function burnWindowSince(appt: { starts_at: string; created_at: string }): string {
+  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
+  return ymdInJst(new Date(anchor - 86_400_000))
+}
+
 /** R2 for a P3 intent, re-run inside EVERY attempt: the booking must still be
  *  NO_SHOW, or CANCELLED with reason same-day-contact and burnPack (Liam 7/10
  *  pairing, mutations.ts cancel path); anything else → withdrawn (system,
@@ -959,8 +969,7 @@ export function p3Precheck(synqed: Pick<SynqedClient, 'packs' | 'appointments'>)
     const still = appt?.status === 'NO_SHOW' ||
       (appt?.status === 'CANCELLED' && appt.status_reason === CANCEL_REASON_SAME_DAY_CONTACT && burnPack)
     if (!appt || !still) return { withdraw: 'status_changed' }
-    const anchor = Math.min(Date.parse(appt.starts_at), Date.parse(appt.created_at))
-    const history = await synqed.packs.listRecentRedemptions(ymdInJst(new Date(anchor - 86_400_000)))
+    const history = await synqed.packs.listRecentRedemptions(burnWindowSince(appt))
     if (history.some((r) => r.appointment_id === row.appointment_id)) return { refuse: 'already_redeemed' }
     return { ok: true }
   }
@@ -974,11 +983,47 @@ export function systemRepick(synqed: Pick<SynqedClient, 'packs'>): (row: IntentR
   }
 }
 
-/** The per-row attempt deps every sender uses for a system row (P3). */
+/** D5 (R-B6 ⑦, rationale at packs.core.ts redeemThroughLedger): a WALK-IN
+ *  recovery use is refused 'already_redeemed' when the customer already has a
+ *  use on that JST day. ONE function: recordUse's first attempt (packs.core) and
+ *  every settle-pass replay of a recovery row (R2). A throw = pending. */
+export function recoveryDayPrecheck(synqed: Pick<SynqedClient, 'packs'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    if (row.ledger_source !== 'recovery' || row.appointment_id) return { ok: true }
+    const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
+    const rows = await synqed.packs.listRecentRedemptions(since)
+    return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
+      ? { refuse: 'already_redeemed' }
+      : { ok: true }
+  }
+}
+
+/** The facade route's tenancy proofs (customer-facade proveRedeemTenancy, the
+ *  route's own function) for a phone row. Those proofs fold a read ERROR and a
+ *  real mismatch into the same not_found, so ANY throw here = pending (never
+ *  withdrawn on a guess); the row parks + alarms on the daily pass. */
+export function phoneTenancyPrecheck(synqed: Pick<SynqedClient, 'packs' | 'appointments'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    const { proveRedeemTenancy } = await import('@/lib/app-api/customer-facade')
+    await proveRedeemTenancy(synqed as never, row.customer_id, row.pack_id ?? '', row.appointment_id)
+    return { ok: true }
+  }
+}
+
+/** The per-row attempt deps EVERY sender uses on a replay (R2: every pre-check
+ *  inside every attempt): a phone row re-proves tenancy first; then P3 → the
+ *  booking re-check + history probe, recovery → the D5 customer-day guard. */
 export function systemDepsFor(row: IntentRow, synqed: Pick<SynqedClient, 'packs' | 'appointments'>): Pick<AttemptDeps, 'precheck' | 'repick'> {
   const p3 = row.ledger_source === 'no_show' || row.ledger_source === 'cancel'
+  const checks: Array<(r: IntentRow) => Promise<Precheck>> = []
+  if (row.audit_payload?.origin === 'phone') checks.push(phoneTenancyPrecheck(synqed))
+  if (p3) checks.push(p3Precheck(synqed))
+  if (row.ledger_source === 'recovery') checks.push(recoveryDayPrecheck(synqed))
   return {
-    ...(p3 ? { precheck: p3Precheck(synqed) } : {}),
+    ...(checks.length ? { precheck: async (r: IntentRow) => {
+      for (const c of checks) { const out = await c(r); if (!('ok' in out)) return out }
+      return { ok: true } as const
+    } } : {}),
     ...(row.pack_picked_by === 'system' ? { repick: systemRepick(synqed) } : {}),
   }
 }

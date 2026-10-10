@@ -29,8 +29,7 @@ import {
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
-import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
-import { recordUse, type LedgerStore, type UseState } from '@/lib/packs/use-ledger'
+import { recordUse, recoveryDayPrecheck, type LedgerStore, type UseState } from '@/lib/packs/use-ledger'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
@@ -137,6 +136,8 @@ export interface RedeemLedger {
   store: LedgerStore
   businessId: string
   ownerUserId: string | null
+  /** S126 W3: 'phone' = the facade route's intent (its tenancy proofs re-run in the settle pass). */
+  origin?: 'phone'
 }
 
 export interface RedeemSessionResult {
@@ -227,12 +228,9 @@ async function redeemThroughLedger(
         // client then certified the answer, so a transient read blip cost a burn
         // permanently under a message that gave nobody a reason to look. No burn
         // happens either way; only the truth the client is told differs.
-        if (!input.recovery || row.appointment_id) return { ok: true }
-        const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
-        const rows = await synqed.packs.listRecentRedemptions(since)
-        return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
-          ? { refuse: 'already_redeemed' }
-          : { ok: true }
+        // S126 W3: the body is recoveryDayPrecheck in the ledger module — the
+        // SAME function the settle pass runs for a recovery row (R2, one definition).
+        return recoveryDayPrecheck(synqed)(row)
       },
     },
     {
@@ -249,6 +247,7 @@ async function redeemThroughLedger(
       recovery: input.recovery,
       anotherSession: input.anotherSession,
       karuteRecordId: input.karuteRecordId ?? null,
+      ...(ledger.origin ? { origin: ledger.origin } : {}),
     },
   )
 }
