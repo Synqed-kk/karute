@@ -12,6 +12,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
+import { defaultLedgerStore } from '@/lib/packs/use-ledger'
 import {
   proveAppointmentForCustomer,
   proveCustomerInBusiness,
@@ -23,6 +24,8 @@ import {
 export const runtime = 'nodejs'
 
 type Params = { id: string }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const RedeemSchema = z
   .object({
@@ -98,8 +101,17 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
     recovery: parsed.data.recovery,
+    // R1: the phone's key IS the ledger intent id (a non-UUID key gets a
+    // server-minted intent id; core still sees that id as the key).
+    intentId: UUID_RE.test(idempotencyKey) ? idempotencyKey : globalThis.crypto.randomUUID(),
     idempotencyKey,
-  })
+  }, { store: await defaultLedgerStore(), businessId: ctx.identity.businessId, ownerUserId: ctx.identity.authUserId })
+  // PR-A keeps TODAY's wire contract: ok:true ONLY for a settled use, so an
+  // installed phone build never reads a pending/held use as 消化しました. The
+  // versioned 2xx {intent_id, state} answer (X-Karute-Ledger) is PR-B.
+  if (result.ok && result.state && result.state !== 'settled') {
+    throw new AppApiError('upstream_unavailable', `redeem ${result.state}`, { reason: result.state })
+  }
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a
     // generic 502.

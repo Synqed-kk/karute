@@ -32,6 +32,7 @@ import {
   type CreatePackInput,
 } from '@/lib/packs/store'
 import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
+import { recordUse, type LedgerStore, type UseState } from '@/lib/packs/use-ledger'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
@@ -124,6 +125,29 @@ export interface RedeemSessionActionInput {
    *  QUEUED. The web action leaves it unset on purpose — see redeemSessionAction
    *  below. */
   idempotencyKey?: string
+  /** The gesture's ledger intent id (= the Idempotency-Key core sees, R1). */
+  intentId?: string
+  /** R6: the client's gesture time; bounded by the ledger. */
+  gestureAt?: string | null
+  /** The 「もう1回分を消化する」 answer to a held use (R1-gate). */
+  anotherSession?: boolean
+}
+
+/** The use ledger (design v4.2 R1): when present, the burn is written to
+ *  pack_use_intents FIRST and sent from the row. */
+export interface RedeemLedger {
+  store: LedgerStore
+  businessId: string
+  ownerUserId: string | null
+}
+
+export interface RedeemSessionResult {
+  ok: boolean
+  state?: UseState
+  redemptionId?: string
+  intentId?: string
+  heldAgainst?: string
+  error?: string
 }
 
 /** Redeem core (SINGLE SOURCE): burn pairing is SERVER-derived here — when the
@@ -135,8 +159,10 @@ export async function redeemSessionActionWithClient(
   synqed: Pick<SynqedClient, 'packs' | 'appointments'>,
   staffId: string | null,
   input: RedeemSessionActionInput,
-): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+  ledger?: RedeemLedger,
+): Promise<RedeemSessionResult> {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
+  if (ledger) return redeemThroughLedger(synqed, staffId, input, ledger)
   const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const redeemedOn = input.redeemedOn ?? jstToday
   const appointmentId =
@@ -214,6 +240,47 @@ export async function redeemSessionActionWithClient(
   return result.ok
     ? { ok: true, redemptionId: result.id }
     : { ok: false, error: result.error }
+}
+
+/** R1 at the first line of P1 / P2 / P6: the gesture is a ledger row before
+ *  any core call; D5 (the walk-in recovery customer-day guard) and the
+ *  booking lookup run INSIDE every attempt (R2), a guard that cannot read =
+ *  pending, never a silent refusal. */
+async function redeemThroughLedger(
+  synqed: Pick<SynqedClient, 'packs' | 'appointments'>,
+  staffId: string | null,
+  input: RedeemSessionActionInput,
+  ledger: RedeemLedger,
+): Promise<RedeemSessionResult> {
+  return recordUse(
+    {
+      store: ledger.store,
+      synqed,
+      precheck: async (row) => {
+        if (!input.recovery || row.appointment_id) return { ok: true }
+        const since = ymdInJst(new Date(Date.parse(`${row.redeemed_on}T00:00:00+09:00`) - 86_400_000))
+        const rows = await synqed.packs.listRecentRedemptions(since)
+        return rows.some((r) => r.customer_id === row.customer_id && isSameJstDay(r.redeemed_on, row.redeemed_on))
+          ? { refuse: 'already_redeemed' }
+          : { ok: true }
+      },
+    },
+    {
+      intentId: input.intentId ?? input.idempotencyKey,
+      businessId: ledger.businessId,
+      ownerUserId: ledger.ownerUserId,
+      staffId,
+      customerId: input.customerId,
+      packId: input.packId,
+      ...(input.appointmentId !== undefined ? { appointmentId: input.appointmentId } : {}),
+      redeemedOn: input.redeemedOn,
+      gestureAt: input.gestureAt,
+      source: input.source,
+      recovery: input.recovery,
+      anotherSession: input.anotherSession,
+      karuteRecordId: input.karuteRecordId ?? null,
+    },
+  )
 }
 
 /** 来店なし core (SINGLE SOURCE) — ANY staff (unlike alert dismissal):

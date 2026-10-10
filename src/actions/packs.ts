@@ -23,6 +23,7 @@ import {
   setLifecycleActionWithClient,
   type CreatePackActionInput,
   type RedeemSessionActionInput,
+  type RedeemSessionResult,
   type SetLifecycleActionInput,
 } from '@/lib/packs/packs.core'
 
@@ -93,7 +94,7 @@ export async function setPackStatusAction(
  *  a UI-side change, deliberately out of this PR's fence. */
 export async function redeemSessionAction(
   input: RedeemSessionActionInput,
-): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+): Promise<RedeemSessionResult> {
   // An outage (the identity read failed) is not an anonymous burn: refuse,
   // never write created_by: null (Round 3 leg 2, 2026-09-25, D-S16-4,
   // discussed, default). A resolved null is refused too (D-S20-1, lead): a
@@ -118,7 +119,18 @@ export async function redeemSessionAction(
     return null
   })
   if (!synqed) return { ok: false, error: 'write failed' }
-  const result = await redeemSessionActionWithClient(synqed, staffId, input)
+  // R1 (design v4.2): the gesture is written to the use ledger before core is
+  // asked. No ledger = no core call: the device-held shape (PR-B's client
+  // wrapper replays it), never an unledgered burn.
+  const ledger = await (async () => {
+    const [{ getBusinessId }, { defaultLedgerStore }] = await Promise.all([
+      import('@/lib/staff'),
+      import('@/lib/packs/use-ledger'),
+    ])
+    return { store: await defaultLedgerStore(), businessId: await getBusinessId(), ownerUserId: null }
+  })().catch(() => null)
+  if (!ledger?.businessId) return { ok: false, error: 'ledger_unavailable' }
+  const result = await redeemSessionActionWithClient(synqed, staffId, input, ledger)
   if (result.ok) revalidateProfile()
   // D7 (⚖ 8/21 ②) — recovery-resolved burns are visible to reconcile. VERIFIED
   // against @synqed-kk/client 1.28.0, the version package.json PINS (re-checked
