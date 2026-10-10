@@ -158,8 +158,11 @@ export interface LedgerStore {
   update(businessId: string, id: string, where: Where, patch: Partial<IntentRow>): Promise<IntentRow | null>
   /** Index 2: held/pending/parked/refused rows with staff_resolution null. */
   listForCustomers(businessId: string, customerIds: string[]): Promise<IntentRow[]>
-  /** Index 1: open rows of one business, oldest first. */
-  listOpen(businessId: string, states: IntentState[], limit: number): Promise<IntentRow[]>
+  /** Index 1: open rows of one business. 'oldest' = created_at, then id (the
+   *  alarm's worst age); 'retry' = last_attempt_at NULLS FIRST, then created_at,
+   *  then id — rows just tried go to the back, so the pass never re-reads the
+   *  same oldest page forever (S128 F5). */
+  listOpen(businessId: string, states: IntentState[], limit: number, order: 'retry' | 'oldest'): Promise<IntentRow[]>
   /** Index 1: the businesses that have open rows. `more()` is checked before
    *  EVERY page (the settle budget, S126 F) and at most
    *  SETTLE_BUSINESS_PAGES_MAX pages are read in one pass. */
@@ -213,9 +216,10 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
       }
       return out
     },
-    async listOpen(businessId, states, limit) {
-      const { data, error } = await db.from(T).select('*').eq('business_id', businessId)
-        .in('state', states).order('created_at', { ascending: true }).limit(limit)
+    async listOpen(businessId, states, limit, order) {
+      let q = db.from(T).select('*').eq('business_id', businessId).in('state', states)
+      if (order === 'retry') q = q.order('last_attempt_at', { ascending: true, nullsFirst: true })
+      const { data, error } = await q.order('created_at', { ascending: true }).order('id', { ascending: true }).limit(limit)
       fail(error)
       return (data ?? []) as IntentRow[]
     },
@@ -292,13 +296,18 @@ export function reportFailure(r: FailureReport): void {
 export function acceptGestureAt(
   client: string | null | undefined,
   now: Date,
-): { gestureAt: string; clockSuspect: boolean; gestureAtClient: string | null } {
+): { gestureAt: string; clockSuspect: boolean; gestureAtClient: string | null; gestureAtClientRaw: string | null } {
   const t = client ? Date.parse(client) : Number.NaN
   const n = now.getTime()
   if (Number.isFinite(t) && t >= n - MAX_HOLD_MS && t <= n + CLOCK_SKEW_MS) {
-    return { gestureAt: new Date(t).toISOString(), clockSuspect: false, gestureAtClient: null }
+    return { gestureAt: new Date(t).toISOString(), clockSuspect: false, gestureAtClient: null, gestureAtClientRaw: null }
   }
-  return { gestureAt: now.toISOString(), clockSuspect: Boolean(client), gestureAtClient: client ?? null }
+  // S128 F4: gesture_at_client is timestamptz — a non-parseable client value
+  // never reaches the column (null); the raw text rides the audit payload only.
+  return {
+    gestureAt: now.toISOString(), clockSuspect: Boolean(client),
+    gestureAtClient: Number.isFinite(t) ? new Date(t).toISOString() : null, gestureAtClientRaw: client ?? null,
+  }
 }
 
 // ── R3 the ONE classification map ────────────────────────────────────────────
@@ -370,6 +379,8 @@ const day = (s: string) => s.slice(0, 10)
 /** Window = min(frozen redeemed_on, gesture day) → today. Returns the core row
  *  this intent should settle to, or null (only then may it be sent). */
 export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: { has(id: string): boolean }, today: string, cutover: string): string | null {
+  // S128 F1: an unresolved booking is neither booked nor walk-in yet — never match
+  if (!intent.appointment_resolved) return null
   const gestureDay = ymdInJst(new Date(intent.gesture_at))
   const start = intent.redeemed_on < gestureDay ? intent.redeemed_on : gestureDay
   const inWindow = rows.filter(
@@ -486,25 +497,40 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
   if (!row) return reread(store, start) // no lease → answer from the row, no core call
   const replay = start.attempts > 0
   try {
-    if (replay || row.withdraw_requested_at) {
-      const { match } = await runPreRead(synqed, store, row, now)
-      if (match) return await settleTo(store, row, match.id, now, `matched:${match.id}`)
-      if (row.withdraw_requested_at) {
-        return (await store.update(row.business_id, row.id, { state: 'pending' }, {
-          state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
-        })) ?? (await reread(store, row))
-      }
-    }
     let cur = row
+    let resolvedNow = false
+    // S128 F1: the booking is resolved BEFORE the pre-read; still unknown → the
+    // row stays pending (lease released): no pre-read, no send.
     if (!cur.appointment_resolved) {
       const appt = await lookupAppointmentForDay(synqed, cur.customer_id, cur.redeemed_on)
-      if (appt === 'unknown') return keepPending(store, cur, { leased_until: null, last_error_code: 'booking_lookup_unknown' })
+      if (appt === 'unknown') return await keepPending(store, cur, { leased_until: null, last_error_code: 'booking_lookup_unknown' })
       // frozen_payload is written ONCE, here, on the first successful lookup
       const draft = cur.audit_payload?.draft_payload as CorePayload | undefined
       cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
         appointment_id: appt, appointment_resolved: true,
         frozen_payload: draft ? { ...draft, appointment_id: appt } : null,
       })) ?? cur
+      resolvedNow = true
+    }
+    if (replay || cur.withdraw_requested_at) {
+      const { match } = await runPreRead(synqed, store, cur, now)
+      if (match) return await settleTo(store, cur, match.id, now, `matched:${match.id}`)
+      if (cur.withdraw_requested_at) {
+        return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
+          state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
+        })) ?? (await reread(store, cur))
+      }
+    }
+    // S128 F2: the ONE hold check, before a walk-in's FIRST send (never sent yet:
+    // its first attempt, or the attempt that just resolved its booking). An
+    // earlier open same-day walk-in → held (確認待ち), never sent.
+    if (!replay || resolvedNow) {
+      const earlier = await holdCheck(store, cur)
+      if (earlier) {
+        return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
+          state: 'held', held_at: iso(now), held_against: earlier.id, leased_until: null,
+        })) ?? (await reread(store, cur))
+      }
     }
     const pre = deps.precheck ? await deps.precheck(cur) : ({ ok: true } as const)
     if ('withdraw' in pre) {
@@ -622,11 +648,34 @@ export function answerFromRow(row: IntentRow): RecordUseResult {
   }
 }
 
-/** A held/pending/parked WALK-IN use for this customer on this JST day. A
- *  BOOKED intent never gates and is never held (⚖ 8/21); refused never gates. */
-export function gatingIntent(rows: IntentRow[], customerId: string, redeemedOn: string, selfId: string): IntentRow | null {
-  return rows.find((r) => r.id !== selfId && r.kind === 'use' && r.customer_id === customerId &&
-    r.appointment_id === null && OPEN.includes(r.state) && day(r.redeemed_on) === redeemedOn) ?? null
+type HoldSelf = Pick<IntentRow, 'id' | 'business_id' | 'kind' | 'ledger_source' | 'customer_id' | 'redeemed_on' | 'appointment_id' | 'appointment_resolved' | 'another_session' | 'created_at'>
+const HOLDABLE: LedgerSource[] = ['manual', 'recovery', 'backfill']
+const createdMs = (r: { created_at?: string | null }) => {
+  const t = r.created_at ? Date.parse(r.created_at) : Number.NaN
+  return Number.isFinite(t) ? t : -Infinity
+}
+
+/** A held/pending/parked WALK-IN use for this customer on this JST day created
+ *  EARLIER than `self` — by created_at, then id, so of two simultaneous rows only
+ *  the later one is held (S128 F2/X1). `self.created_at` unset = not written yet:
+ *  every existing row is earlier. A BOOKED intent never gates and is never held
+ *  (⚖ 8/21); refused never gates. */
+export function gatingIntent(rows: IntentRow[], self: Pick<IntentRow, 'id' | 'customer_id' | 'redeemed_on' | 'created_at'>): IntentRow | null {
+  const mine = self.created_at ? createdMs(self) : Infinity
+  const earlier = (r: IntentRow) => createdMs(r) < mine || (createdMs(r) === mine && r.id < self.id)
+  return rows
+    .filter((r) => r.id !== self.id && r.kind === 'use' && r.customer_id === self.customer_id &&
+      r.appointment_id === null && OPEN.includes(r.state) && day(r.redeemed_on) === day(self.redeemed_on) && earlier(r))
+    .sort((a, b) => createdMs(a) - createdMs(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0] ?? null
+}
+
+/** S128 F2: THE same-day hold check (R1-gate) — the ONE definition, called by
+ *  recordUse at write time and by attemptIntent before a walk-in's first send.
+ *  Only a resolved staff walk-in without the another_session answer is held. */
+export async function holdCheck(store: LedgerStore, self: HoldSelf): Promise<IntentRow | null> {
+  if (self.kind !== 'use' || !self.appointment_resolved || self.appointment_id !== null || self.another_session) return null
+  if (!HOLDABLE.includes(self.ledger_source)) return null
+  return gatingIntent(await store.listForCustomers(self.business_id, [self.customer_id]), self)
 }
 
 export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promise<RecordUseResult> {
@@ -644,7 +693,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
     if (!row) {
       const g = acceptGestureAt(input.gestureAt, now)
       if (g.clockSuspect) {
-        reportFailure({ product: 'karute', kind: 'ledger.clock_suspect', business_id: input.businessId, ref: id, facts: { gesture_at_client: g.gestureAtClient } })
+        reportFailure({ product: 'karute', kind: 'ledger.clock_suspect', business_id: input.businessId, ref: id, facts: { gesture_at_client: g.gestureAtClientRaw } })
       }
       const redeemedOn = input.redeemedOn ?? ymdInJst(new Date(g.gestureAt))
       const appt = input.appointmentId !== undefined
@@ -655,10 +704,11 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
       const source: LedgerSource = input.recovery ? 'recovery' : (input.source ?? 'manual')
       let state: IntentState = 'pending'
       let heldAgainst: string | null = null
-      if (resolved && appointmentId === null && !input.anotherSession) {
-        const earlier = gatingIntent(await store.listForCustomers(input.businessId, [input.customerId]), input.customerId, redeemedOn, id)
-        if (earlier) { state = 'held'; heldAgainst = earlier.id }
-      }
+      const earlier = await holdCheck(store, {
+        id, business_id: input.businessId, kind: 'use', ledger_source: source, customer_id: input.customerId, redeemed_on: redeemedOn,
+        appointment_id: appointmentId, appointment_resolved: resolved, another_session: Boolean(input.anotherSession),
+      })
+      if (earlier) { state = 'held'; heldAgainst = earlier.id }
       const payload: CorePayload = {
         pack_id: input.packId, customer_id: input.customerId, redeemed_on: redeemedOn, appointment_id: appointmentId,
         karute_record_id: input.karuteRecordId ?? null, source: input.source ?? 'manual', created_by: input.staffId,
@@ -672,7 +722,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
         // written once: now when the booking is known, else on the first successful lookup
         frozen_payload: resolved ? payload : null,
         audit_payload: {
-          ...(g.gestureAtClient ? { gesture_at_client: g.gestureAtClient } : {}),
+          ...(g.gestureAtClientRaw ? { gesture_at_client: g.gestureAtClientRaw } : {}),
           ...(resolved ? {} : { draft_payload: payload }),
         },
         state, attempts: 0, held_at: state === 'held' ? iso(now) : null, held_against: heldAgainst,
@@ -724,13 +774,13 @@ export async function settlePending(opts: {
   const deadline = startedAt.getTime() + (opts.budgetMs ?? SETTLE_BUDGET_MS)
   const states: IntentState[] = opts.dailyPass ? ['pending', 'parked'] : ['pending']
   const s: SettleSummary = { businesses: 0, attempted: 0, settled: 0, refused: 0, stillOpen: 0, parked: 0, outOfBudget: false }
-  const openByBusiness = new Map<string, { count: number; oldest: string }>()
+  const openByBusiness = new Map<string, { count: number; oldest: string; floor: boolean }>()
   const ids = opts.rotate(await opts.store.listOpenBusinessIds([...OPEN], () => clock().getTime() < deadline), startedAt)
   for (const businessId of ids) {
     if (clock().getTime() >= deadline) { s.outOfBudget = true; break }
     s.businesses += 1
     const synqed = opts.clientFor(businessId)
-    const rows = await opts.store.listOpen(businessId, states, SETTLE_ROWS_PER_BUSINESS)
+    const rows = await opts.store.listOpen(businessId, states, SETTLE_ROWS_PER_BUSINESS, 'retry')
     let next = 0
     const worker = async () => {
       while (next < rows.length && clock().getTime() < deadline) {
@@ -745,21 +795,24 @@ export async function settlePending(opts: {
         else if (out.state === 'refused') s.refused += 1
         else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
           clock().getTime() - Date.parse(out.created_at) >= PARK_AFTER_MS) {
-          const p = await opts.store.update(businessId, out.id, { state: 'pending' }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
+          // S128 F3: park only a row whose lease is free now (never one another sender holds mid-flight)
+          const p = await opts.store.update(businessId, out.id, { state: 'pending', attempts: out.attempts, leaseFreeAt: iso(clock()) }, { state: 'parked', parked_at: iso(clock()), parked_reason: out.last_error_code ?? 'unsettled' })
           if (p) { s.parked += 1; reportFailure({ product: 'karute', kind: 'ledger.parked', business_id: businessId, ref: out.id, facts: { code: out.last_error_code } }) }
         }
       }
     }
     await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? SETTLE_CONCURRENCY) }, worker))
-    const left = (await opts.store.listOpen(businessId, [...OPEN], SETTLE_ROWS_PER_BUSINESS))
-    if (left.length) openByBusiness.set(businessId, { count: left.length, oldest: left[0].created_at ?? '' })
+    // S128 F5: the read is capped, so a business at the cap reports a FLOOR (count_is_floor), not a count
+    const left = (await opts.store.listOpen(businessId, [...OPEN], SETTLE_ROWS_PER_BUSINESS, 'oldest'))
+    if (left.length) openByBusiness.set(businessId, { count: left.length, oldest: left[0].created_at ?? '', floor: left.length >= SETTLE_ROWS_PER_BUSINESS })
   }
   // § 7 (a) rolled up per pass across businesses
   s.stillOpen = [...openByBusiness.values()].reduce((a, b) => a + b.count, 0)
   if (s.stillOpen > 0) {
     const top = [...openByBusiness.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, ALARM_TOP_N)
     reportFailure({ product: 'karute', kind: 'ledger.open_at_pass', business_id: null, facts: {
-      count: s.stillOpen, worst: [...openByBusiness.values()].map((v) => v.oldest).sort()[0], top: top.map(([b, v]) => ({ b, n: v.count })),
+      count: s.stillOpen, count_is_floor: [...openByBusiness.values()].some((v) => v.floor),
+      worst: [...openByBusiness.values()].map((v) => v.oldest).sort()[0], top: top.map(([b, v]) => ({ b, n: v.count, ...(v.floor ? { at_least: true } : {}) })),
     } })
   }
   return s
