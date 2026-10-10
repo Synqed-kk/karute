@@ -30,6 +30,7 @@ import {
   NO_SHOW_REASON_NO_CONTACT,
 } from '@/lib/appointments/status'
 import { listCustomerPacksWithClient } from '@/lib/packs/store'
+import { UUID_RE } from '@/lib/uuid-shape'
 import { attemptIntent, burnWindowSince, defaultLedgerStore, insertP3Intent, systemDepsFor, type IntentRow, type LedgerStore } from '@/lib/packs/use-ledger'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
@@ -396,7 +397,8 @@ async function insertP3IntentOrThrow(
     const row = await insertP3Intent(store, {
       businessId: actor.businessId, ownerUserId: actor.actorId, intentId: actor.idempotencyKey, source,
       customerId: appt.customer_id, appointmentId, bookingDay: ymdInJst(new Date(appt.starts_at)),
-      packId: target.id, createdBy: null,
+      // core validations/pack.ts:29: created_by = uuid | null — never '' (attack hole 1)
+      packId: target.id, createdBy: actor.actorId && UUID_RE.test(actor.actorId) ? actor.actorId : null,
     })
     return { store, row }
   } catch {

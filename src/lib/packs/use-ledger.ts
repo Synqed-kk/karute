@@ -942,7 +942,7 @@ export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: 
   if (!owned(await store.getAllById(id))) {
     const payload: Omit<CorePayload, 'pack_id'> = {
       customer_id: i.customerId, redeemed_on: i.bookingDay, appointment_id: i.appointmentId,
-      karute_record_id: null, source: 'manual', created_by: i.createdBy ?? '', counts_as_visit: false,
+      karute_record_id: null, source: 'manual', created_by: i.createdBy ?? null, counts_as_visit: false,
     }
     await store.insertIgnore({
       id, business_id: i.businessId, owner_user_id: i.ownerUserId, kind: 'use',

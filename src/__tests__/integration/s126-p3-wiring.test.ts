@@ -31,6 +31,7 @@ const mockListPacks = jest.fn(async (): Promise<unknown[]> => PACKS)
 import { cancelAppointmentCore, markNoShowAppointmentCore, P3_LEDGER_SAVE_ERROR } from '@/lib/appointments/mutations'
 import { settlePending, type IntentRow } from '@/lib/packs/use-ledger'
 import { memLedgerStore } from './helpers/ledger-fake'
+import { UUID_RE } from '@/lib/uuid-shape'
 
 const B = '00000000-0000-4000-8000-0000000000b2'
 const ACTOR = { actorId: 'user-1', businessId: B, source: 'web' as const, requestId: 'req-1' }
@@ -154,5 +155,27 @@ describe('§ 6a (R-S126-1 f) — a pack-read ERROR = pending, never 「no burnab
     const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
     expect(res).toEqual({ error: expect.any(String), code: 'no_burnable_pack' })
     expect(c.update).not.toHaveBeenCalled(); expect(c.addRedemption).not.toHaveBeenCalled()
+  })
+})
+
+describe('A (hole 1) — created_by sent to core is a uuid or null, never an empty string', () => {
+  const STAFF_UUID = '0b6f2c1e-3c1d-4a2b-9c8d-7e6f5a4b3c2d'
+  // core validations/pack.ts:29 — created_by: uuid | null; anything else is a 400
+  const coreCreatedBy = (args: unknown[]): unknown => {
+    const body = args.find((a) => a && typeof a === 'object' && ('created_by' in a || 'createdBy' in a)) as Record<string, unknown> | undefined
+    const v = body ? (body.created_by ?? body.createdBy ?? null) : null
+    if (v !== null && !(typeof v === 'string' && UUID_RE.test(v))) throw Object.assign(new Error('Invalid body'), { status: 400 })
+    return v
+  }
+  it.each([['a non-uuid actor id', 'user-1', null], ['a staff uuid', STAFF_UUID, STAFF_UUID]])('%s → frozen and sent as %p', async (_label, actorId, want) => {
+    const c = fakeCore()
+    const sent: unknown[] = []
+    c.addRedemption.mockImplementation(async (...args: unknown[]) => { sent.push(coreCreatedBy(args)); return { id: 'core-1' } })
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, { ...ACTOR, actorId }, SCOPE)
+    expect(res).toEqual({ success: true })
+    const row = await rowsOf(mockLedger.store as Store, lastDetail().intent_id as string)
+    expect(row.frozen_payload?.created_by).toBe(want)
+    expect(row.state).toBe('settled')
+    expect(sent).toEqual([want])
   })
 })
