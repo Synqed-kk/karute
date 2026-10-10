@@ -35,7 +35,7 @@ import { emptyDashboardData, getDashboardDataFor } from '@/lib/dashboard/cached'
 import { buildDashboardScreen } from '@/lib/dashboard/screen'
 import { emptyPackAlerts, getPackAlertsWithClient } from '@/lib/packs/alerts'
 import { loadUnprocessedVisitsWithClient } from '@/lib/packs/reconcile'
-import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageWithClient, usageLedgerFor, type CustomerPackUsage } from '@/lib/packs/store'
 import { startTiming } from '@/lib/perf/timing'
 
 export const runtime = 'nodejs'
@@ -123,7 +123,9 @@ export const GET = facadeHandler('screens.dashboard', async (ctx) => {
           // membership list to clamp against either — the honest map is empty.
           reachesNoStore(clamp)
             ? Promise.resolve(new Map<string, CustomerPackUsage>())
-            : listAllPackUsageWithClient(synqed).catch(
+            : usageLedgerFor(ctx.identity.businessId) // § 6b: a bearer route never resolves a cookie context
+                .then((l) => listAllPackUsageWithClient(synqed, l))
+                .catch(
                 () => new Map<string, CustomerPackUsage>(),
               ),
         ),
