@@ -315,7 +315,10 @@ describe('S125 use ledger — the numbered list', () => {
   })
 
   test('settle pass: pending rows of every business with open rows; parked resumes on the daily pass', async () => {
-    const store = memStore(); const core = fakeCore()
+    const store = memStore()
+    // S126 W1 (fixture only): the P3 rows' R2 re-check reads the booking — a NO_SHOW
+    // booking on the rows' redeemed_on, and an empty history (listRecentRedemptions → []).
+    const core = { ...fakeCore(), appointments: { get: jest.fn().mockResolvedValue({ status: 'NO_SHOW', status_reason: null, starts_at: `${TODAY}T03:00:00.000Z`, created_at: `${TODAY}T00:00:00.000Z` }) } }
     // S126 hole 2: an attempts-0 row is the pass's only once older than MAX_CALLER_DURATION_MS
     await store.insertIgnore(sysRow({ id: 's1', pack_picked_by: 'staff', created_at: OLD }))
     await store.insertIgnore(sysRow({ id: 's2', business_id: B2, pack_picked_by: 'staff', state: 'parked' }))
