@@ -16,7 +16,7 @@ import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { usageLedgerFor, listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
-import { monthlyBurnByCustomer } from '@/lib/packs/burn'
+import { ledgerBurnRows, monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 export default async function CustomersPage({
   searchParams,
@@ -127,7 +127,7 @@ export default async function CustomersPage({
   // core unreachable → hidden everywhere. Unpriceable customers (orphaned
   // packs) hide the stat only in views that contain them — the view stays
   // exact, and one store's data problem can't blank the whole business.
-  const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+  const burn = burnRows ? monthlyBurnByCustomer([...burnRows, ...ledgerBurnRows(packUsageRaw)]) : null
   if (burn && burn.unpricedCustomers.length > 0) {
     console.warn(
       `[packs] burn: ${burn.unpricedCustomers.length} customer(s) have unpriceable redemptions (orphaned packs) — 今月消化 hidden where they appear`,

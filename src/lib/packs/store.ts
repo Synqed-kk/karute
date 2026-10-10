@@ -343,6 +343,8 @@ export interface CustomerPackUsage {
   ledgerUses?: number
   /** § 6b: the open ledger uses themselves — a burn for every "was it used" read. */
   ledgerOpenUses?: Array<{ appointmentId: string | null; redeemedOn: string }>
+  /** § 6b: the pending (not held) open uses as dated, priced rows for 今月消化. */
+  ledgerBurns?: BurnRedemption[]
   /** § 6a: the ledger read FAILED — the numbers are the server's (残数確認中). */
   ledgerUnreadable?: true
 }
@@ -475,6 +477,13 @@ export async function listAllPackUsageWithClient(
       if (mine.length === 0) continue // no open use: the object stays today's shape
       u.ledgerUses = mine.length
       u.ledgerOpenUses = mine.map((r) => ({ appointmentId: r.appointment_id, redeemedOn: r.redeemed_on }))
+      // 今月消化 ¥: a pending use prices as its pack's unit_price, as a landed row does
+      // (an unknown pack = null = the stat hides, never a partial sum).
+      const burns = mine.filter((r) => r.state !== 'held').map((r) => {
+        const price = packs.find((p) => p.id === r.pack_id)?.unit_price
+        return { customer_id: r.customer_id, redeemed_on: r.redeemed_on, unit_price: typeof price === 'number' ? price : null }
+      })
+      if (burns.length > 0) u.ledgerBurns = burns
     }
   }
   return map

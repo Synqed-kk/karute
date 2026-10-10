@@ -30,7 +30,7 @@ import {
   usageLedgerFor,
   warn,
 } from '@/lib/packs/store'
-import { monthlyBurnByCustomer } from '@/lib/packs/burn'
+import { ledgerBurnRows, monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -134,7 +134,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
     // Page parity (page.tsx): same null-coalescing split — byCustomer stays
     // null (hides the stat), unpricedCustomers degrades to [] (nothing to hide).
-    const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+    const burn = burnRows ? monthlyBurnByCustomer([...burnRows, ...ledgerBurnRows(packUsage)]) : null
     burnByCustomer = burn?.byCustomer ?? null
     burnUnpricedIds = burn?.unpricedCustomers ?? []
 

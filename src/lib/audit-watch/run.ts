@@ -14,6 +14,7 @@
 import type { Appointment, AuditEvent, RecentRedemption } from '@synqed-kk/client'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { audit } from '@/lib/audit'
+import { listAllPackUsageWithClient, usageLedgerFor, type CustomerPackUsage } from '@/lib/packs/store'
 import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
 import { deriveInboxRows, INBOX_WINDOW_MS, type InboxRow } from '@/lib/recordings/inbox'
 import { findKaruteMissing, lastAssemblerPassAt } from '@/lib/audit-watch/find-karute-missing'
@@ -193,6 +194,7 @@ async function karuteMissingDetail(
   synqed: ReturnType<typeof newSynqedClient>,
   row: InboxRow,
   redemptions: RecentRedemption[] | null,
+  ledgerBurned: ReadonlySet<string> = new Set(),
 ): Promise<Detail> {
   const recording = await synqed.recordings.get(row.recordingSessionId as string).catch(() => null)
   const appointmentId = recording?.appointment_id ?? null
@@ -207,7 +209,8 @@ async function karuteMissingDetail(
     ticket_burned:
       appointmentId == null || redemptions == null
         ? null
-        : redemptions.some((r) => r.appointment_id === appointmentId),
+        : redemptions.some((r) => r.appointment_id === appointmentId) ||
+          ledgerBurned.has(appointmentId),
   }
 }
 
@@ -313,6 +316,16 @@ export async function watchOneBusiness(
             .listRecentRedemptions(new Date(now.getTime() - INBOX_WINDOW_MS).toISOString())
             .catch(() => null)
         : null
+    // § 6b: an open ledger use (held/pending/parked) IS a burn here — never a
+    // false 「visit with no burn」. Through the one reader, this business's ledger.
+    const ledgerBurned: ReadonlySet<string> =
+      missing.length > 0
+        ? await usageLedgerFor(businessId)
+            .then((l) => (l ? listAllPackUsageWithClient(synqed, l) : new Map<string, CustomerPackUsage>()))
+            .then((m) => new Set([...m.values()].flatMap((u) =>
+              (u.ledgerOpenUses ?? []).flatMap((o) => (o.appointmentId ? [o.appointmentId] : [])))))
+            .catch(() => new Set<string>())
+        : new Set<string>()
 
     // (c) idempotency + write, one candidate at a time (CP2 — a candidate
     // skipped here is never walked again in this run).
@@ -340,7 +353,7 @@ export async function watchOneBusiness(
         // row — never just inside detail. karuteMissingDetail already reads
         // the recording for detail.store_id; reuse it instead of a second
         // fetch.
-        const detail = await karuteMissingDetail(synqed, row, redemptions)
+        const detail = await karuteMissingDetail(synqed, row, redemptions, ledgerBurned)
         audit({
           category: 'recording',
           action: 'recording.karute_missing',
