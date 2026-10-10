@@ -79,5 +79,10 @@
     "accountTitle": "ログイン中のアカウント",
     "accountGuide": "いまログインしているアカウント。「ログアウト」を押すと、このアカウントからログアウトします。",
     "signOutFailed": "ログアウトできませんでした。もう一度お試しください。"
+  },
+  "coreUnanswered": {
+    "unloaded": "データを読み込めませんでした。",
+    "ifReloadFails": "再読み込みしても直らない場合は管理者へ。",
+    "reference": "エラー番号：{ref}"
   }
 }

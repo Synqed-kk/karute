@@ -22,7 +22,7 @@
 // today) = the fixture path below, byte-identical; SET = ./practice-door/door.
 
 import { jstDayKey, jstSlotEnd, renderNow } from './clock'
-import { doorOn } from './practice-door/actor'
+import { CoreUnanswered, doorOn } from './practice-door/actor'
 import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import { readStoreCapabilities as doorReadStoreCapabilities, readStoreSeedType as doorReadStoreSeedType, writeStoreCapabilities as doorWriteStoreCapabilities, type BusinessTypeKey, type CapRecord, type WriteStoreCapabilitiesResult } from './practice-door/door-store-capabilities'
@@ -84,6 +84,8 @@ export type StoreLens = string | { viewAll: true }
 /** THE render clock lives in ./clock (one memoised function shared with the
  *  practice door); re-exported so every room's import keeps working. */
 export { renderNow }
+/** P2 — the bound's rejection, for the Business layout's one catch (it imports only from here). */
+export { CoreUnanswered }
 
 /** One dateline for sample-backed rooms; analytics supplies its existing span body. */
 export function sampleDateline(now: Date, lensLabel: string, door: boolean, body?: string): string {
