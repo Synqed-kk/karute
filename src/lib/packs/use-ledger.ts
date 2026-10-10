@@ -493,13 +493,25 @@ async function settleTo(store: LedgerStore, row: IntentRow, coreId: string, now:
 /** S126 hole 3: a duplicate of a use another intent already settled — withdrawn
  *  by the system (reason duplicate_of:<intent id>), never pending forever. */
 async function withdrawDuplicate(store: LedgerStore, row: IntentRow, ownerId: string, now: Date): Promise<IntentRow> {
-  return (await store.update(row.business_id, row.id, { state: 'pending' }, {
-    state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', last_error_code: `duplicate_of:${ownerId}`, leased_until: null,
-  })) ?? (await reread(store, row))
+  return withdrawBySystem(store, row, now, 'duplicate_of', `duplicate_of:${ownerId}`)
 }
 
 async function keepPending(store: LedgerStore, row: IntentRow, patch: Partial<IntentRow>): Promise<IntentRow> {
   return (await store.update(row.business_id, row.id, { state: 'pending' }, patch)) ?? (await reread(store, row))
+}
+
+/** A SYSTEM withdrawal (CAS from pending). § 7 (⚖ 9/30 black box): a P3
+ *  (no-show / cancel) row withdrawn by the system — expected on a restore —
+ *  is never silent: one alarm per withdrawal, with the reason. */
+async function withdrawBySystem(store: LedgerStore, row: IntentRow, now: Date, reason: string, code?: string): Promise<IntentRow> {
+  const done = await store.update(row.business_id, row.id, { state: 'pending' }, {
+    state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null, ...(code ? { last_error_code: code } : {}),
+  })
+  if (!done) return reread(store, row)
+  if (done.ledger_source === 'no_show' || done.ledger_source === 'cancel') {
+    reportFailure({ product: 'karute', kind: 'ledger.p3_withdrawn', business_id: done.business_id, ref: done.id, facts: { reason } })
+  }
+  return done
 }
 
 export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promise<IntentRow> {
@@ -532,11 +544,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     if (replay || cur.withdraw_requested_at) {
       const { match } = await runPreRead(synqed, store, cur, now)
       if (match) return await settleTo(store, cur, match.id, now, `matched:${match.id}`)
-      if (cur.withdraw_requested_at) {
-        return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
-          state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
-        })) ?? (await reread(store, cur))
-      }
+      if (cur.withdraw_requested_at) return await withdrawBySystem(store, cur, now, 'withdraw_requested')
     }
     // S128 F2: the ONE hold check, before a walk-in's FIRST send (never sent yet:
     // its first attempt, or the attempt that just resolved its booking). An
@@ -550,11 +558,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
       }
     }
     const pre = deps.precheck ? await deps.precheck(cur) : ({ ok: true } as const)
-    if ('withdraw' in pre) {
-      return (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
-        state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', last_error_code: pre.withdraw, leased_until: null,
-      })) ?? (await reread(store, cur))
-    }
+    if ('withdraw' in pre) return withdrawBySystem(store, cur, now, pre.withdraw, pre.withdraw)
     if ('refuse' in pre) return refuse(store, cur, pre.refuse, now)
     if (!cur.pack_id && !cur.frozen_payload && cur.pack_picked_by === 'system' && deps.repick) {
       // § 2: pack_id null until the first successful pick (P3 after a pack-read

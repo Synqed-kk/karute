@@ -179,3 +179,21 @@ describe('A (hole 1) — created_by sent to core is a uuid or null, never an emp
     expect(sent).toEqual([want])
   })
 })
+
+describe('B (hole 2, alarm part) — a SYSTEM withdrawal of a P3 row is never silent', () => {
+  it('no-show, restored, the settle pass withdraws it → withdrawn + ONE ledger.p3_withdrawn alarm with the reason', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const c = fakeCore(); c.addRedemption.mockImplementationOnce(genericFailure)
+      await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
+      const id = lastDetail().intent_id as string
+      c.booking.status = 'SCHEDULED' // restore
+      await settle(mockLedger.store as Store, c.synqed)
+      expect(await rowsOf(mockLedger.store as Store, id)).toMatchObject({ state: 'withdrawn', withdrawn_by: 'system', last_error_code: 'status_changed' })
+      const alarms = spy.mock.calls.filter((a) => a[0] === '[alarm]').map((a) => JSON.parse(String(a[1])) as { kind: string })
+      expect(alarms.filter((a) => a.kind === 'ledger.p3_withdrawn')).toEqual([
+        expect.objectContaining({ kind: 'ledger.p3_withdrawn', business_id: B, ref: id, facts: { reason: 'status_changed' } }),
+      ])
+    } finally { spy.mockRestore() }
+  })
+})
