@@ -140,7 +140,7 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
   })
 
   test("(ii') one settle pass with the real client → (ii)'s row settled", async () => {
-    const { settlePending } = await import('@/lib/packs/use-ledger')
+    const { settlePending, REPLAY_LEASE_MS } = await import('@/lib/packs/use-ledger')
     const summary = await settlePending({
       store,
       // the Dev Salon only: every other business's open rows are skipped by the rotation
@@ -150,6 +150,9 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
         return real
       },
       dailyPass: false,
+      // (ii)'s dead-host send was unanswered, so its row keeps its REPLAY_LEASE_MS lease;
+      // this pass's clock sits just past that lease, else the pass skips the row untouched.
+      now: () => new Date(Date.now() + REPLAY_LEASE_MS + 1000),
     })
     const [row] = await store.getAllById(pendingIntentId)
     say("(ii') after settle", row?.id, row?.state)
