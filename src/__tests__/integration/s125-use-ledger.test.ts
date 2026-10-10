@@ -15,6 +15,7 @@ import {
   attemptIntent, classifyCoreFailure, displayRemaining, preReadMatch, readLedgerUsage, recordUse,
   settlePending, usageFromRows, cutoverDay, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
   MAX_CALLER_DURATION_MS,
+  supabaseLedgerStore, BUSINESS_PAGE, SETTLE_BUSINESS_PAGES_MAX,
   type IntentRow, type LedgerStore, type Where,
 } from '@/lib/packs/use-ledger'
 
@@ -356,6 +357,24 @@ describe('S125 use ledger — the numbered list', () => {
     expect(store.rows.find((r) => r.id === 'd-fresh')).toMatchObject({ state: 'pending', attempts: 0 })
     expect(store.rows.find((r) => r.id === 'd-old')).toMatchObject({ state: 'settled', attempts: 1 })
     expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
+  })
+
+  test('F · listOpenBusinessIds runs inside the settle budget: a passed deadline reads zero pages; pages per pass are bounded', async () => {
+    let pages = 0
+    const page = Array.from({ length: BUSINESS_PAGE }, (_, i) => ({ business_id: `b-${String(i).padStart(4, '0')}` }))
+    const q: Record<string, unknown> = {}
+    for (const m of ['select', 'in', 'order', 'limit', 'gt']) q[m] = () => q
+    Object.defineProperty(q, 'then', { value: (res: (v: unknown) => unknown) => { pages += 1; return Promise.resolve({ data: page, error: null }).then(res) } })
+    const adapter = supabaseLedgerStore({ from: () => q } as never)
+    expect(await adapter.listOpenBusinessIds(['pending'], () => false)).toEqual([])
+    expect(pages).toBe(0)
+    await adapter.listOpenBusinessIds(['pending'], () => true)
+    expect(pages).toBe(SETTLE_BUSINESS_PAGES_MAX)
+    const store = memStore(); const seen: boolean[] = []
+    store.listOpenBusinessIds = async (states, more) => { seen.push(more()); return [] }
+    const out = await settlePending({ store, clientFor: () => fakeCore() as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW, budgetMs: 0 })
+    expect(seen).toEqual([false])
+    expect(out.businesses).toBe(0)
   })
 })
 

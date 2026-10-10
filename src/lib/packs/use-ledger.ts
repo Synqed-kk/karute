@@ -143,8 +143,10 @@ export interface LedgerStore {
   listForCustomers(businessId: string, customerIds: string[]): Promise<IntentRow[]>
   /** Index 1: open rows of one business, oldest first. */
   listOpen(businessId: string, states: IntentState[], limit: number): Promise<IntentRow[]>
-  /** Index 1: the businesses that have open rows. */
-  listOpenBusinessIds(states: IntentState[]): Promise<string[]>
+  /** Index 1: the businesses that have open rows. `more()` is checked before
+   *  EVERY page (the settle budget, S126 F) and at most
+   *  SETTLE_BUSINESS_PAGES_MAX pages are read in one pass. */
+  listOpenBusinessIds(states: IntentState[], more: () => boolean): Promise<string[]>
   /** Which of these core ids some intent already claimed (settled_core_id). */
   claimedCoreIds(businessId: string, coreIds: string[]): Promise<Set<string>>
 }
@@ -153,6 +155,9 @@ const T = 'pack_use_intents'
 const IN_CHUNK = 200
 /** Ids per page of the distinct-business read. */
 export const BUSINESS_PAGE = 1000
+/** § 5a / S126 F: pages of the distinct-business read one pass may take, so an
+ *  outage backlog cannot eat the route's budget before any row is attempted. */
+export const SETTLE_BUSINESS_PAGES_MAX = 50
 
 function fail(error: { message: string } | null): void {
   if (error) throw new Error(`[use-ledger] ${error.message}`)
@@ -195,14 +200,14 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
       fail(error)
       return (data ?? []) as IntentRow[]
     },
-    async listOpenBusinessIds(states) {
+    async listOpenBusinessIds(states, more) {
       // DISTINCT business_id on the open-row predicate, paginated by key
       // (business_id > the last one seen): never a full-row read, and each page
       // reads at most BUSINESS_PAGE ids (PostgREST has no DISTINCT; the table
       // carries no function by design).
       const out: string[] = []
       let after: string | null = null
-      for (;;) {
+      for (let page = 0; page < SETTLE_BUSINESS_PAGES_MAX && more(); page += 1) {
         let q = db.from(T).select('business_id').in('state', states).order('business_id', { ascending: true }).limit(BUSINESS_PAGE)
         if (after) q = q.gt('business_id', after)
         const { data, error } = await q
@@ -213,6 +218,7 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
         after = ids[ids.length - 1]
         if (ids.length < BUSINESS_PAGE) return out
       }
+      return out
     },
     async claimedCoreIds(businessId, coreIds) {
       const out = new Set<string>()
@@ -664,7 +670,7 @@ export async function settlePending(opts: {
   const states: IntentState[] = opts.dailyPass ? ['pending', 'parked'] : ['pending']
   const s: SettleSummary = { businesses: 0, attempted: 0, settled: 0, refused: 0, stillOpen: 0, parked: 0, outOfBudget: false }
   const openByBusiness = new Map<string, { count: number; oldest: string }>()
-  const ids = opts.rotate(await opts.store.listOpenBusinessIds([...OPEN]), startedAt)
+  const ids = opts.rotate(await opts.store.listOpenBusinessIds([...OPEN], () => clock().getTime() < deadline), startedAt)
   for (const businessId of ids) {
     if (clock().getTime() >= deadline) { s.outOfBudget = true; break }
     s.businesses += 1

@@ -73,6 +73,12 @@ create index if not exists pack_use_intents_open_idx
   on pack_use_intents (state, business_id, created_at)
   where state in ('held', 'pending', 'parked');
 
+-- the settle pass's distinct-business read (listOpenBusinessIds orders by
+-- business_id on the open predicate; S126 F, the outage backlog)
+create index if not exists pack_use_intents_open_business_idx
+  on pack_use_intents (business_id)
+  where state in ('held', 'pending', 'parked');
+
 -- the id-only lookup (getAllById): N4's cross-business check must read every
 -- row carrying this id in ANY business, so it cannot use the (business_id, id)
 -- unique, which leads with business_id (S126 F5). Plain, not unique: ids are
