@@ -102,6 +102,9 @@ beforeEach(() => {
   mockObjects.clear()
   mockRules.length = 0
   warns = []
+  // The take adds its create's monotonic time to `now` (S120): drive it from the test clock, or a
+  // create that takes real ms stamps the claim late and the next take, one TTL + 1 ms on, reads busy.
+  jest.spyOn(performance, 'now').mockImplementation(() => mockClock.now)
   jest.spyOn(console, 'warn').mockImplementation((line: unknown) => {
     try {
       warns.push((JSON.parse(String(line)) as { where: string }).where)

@@ -68,7 +68,11 @@ const expired = T0 + TRANSCRIPT_LEASE_TTL_MS + 1
 beforeEach(() => {
   mockObjects.clear()
   Object.assign(hooks, { failUpsert: 0, claimLandsButErrs: 0, releaseGate: null, staleReadGate: null })
+  // The take adds its create's monotonic time to `now` (S120): freeze it, or a create that takes
+  // real ms stamps its claim late and a take one TTL + 1 ms on reads it young (B1 (b)).
+  jest.spyOn(performance, 'now').mockReturnValue(0)
 })
+afterEach(() => jest.restoreAllMocks())
 const states = async (n: number, at: number) => (await Promise.all(Array.from({ length: n }, () => takeTranscriptLease(MEMO, at)))).map((r) => r.state)
 const count = (xs: string[], s: string) => xs.filter((x) => x === s).length
 const MIN = 60_000
