@@ -401,6 +401,16 @@ describe('S125 use ledger — the numbered list', () => {
     expect(s2.rows.find((r) => r.id === w2.id)).toMatchObject({ state: 'pending', settled_core_id: null, last_error_code: 'match_outranked' })
     err.mockRestore()
   })
+
+  test('H · an exception in the attempt AFTER the insert answers the row (pending + intent id); only a failed insert is ledger_unavailable', async () => {
+    const store = memStore(); const core = fakeCore()
+    store.update = async () => { throw new Error('db blip') }
+    const id = 'aaaaaaaa-0000-4000-8000-0000000000a8'
+    expect(await recordUse(deps(store, core), walkIn({ intentId: id }))).toEqual({ ok: true, state: 'pending', intentId: id })
+    expect(core.packs.addRedemption).not.toHaveBeenCalled()
+    const s2 = memStore(); s2.failNext = true
+    expect(await recordUse(deps(s2, core), walkIn({ intentId: 'aaaaaaaa-0000-4000-8000-0000000000a9' }))).toMatchObject({ ok: false, error: 'ledger_unavailable' })
+  })
 })
 
 function sysRow(over: Partial<IntentRow> = {}): IntentRow {

@@ -617,6 +617,8 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
   const { store, synqed } = deps
   const now = (deps.now ?? (() => new Date()))()
   const id = input.intentId ?? globalThis.crypto.randomUUID()
+  // S126 F10: once the row exists, an exception answers the ROW's state
+  let written: IntentRow | undefined
   try {
     const existing = await store.getAllById(id)
     if (existing.some((r) => r.business_id !== input.businessId)) {
@@ -664,6 +666,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
       row = back[0]
       if (!row) throw new Error('ledger read-back empty')
     }
+    written = row
     // 「もう1回分を消化する」: held → pending, another_session set at that moment, sent at once
     if (row.state === 'held' && input.anotherSession) {
       row = (await store.update(row.business_id, row.id, { state: 'held' }, { state: 'pending', another_session: true })) ?? (await reread(store, row))
@@ -671,6 +674,10 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
     if (row.state !== 'pending') return answerFromRow(row)
     return answerFromRow(await attemptIntent(deps, row))
   } catch {
+    if (written) {
+      const known = written
+      return answerFromRow(await reread(store, known).catch(() => known))
+    }
     // R1: no ledger row → no core call. The client wrapper holds the gesture (PR-B).
     return { ok: false, error: 'ledger_unavailable', intentId: id }
   }
