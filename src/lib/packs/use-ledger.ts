@@ -11,7 +11,9 @@
 // a conditional UPDATE … WHERE state = <prior state> (zero rows = a lost race).
 // ⚖ no hardcoded durations: every threshold below is ONE named export.
 
-import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
+import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, listCustomerPacksWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { CANCEL_REASON_SAME_DAY_CONTACT } from '@/lib/appointments/status'
 import { ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -809,7 +811,7 @@ export async function settlePending(opts: {
         }
         s.attempted += 1
         let leasedByThisPass = false
-        const out = await attemptIntent({ store: opts.store, synqed, now: clock, onLease: () => { leasedByThisPass = true } }, row)
+        const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed), onLease: () => { leasedByThisPass = true } }, row)
         if (out.state === 'settled') s.settled += 1
         else if (out.state === 'refused') s.refused += 1
         else if (out.state === 'pending' && opts.dailyPass && out.created_at &&
@@ -852,6 +854,8 @@ export interface CustomerLedgerUsage {
   noPackPending: number
   /** open uses (held+pending+parked) per JST day — the double-guard number */
   usesByDay: Map<string, number>
+  /** held/pending/parked WALK-IN uses per JST day — P4 stalls that customer-day (H2) */
+  openWalkInByDay: Map<string, number>
   /** refused-unresolved rows: SHOWN, never block */
   refused: IntentRow[]
 }
@@ -859,7 +863,7 @@ export interface CustomerLedgerUsage {
 export type LedgerUsageRead = { ok: true; byCustomer: Map<string, CustomerLedgerUsage> } | { ok: false }
 
 function emptyUsage(): CustomerLedgerUsage {
-  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), refused: [] }
+  return { pendingByPack: new Map(), heldByPack: new Map(), pendingUndoByPack: new Map(), noPackPending: 0, usesByDay: new Map(), openWalkInByDay: new Map(), refused: [] }
 }
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
 
@@ -872,6 +876,7 @@ export function usageFromRows(rows: IntentRow[]): Map<string, CustomerLedgerUsag
     if (!OPEN.includes(r.state)) continue
     if (r.kind === 'undo') { if (r.pack_id && r.state !== 'held') bump(u.pendingUndoByPack, r.pack_id); continue }
     bump(u.usesByDay, day(r.redeemed_on))
+    if (r.appointment_id === null) bump(u.openWalkInByDay, day(r.redeemed_on))
     if (!r.pack_id) { u.noPackPending += 1; continue }
     bump(r.state === 'held' ? u.heldByPack : u.pendingByPack, r.pack_id)
   }
@@ -890,4 +895,90 @@ export async function readLedgerUsage(store: LedgerStore, businessId: string, cu
 export function displayRemaining(serverRemaining: number, u: CustomerLedgerUsage | undefined, packId: string): number {
   if (!u) return serverRemaining
   return Math.max(0, serverRemaining - (u.pendingByPack.get(packId) ?? 0) - (u.heldByPack.get(packId) ?? 0) + (u.pendingUndoByPack.get(packId) ?? 0))
+}
+
+// ── P3 (no-show / same-day cancel) — the intent BEFORE the status write ──────
+/** The 08:30 JST pass (vercel.json `30 23 * * *` UTC) is the daily pass that also retries parked rows (§ 5a). */
+export const DAILY_PASS_JST_HOUR = 8
+export function isDailyPass(now: Date): boolean {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', hour: 'numeric', hourCycle: 'h23' }).format(now)) === DAILY_PASS_JST_HOUR
+}
+
+export interface P3IntentInput {
+  businessId: string
+  ownerUserId: string | null
+  intentId?: string
+  source: 'no_show' | 'cancel'
+  customerId: string
+  appointmentId: string
+  /** the booking day (JST) — redeemed_on for P3 (R6) */
+  bookingDay: string
+  packId: string
+  createdBy: string | null
+}
+
+/** R1 for P3: insert-first, read back. THROWS on any ledger failure, so the
+ *  caller aborts the whole no-show / cancel before its status write (§ 3 R1). */
+export async function insertP3Intent(store: LedgerStore, i: P3IntentInput, now: Date = new Date()): Promise<IntentRow> {
+  const id = i.intentId ?? globalThis.crypto.randomUUID()
+  const owned = (rows: IntentRow[]) => {
+    if (rows.some((r) => r.business_id !== i.businessId)) throw new Error('foreign_key')
+    return rows[0]
+  }
+  if (!owned(await store.getAllById(id))) {
+    const payload: CorePayload = {
+      pack_id: i.packId, customer_id: i.customerId, redeemed_on: i.bookingDay, appointment_id: i.appointmentId,
+      karute_record_id: null, source: 'manual', created_by: i.createdBy ?? '', counts_as_visit: false,
+    }
+    await store.insertIgnore({
+      id, business_id: i.businessId, owner_user_id: i.ownerUserId, kind: 'use',
+      ledger_source: i.source, core_source: 'manual', customer_id: i.customerId,
+      pack_id: i.packId, pack_picked_by: 'system', appointment_id: i.appointmentId, appointment_resolved: true,
+      gesture_at: iso(now), gesture_at_client: null, clock_suspect: false,
+      redeemed_on: i.bookingDay, counts_as_visit: false, another_session: false,
+      frozen_payload: payload, audit_payload: { burn_pack: true },
+      state: 'pending', attempts: 0, held_at: null, held_against: null,
+    })
+  }
+  const row = owned(await store.getAllById(id))
+  if (!row) throw new Error('ledger read-back empty')
+  return row
+}
+
+/** R2 for a P3 intent, re-run inside EVERY attempt: the booking must still be
+ *  NO_SHOW, or CANCELLED with reason same-day-contact and burnPack (Liam 7/10
+ *  pairing, mutations.ts cancel path); anything else → withdrawn (system,
+ *  status_changed), never sent. Then the ONE-booking-ONE-burn history probe
+ *  (mutations.ts appointmentAlreadyBurned). A throw = pending (attemptIntent). */
+export function p3Precheck(synqed: Pick<SynqedClient, 'packs' | 'appointments'>): (row: IntentRow) => Promise<Precheck> {
+  return async (row) => {
+    if (!row.appointment_id) return { withdraw: 'status_changed' }
+    const appt = (await synqed.appointments.get(row.appointment_id)) as
+      | { status?: string; status_reason?: string | null; starts_at: string; created_at: string } | null
+    const burnPack = row.audit_payload?.burn_pack === true
+    const still = appt?.status === 'NO_SHOW' ||
+      (appt?.status === 'CANCELLED' && appt.status_reason === CANCEL_REASON_SAME_DAY_CONTACT && burnPack)
+    if (!appt || !still) return { withdraw: 'status_changed' }
+    const anchor = Math.min(Date.parse(appt.starts_at), Date.parse(appt.created_at))
+    const history = await synqed.packs.listRecentRedemptions(ymdInJst(new Date(anchor - 86_400_000)))
+    if (history.some((r) => r.appointment_id === row.appointment_id)) return { refuse: 'already_redeemed' }
+    return { ok: true }
+  }
+}
+
+/** R3-pick for a SYSTEM-picked pack: the next FIFO pack with units, never one already tried. */
+export function systemRepick(synqed: Pick<SynqedClient, 'packs'>): (row: IntentRow, tried: Set<string>) => Promise<string | null> {
+  return async (row, tried) => {
+    const packs = await listCustomerPacksWithClient(synqed as SynqedClient, row.customer_id)
+    return pickRedemptionTarget(packs.filter((p) => !tried.has(p.id)))?.id ?? null
+  }
+}
+
+/** The per-row attempt deps every sender uses for a system row (P3). */
+export function systemDepsFor(row: IntentRow, synqed: Pick<SynqedClient, 'packs' | 'appointments'>): Pick<AttemptDeps, 'precheck' | 'repick'> {
+  const p3 = row.ledger_source === 'no_show' || row.ledger_source === 'cancel'
+  return {
+    ...(p3 ? { precheck: p3Precheck(synqed) } : {}),
+    ...(row.pack_picked_by === 'system' ? { repick: systemRepick(synqed) } : {}),
+  }
 }

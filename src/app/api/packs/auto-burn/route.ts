@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { autoBurnRecentDays, type AutoBurnSummary } from '@/lib/packs/auto-burn'
+import { defaultLedgerStore, isDailyPass, reportFailure, settlePending } from '@/lib/packs/use-ledger'
+import { rotateBusinessIds } from '@/lib/audit-watch/rotate-business-ids'
 
 // 自動消化 cron (packet 11). TWO schedules, one path (vercel.json, UTC):
 // `0 0-14 * * *` = hourly 09:00–23:00 JST, the sweep that burns a ticket ~2h
@@ -42,6 +44,24 @@ export async function GET(request: Request) {
   const auth = request.headers.get('authorization')
   if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // S125 § 5a: the use-ledger settle pass runs FIRST, before and OUTSIDE the
+  // AUTO_BURN_BUSINESS_IDS loop, for every business with open intents (read
+  // from the ledger's partial index), under SETTLE_BUDGET_MS and
+  // SETTLE_CONCURRENCY; the 08:30 JST pass also retries parked rows. Its
+  // failure never blocks the auto-burn below. The response shape is unchanged.
+  try {
+    const now = new Date()
+    const settle = await settlePending({
+      store: await defaultLedgerStore(),
+      clientFor: (b) => newSynqedClient(b),
+      rotate: rotateBusinessIds,
+      dailyPass: isDailyPass(now),
+    })
+    console.log('[ledger-settle]', JSON.stringify(settle))
+  } catch (err) {
+    reportFailure({ product: 'karute', kind: 'ledger.settle_failed', business_id: null, facts: { error: err instanceof Error ? err.message : 'unknown' } })
   }
 
   const businessIds = (process.env.AUTO_BURN_BUSINESS_IDS ?? '')
