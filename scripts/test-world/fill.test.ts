@@ -1028,6 +1028,13 @@ async function main() {
       assert.equal(await apply(fx.core, opts(empty())), 0)
       const on = (t: { burns: object[] }) => t.burns.filter((b) => (b as { redeemed_on?: unknown }).redeemed_on === rd).length
       assert.ok(on(fo.t) >= 1 && on(fx.t) === 0, `S96: no redemption is written on the closed ${rd}`)
+      // S96 follow-up — the bookings-per-open-day divisor counts open days from the live calendar (liveHoursOn)
+      const h = recipe.policy.weekly_hours
+      const noClosed = { weeklyHours: h, closedDates: new Set<string>(), specialOpen: new Map() }
+      const oneClosed = { ...noClosed, closedDates: new Set([rd]) }
+      const [o0, o1, oSnap] = [summarize(pf, TODAY, h, noClosed).openDays, summarize(pf, TODAY, h, oneClosed).openDays, summarize(pf, TODAY, h).openDays]
+      assert.ok(o0 === oSnap && o1 === o0 - 1, `S96: one closed day in the window → the open-day divisor drops by one (${o0} → ${o1})`)
+      console.log(`✓ S96 openDays: live calendar with closed ${rd} → divisor ${o0} → ${o1}`)
       console.log(`✓ S96 redeemsOf: closed ${rd} → redemptions ${sb.redemptions} → ${sf.redemptions}, packs unchanged, burns on ${rd} ${on(fo.t)} → ${on(fx.t)}`)
     }
   }

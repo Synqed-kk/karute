@@ -419,12 +419,18 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
  *  entry too = still closed, Karute's reading of core's order is not core-confirmed and dropping never causes a refusal);
  *  else the special-open window or the live weekday's hours, a null weekday = closed. Packs are left as planned (fill burns
  *  only on a COMPLETED booking in core). */
+/** S96 — THE one answer to "is the store open on this date, and when" under the live calendar (null = closed): a closed-day
+ *  row closes the date (a special-open entry too = still closed), else the special-open window, else the live weekday.
+ *  applyLiveCalendar and summarize's open-day count both read it. */
+export function liveHoursOn(cal: LiveCalendar, ymd: string): { open: string; close: string } | null {
+  if (cal.closedDates.has(ymd)) return null
+  return cal.specialOpen.get(ymd) ?? hoursOn(cal.weeklyHours, ymd)
+}
+
 export function applyLiveCalendar(p: Plan, cal: LiveCalendar): Plan {
   const why = (a: PlannedAppointment): DropWhy | null => {
-    const special = cal.specialOpen.get(a.date)
-    if (cal.closedDates.has(a.date)) return special ? 'closed-and-special' : 'closed-day'
-    const h = special ?? hoursOn(cal.weeklyHours, a.date)
-    if (!h) return 'live-weekday-closed'
+    const h = liveHoursOn(cal, a.date)
+    if (!h) return cal.closedDates.has(a.date) ? (cal.specialOpen.has(a.date) ? 'closed-and-special' : 'closed-day') : 'live-weekday-closed'
     const [open, close] = [Date.parse(jstIso(a.date, mins(h.open))), Date.parse(jstIso(a.date, mins(h.close)))]
     return Date.parse(a.startsAt) < open || Date.parse(a.endsAt) > close ? 'outside-live-hours' : null
   }

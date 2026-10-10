@@ -31,7 +31,7 @@ import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { setPlannedStatus, todayStatusFixes } from './close-out'
 import { namePoolFor, STAFF_NAMES } from './names'
-import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, plan, redeemsOf, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, liveHoursOn, plan, redeemsOf, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 import { liveLine, readLiveCalendar } from './live-calendar'
 
 export type FillCore = Pick<
@@ -575,18 +575,19 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
 }
 
 /** Counts per section of a plan, plus the shape numbers a reader checks at a glance. */
-export function summarize(p: Plan, today: string, hours: WeeklyHours) {
+export function summarize(p: Plan, today: string, hours: WeeklyHours, cal?: LiveCalendar | null) {
   const by = <T,>(xs: T[], f: (x: T) => string) => xs.reduce<Record<string, number>>((o, x) => ((o[f(x)] = (o[f(x)] ?? 0) + 1), o), {})
   const visits = Object.values(by(p.appointments, (a) => a.member)).sort((a, b) => a - b)
   let days = 0
-  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += hoursOn(hours, d) ? 1 : 0
+  // S96: with a live calendar the open days are the live calendar's (liveHoursOn), the same view the bookings were filtered by
+  for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += (cal ? liveHoursOn(cal, d) : hoursOn(hours, d)) ? 1 : 0
   const redeems = redeemsOf(p)
   const full = p.packs.filter((k) => redeems(k).length === k.size).length
   return {
     window: `${p.window.from} … ${p.window.to} (today ${today})`, staff: p.staff.length, resources: p.resources.length, menus: p.menus.length,
     customers: p.customers.length, packs: `${p.packs.length} (${full} fully used)`, redemptions: p.packs.reduce((n, k) => n + redeems(k).length, 0),
     appointments: `${p.appointments.length} ${JSON.stringify(by(p.appointments, (a) => a.status))}`,
-    perOpenDay: (p.appointments.length / days).toFixed(1), visitsPerCustomer: `min ${visits[0]} · median ${visits[visits.length >> 1]} · max ${visits[visits.length - 1]}`,
+    openDays: days, perOpenDay: (p.appointments.length / days).toFixed(1), visitsPerCustomer: `min ${visits[0]} · median ${visits[visits.length >> 1]} · max ${visits[visits.length - 1]}`,
     karuteRecords: p.karutes.length,
   }
 }
@@ -615,7 +616,7 @@ export async function runCli(argv: string[], makeClient: () => Promise<FillCore>
       const cal = live ? await readLiveCalendar(await live, storeId, p0.window, (fn) => withRetry(fn, false, io.sleep), r.policy.weekly_hours, log) : null
       const p = cal ? applyLiveCalendar(p0, cal) : p0
       if (cal) log(storeId, liveLine(cal, p0, p))
-      log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
+      log(storeId, t, JSON.stringify(summarize(p, today, hours, cal), null, 1))
       if (rest.includes('--rows')) for (const a of p.appointments)
         log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
     }
