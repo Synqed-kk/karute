@@ -9,9 +9,9 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { closeOut, movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { readLiveCalendar } from './live-calendar'
+import { readLiveCalendar, windowOf } from './live-calendar'
 import { apply, DEFAULT_THROTTLE, jstToday, lastWindowEnd, NEW_START_FUTURE_DAYS, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
-import { addDays, applyLiveCalendar, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type LiveCalendar, type Plan } from './plan'
+import { addDays, applyLiveCalendar, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, mins, plan, preferredStart, type LiveCalendar, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
@@ -944,6 +944,28 @@ async function main() {
     const kept = applyLiveCalendar({ window: w, staff: [], resources: [], menus: [], customers: [], packs: [], appointments: [night], karutes: [], dropped: [] }, c1)
     assert.ok(kept.appointments.length === 1 && kept.dropped.length === 0, 'a booking ending 23:30 on a special-open day closing 24:00 survives')
     assert.deepEqual(c1.weeklyHours, { mon: null }, 'a custom policy: its live hours')
+    // S96 finding 1 — ONE window check (windowOf) for every window read: reversed and zero-length are malformed, 24:00 closes
+    {
+      const wl: string[] = []
+      const d = '2026-10-21'
+      const wh = hoursOn(recipe.policy.weekly_hours, d)!
+      const wd = (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const)[new Date(`${d}T00:00:00Z`).getUTCDay()]
+      const sp = [{ date: d, open: '19:00', close: '10:00' }, { date: '2026-10-23', open: '10:00', close: '10:00' }, { date: '2026-10-22', open: '10:00', close: '24:00' }, { date: '2026-10-20', open: '24:00', close: '24:00' }]
+      const live = { ...recipe.policy.weekly_hours, [wd]: { open: '19:00', close: '10:00' } }
+      const c = await readLiveCalendar(mk({ closed_days: [] }, { source: 'custom', weekly_hours: live, special_open_days: sp }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, (l) => void wl.push(l))
+      assert.deepEqual([...c.specialOpen.keys()], ['2026-10-22'], 'S96: reversed, zero-length and 24:00–24:00 special-open windows are malformed; 10:00–24:00 is kept')
+      assert.ok(['#0', '#1', '#3'].every((r) => wl.some((l) => l.includes(`special-open day ${r} has a malformed`))), 'S96: each malformed special-open row is logged by position')
+      assert.ok(wl.some((l) => l.includes(`weekly hours ${wd} has a malformed`)) && wl.length === 4, 'S96: the reversed weekday is logged through the same path, 4 lines in all')
+      assert.deepEqual(c.weeklyHours[wd], recipe.policy.weekly_hours[wd], 'S96: a reversed live weekday falls through to the recipe hours for that weekday')
+      const a = { key: `tw:x:BC-0001:${d}`, date: d, startsAt: jstIso(d, mins(wh.open)), endsAt: jstIso(d, mins(wh.open) + 60) } as Plan['appointments'][number]
+      const kept = applyLiveCalendar({ window: w, staff: [], resources: [], menus: [], customers: [], packs: [], appointments: [a], karutes: [], dropped: [] }, c)
+      assert.ok(kept.appointments.length === 1 && kept.dropped.length === 0, 'S96: a booking inside the weekly hours survives a reversed special-open row on its day (no longer empties the day)')
+      assert.ok(windowOf({ open: '10:00', close: '24:00' }) && !windowOf({ open: '19:00', close: '10:00' }) && !windowOf({ open: '10:00', close: '10:00' }) && !windowOf(null), 'S96: windowOf')
+      const same = { ...recipe.policy.weekly_hours }
+      const c3 = await readLiveCalendar(mk({ closed_days: [] }, { source: 'custom', weekly_hours: same }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {})
+      assert.ok(c3.weeklyHours === same, 'S96: well-formed live hours are passed through untouched')
+      console.log(`✓ S96 windowOf: reversed + zero-length + 24:00–24:00 special-open rejected (${wl.length} lines), 10:00–24:00 kept, reversed ${wd} → recipe ${wh.open}–${wh.close}, the day keeps its booking`)
+    }
     const c2 = await readLiveCalendar(mk({ closed_days: [] }, { source: 'default', weekly_hours: null }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {})
     assert.ok(c2.weeklyHours === recipe.policy.weekly_hours && c2.closedDates.size === 0, 'a default policy: the recipe hours, 0 closed')
     await assert.rejects(readLiveCalendar(mk({ closed_days: [{ id: 'a', date: '2026-10-02' }], total: 2 }, { source: 'custom', weekly_hours: {} }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {}), /1 of 2/, 'a paged answer fails loud')

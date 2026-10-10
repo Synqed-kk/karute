@@ -137,7 +137,7 @@ const WEEKDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 const utc = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`)
 export const addDays = (ymd: string, n: number) => new Date(utc(ymd) + n * DAY).toISOString().slice(0, 10)
 export const hoursOn = (h: WeeklyHours, ymd: string) => h[WEEKDAY[new Date(utc(ymd)).getUTCDay()]] ?? null
-const mins = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+export const mins = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 /** A JST wall-clock minute on a JST date, as the ISO instant core stores. */
 export const jstIso = (ymd: string, minute: number) => new Date(utc(ymd) - 9 * 3_600_000 + minute * 60_000).toISOString()
 
