@@ -136,7 +136,8 @@ export default async function CustomerProfilePage({
     aiPassport,
     orgSettingsForPassport,
     lifecycleRead,
-    packs: packsRead.packs, // § 6a folded remaining; packsRead.ledgerUnreadable = 残数確認中 (builder 4 renders)
+    packs: packsRead.packs, // § 6a folded remaining
+    ledgerUnreadable: packsRead.ledgerUnreadable, // § 6a 残数確認中
   })
 
   return (

@@ -1132,6 +1132,8 @@
         "unknownStatusPack": "不明",
         "redeem": "1回消化",
         "redeemConfirm": "記録する",
+        "redeemHeld": "確認待ち",
+        "ledgerUnreadable": "残数確認中",
         "redeemDone": "消化を記録しました",
         "redeemFailed": "記録できませんでした",
         "redeemNoSessionsLeft": "残回数がないため消化できません",

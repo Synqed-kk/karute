@@ -1132,6 +1132,8 @@
         "unknownStatusPack": "Unknown",
         "redeem": "Use 1 session",
         "redeemConfirm": "Record",
+        "redeemHeld": "Needs a look",
+        "ledgerUnreadable": "Checking remaining",
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
         "redeemNoSessionsLeft": "No sessions left to redeem",
