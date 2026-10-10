@@ -112,6 +112,7 @@ import {
   specialDayBadge,
   type ClosureCore,
   type SpecialCore,
+  withCoreRef,
 } from '@/business/lib/store-days-state'
 import {
   isIntegerTextAtLeast,
@@ -402,9 +403,11 @@ type CardSave = { businessId: string; canSave: boolean }
 const CARD_SAVE_URL = '/api/business/card-color'
 const CARD_SAVE_REASONS: ReadonlyArray<CardSaveReason> = ['forbidden', 'tenant', 'invalid', 'core']
 
+/** ⚖ P2 · R-S97-2 — the bound's ref on a refusal (8 hex), so the room can print the number; anything else: none. */
+const refOf = (v: unknown): { ref?: string } => (typeof v === 'string' && /^[0-9a-f]{8}$/.test(v) ? { ref: v } : {})
 /** The route's answer → the room's: core's colour on 200, else one of the four reasons; anything the
  *  room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
-async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: true; color: string | null } | { ok: false; reason: CardSaveReason }> {
+async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: true; color: string | null } | { ok: false; reason: CardSaveReason; ref?: string }> {
   try {
     const res = await fetch(CARD_SAVE_URL, {
       method: 'PUT',
@@ -412,10 +415,10 @@ async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: 
       body: JSON.stringify({ color: next }),
     })
     const body: unknown = await res.json().catch(() => null)
-    const answer = (body ?? {}) as { ok?: unknown; color?: unknown; reason?: unknown }
+    const answer = (body ?? {}) as { ok?: unknown; color?: unknown; reason?: unknown; ref?: unknown }
     if (res.ok && answer.ok === true && (answer.color === null || typeof answer.color === 'string')) return { ok: true, color: answer.color }
     const reason = CARD_SAVE_REASONS.find((r) => r === answer.reason)
-    return { ok: false, reason: reason ?? 'core' }
+    return { ok: false, reason: reason ?? 'core', ...refOf(answer.ref) }
   } catch {
     return { ok: false, reason: 'core' }
   }
@@ -454,7 +457,7 @@ export const sameBookingColors = (a: Record<string, string>, b: Record<string, s
 
 /** The route's answer → the room's: core's four on 200, else one of the four reasons (the card route's
  *  own set); anything the room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
-export async function putBookingColors(save: BookingSave, colors: Record<string, string>): Promise<{ ok: true; colors: Record<string, string> } | { ok: false; reason: CardSaveReason }> {
+export async function putBookingColors(save: BookingSave, colors: Record<string, string>): Promise<{ ok: true; colors: Record<string, string> } | { ok: false; reason: CardSaveReason; ref?: string }> {
   try {
     const res = await fetch(BOOKING_SAVE_URL, {
       method: 'PUT',
@@ -462,13 +465,13 @@ export async function putBookingColors(save: BookingSave, colors: Record<string,
       body: JSON.stringify({ storeId: save.storeId, colors }),
     })
     const body: unknown = await res.json().catch(() => null)
-    const answer = (body ?? {}) as { ok?: unknown; colors?: unknown; reason?: unknown }
+    const answer = (body ?? {}) as { ok?: unknown; colors?: unknown; reason?: unknown; ref?: unknown }
     const got = answer.colors
     if (res.ok && answer.ok === true && got !== null && typeof got === 'object' && BOOKING_KEYS.every((k) => typeof (got as Record<string, unknown>)[k] === 'string')) {
       return { ok: true, colors: Object.fromEntries(BOOKING_KEYS.map((k) => [k, (got as Record<string, string>)[k]])) }
     }
     const reason = CARD_SAVE_REASONS.find((r) => r === answer.reason)
-    return { ok: false, reason: reason ?? 'core' }
+    return { ok: false, reason: reason ?? 'core', ...refOf(answer.ref) }
   } catch {
     return { ok: false, reason: 'core' }
   }
@@ -730,6 +733,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const toast = useToast()
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
+  /** ⚖ P2 · R-S97-2 — the bound's ref of the last refusal of the colour, 予約の色分け and the switches; set beside each
+   *  refusal from a route answer (and only shown while that refusal stands). */
+  const [failRef, setFailRef] = useState<{ card?: string; booking?: string; caps?: string }>({})
   const bookingSaving = useRef(false)
   const [reserveFail, setReserveFail] = useState<string | null>(null)
   const reserveSaving = useRef(false)
@@ -1110,6 +1116,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     cardSaving.current = false
     if (!result.ok) {
       setCardFail(result.reason)
+      setFailRef((p) => ({ ...p, card: result.ref }))
       return
     }
     commitSection(target, true) // core confirmed it holds this colour (the route has no baseline; the echoed colour is compared with the pick — a different answer shows as unsaved)
@@ -1128,6 +1135,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       commitSection(target, false) // Greptile T2: the four unchanged → no PUT, the section commits locally (page only)
       return
     }
+    setFailRef((p) => ({ ...p, booking: result.ok ? undefined : result.ref })) // P2 · R-S97-2 — the refusal's number
     if (!result.ok) {
       setBookingFail(result.reason)
       return
@@ -1580,6 +1588,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       ? putCardColor(card, picked === '' ? null : picked).then((result) => {
         if (!result.ok) {
           setCardFail(result.reason)
+          setFailRef((p) => ({ ...p, card: result.ref }))
           return
         }
         setSpPress((prev) => ({ ...prev, cardOk: true }))
@@ -1590,6 +1599,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const caps = sendCaps && spDraft !== null
       ? putStoreCapabilities(card.businessId, { storeId: sp.storeId, record: spDraft, resetKeys: sentKeys, basedOn: accepted?.basedOn ?? sp.basedOn }).then((result) => {
         setSpPress((prev) => ({ ...prev, caps: result.ok ? 'ok' : result.reason }))
+        setFailRef((p) => ({ ...p, caps: result.ok ? undefined : result.ref }))
         if (!result.ok) return
         const got = storePageValues(result.record, STORE_PAGE_IDS)
         setSaved((prev) => ({ ...prev, ...got }))
@@ -2026,8 +2036,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           switches sent (`caps` 'unsent', always so without storePage) the colour's line is CARD_SAVE_FAIL[cardFail] as before. */}
                       {((lines) => (
                         <>
-                          {lines.card && <p className="st-act-error" role="alert">{lines.card}</p>}
-                          {lines.caps && <p className="st-act-error" role="alert">{lines.caps}</p>}
+                          {lines.card && <p className="st-act-error" role="alert"><FailText text={withCoreRef(lines.card, cardFail ? failRef.card : undefined)} /></p>}
+                          {lines.caps && <p className="st-act-error" role="alert"><FailText text={withCoreRef(lines.caps, spPress.caps === 'core' ? failRef.caps : undefined)} /></p>}
                         </>
                       ))(saveFailLines(cardFail ?? (spPress.cardOk ? 'ok' : 'unsent'), spPress.caps, CARD_SAVE_FAIL))}
                     </>,
@@ -2136,12 +2146,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 liveColors ? (
                   <>
                     {liveColors.canSave === false ? null : roomSave(section)}
-                    {bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}
+                    {bookingFail && <p className="st-act-error" role="alert"><FailText text={withCoreRef(BOOKING_SAVE_FAIL[bookingFail], failRef.booking)} /></p>}
                   </>
                 ) : liveReserve ? (
                   <>
                     {liveReserve.canSave ? roomSave(section) : null}
-                    {reserveFail && <p className="st-act-error" role="alert">{reserveFail}</p>}
+                    {reserveFail && <p className="st-act-error" role="alert"><FailText text={reserveFail} /></p>}
                   </>
                 ) : roomSave(section),
                 (id) => {
@@ -2371,6 +2381,24 @@ function Side({
 /** The save state, and the ONE piece of chrome that moves on its own: it rises
  *  when there is something to save and sits back down after 保存, on the room's
  *  own spring. */
+/** ⚖ P2 · R-S97-2 fix 2 — THE one renderer of a save's failure text for all five saves (カードの見た目, お店ページの機能,
+ *  予約の色分け, 受付ルール, 臨時休業・特別営業日): each line withCoreRef composed is its OWN line, and on the
+ *  「エラー番号：」 line (LABEL-FINAL) the number is monospace and selectable. */
+function FailText({ text }: { text: string }) {
+  const [first, ...rest] = text.split('\n')
+  const [label] = businessStrings.coreUnanswered.reference.split('{ref}')
+  return (
+    <>
+      {first}
+      {rest.map((line, i) => (
+        <span key={i} className="st-fail-ref">
+          {line.startsWith(label) ? <>{label}<span className="st-fail-ref-num">{line.slice(label.length)}</span></> : line}
+        </span>
+      ))}
+    </>
+  )
+}
+
 function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: boolean; reduced: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const spring = useRef<ReturnType<typeof makeSpring> | null>(null)
@@ -2846,7 +2874,7 @@ function Collection({
           <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
             {pending === 'add' ? ADD_PENDING_LABEL : coll.addLabel}
           </button>
-          {error && <p className="st-coll-error" role="status">{error}</p>}
+          {error && <p className="st-coll-error" role="status"><FailText text={error} /></p>}
         </div>
       )}
     </div>
@@ -2987,7 +3015,7 @@ function SpecialDaysCollection({
           <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
             {pending === 'add' ? ADD_PENDING_LABEL : sd.addLabel}
           </button>
-          {error && <p className="st-coll-error" role="status">{error}</p>}
+          {error && <p className="st-coll-error" role="status"><FailText text={error} /></p>}
         </div>
       )}
     </div>

@@ -58,11 +58,12 @@ export const READ_ONLY_NOTE = '変更には本部の権限が必要です。'
 export const LIVE_SAVE_LINE = '「追加」「取り消す」を押すとすぐ保存されるため、この画面の「保存する」を押す必要はありません。'
 export const ADD_PENDING_LABEL = '追加中'
 export const REMOVE_PENDING_LABEL = '取り消し中'
-/** A write that did not land (core / tenant refusal, or no answer at all). */
-/** ⚖ R-S97-2 (P2) — a save refused because core did not answer: its message ends in the page notice's エラー番号 line
- *  (LABEL-FINAL, ja.json) with the bound's ref; no ref = the message unchanged. */
+/** ⚖ R-S97-2 (P2) — a save refused because core did not answer: the page notice's エラー番号 line (LABEL-FINAL, ja.json)
+ *  with the bound's ref, on its OWN line after the message (SettingsScreen's FailText draws each line); no ref = the
+ *  message unchanged. The one composer for the five saves, server side (store days, 受付ルール) and screen side. */
 export const withCoreRef = (message: string, ref: string | undefined): string =>
-  ref === undefined ? message : message + businessStrings.coreUnanswered.reference.replace('{ref}', ref)
+  ref === undefined ? message : `${message}\n${businessStrings.coreUnanswered.reference.replace('{ref}', ref)}`
+/** A write that did not land (core / tenant refusal, or no answer at all). */
 export const GENERIC_FAIL_LINE = 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。'
 /** Validation lines the door (door-writes.ts MSG) and the OFF-world draft add both print. */
 export const PICK_DATE_LINE = '日付を選んでください。'

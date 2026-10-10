@@ -8,7 +8,8 @@ import { writeReserveCardColor } from '@/business/lib/data'
 
 const STATUS = { forbidden: 403, tenant: 409, invalid: 400, core: 503 } as const
 type Reason = keyof typeof STATUS
-const refuse = (reason: Reason) => Response.json({ ok: false, reason }, { status: STATUS[reason] })
+// ⚖ P2 · R-S97-2 — a refusal because core did not answer carries the bound's ref, so the screen can show the number.
+const refuse = (reason: Reason, ref?: string) => Response.json({ ok: false, reason, ...(ref === undefined ? {} : { ref }) }, { status: STATUS[reason] })
 
 /** Strict same-origin. With an Origin header, it must name this request's own scheme and the `host`
  *  this server received — never `x-forwarded-host`, which the client can send. The scheme is the one
@@ -43,5 +44,5 @@ export async function PUT(req: Request): Promise<Response> {
     (body.color !== null && typeof body.color !== 'string')
   ) return refuse('invalid')
   const result = await writeReserveCardColor(body.color)
-  return result.ok ? Response.json(result, { status: 200 }) : refuse(result.reason)
+  return result.ok ? Response.json(result, { status: 200 }) : refuse(result.reason, result.ref)
 }
