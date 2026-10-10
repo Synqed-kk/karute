@@ -639,6 +639,14 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
 }
 
 // ── § 5 the settle pass ──────────────────────────────────────────────────────
+/** S126 hole 2: a pending row with no attempt yet, younger than the longest
+ *  caller, is still owned by the request that wrote it (its first attempt is
+ *  that request's, after its status write) — the pass never touches it. */
+export function ownedByWriter(row: IntentRow, now: Date): boolean {
+  return row.state === 'pending' && row.attempts === 0 && Boolean(row.created_at) &&
+    now.getTime() - Date.parse(row.created_at as string) < MAX_CALLER_DURATION_MS
+}
+
 export interface SettleSummary { businesses: number; attempted: number; settled: number; refused: number; stillOpen: number; parked: number; outOfBudget: boolean }
 
 export async function settlePending(opts: {
@@ -666,6 +674,7 @@ export async function settlePending(opts: {
     const worker = async () => {
       while (next < rows.length && clock().getTime() < deadline) {
         let row = rows[next++]
+        if (ownedByWriter(row, clock())) continue
         if (row.state === 'parked') {
           row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
         }

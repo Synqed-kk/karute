@@ -14,6 +14,7 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedC
 import {
   attemptIntent, classifyCoreFailure, displayRemaining, preReadMatch, readLedgerUsage, recordUse,
   settlePending, usageFromRows, cutoverDay, MAX_HOLD_MS, CLOCK_SKEW_MS, REPLAY_LEASE_MS,
+  MAX_CALLER_DURATION_MS,
   type IntentRow, type LedgerStore, type Where,
 } from '@/lib/packs/use-ledger'
 
@@ -21,6 +22,7 @@ const B = '11111111-1111-4111-8111-111111111111'
 const B2 = '22222222-2222-4222-8222-222222222222'
 const NOW = new Date('2026-10-20T03:00:00.000Z') // 12:00 JST, after CUTOVER_DAY
 const TODAY = '2026-10-20'
+const OLD = new Date(NOW.getTime() - MAX_CALLER_DURATION_MS - 1_000).toISOString() // older than any caller
 const CUT = '2026-10-11' // jest.config.ts sets KARUTE_LEDGER_CUTOVER_DAY to this day
 
 function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; failReads?: boolean } {
@@ -296,7 +298,8 @@ describe('S125 use ledger — the numbered list', () => {
 
   test('settle pass: pending rows of every business with open rows; parked resumes on the daily pass', async () => {
     const store = memStore(); const core = fakeCore()
-    await store.insertIgnore(sysRow({ id: 's1', pack_picked_by: 'staff' }))
+    // S126 hole 2: an attempts-0 row is the pass's only once older than MAX_CALLER_DURATION_MS
+    await store.insertIgnore(sysRow({ id: 's1', pack_picked_by: 'staff', created_at: OLD }))
     await store.insertIgnore(sysRow({ id: 's2', business_id: B2, pack_picked_by: 'staff', state: 'parked' }))
     const hourly = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW })
     expect(hourly).toMatchObject({ settled: 1, attempted: 1 })
@@ -342,6 +345,17 @@ describe('S125 use ledger — the numbered list', () => {
     expect(classifyCoreFailure({ ok: false, error: 'x', status: 400, message: 'bad', body: { issues: [] } }, false)).toEqual({ kind: 'refused', code: 'invalid_body' })
     expect(classifyCoreFailure({ ok: false, error: 'x', status: 400, message: 'Pack not found in this business', body: { error: 'Pack not found in this business' } }, false)).toEqual({ kind: 'refused', code: 'pack_not_found' })
     err.mockRestore()
+  })
+
+  test('D · the settle pass leaves a fresh P3 row (attempts 0, younger than MAX_CALLER_DURATION_MS) to its own request; an older one is attempted', async () => {
+    const store = memStore(); const core = fakeCore()
+    await store.insertIgnore(sysRow({ id: 'd-fresh', created_at: new Date(NOW.getTime() - 1_000).toISOString() }))
+    await store.insertIgnore(sysRow({ id: 'd-old', appointment_id: 'appt-2', created_at: OLD }))
+    const out = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW })
+    expect(out.attempted).toBe(1)
+    expect(store.rows.find((r) => r.id === 'd-fresh')).toMatchObject({ state: 'pending', attempts: 0 })
+    expect(store.rows.find((r) => r.id === 'd-old')).toMatchObject({ state: 'settled', attempts: 1 })
+    expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
   })
 })
 
