@@ -2665,7 +2665,7 @@ describe('S84 — live-keyed inbox and register planes', () => {
   })
 })
 
-describe('(12) Reserve S66 — 受付 reads the store\'s six booking rules live (door ON, テスト東京店)', () => {
+describe('(14) Reserve S66 — 受付 reads the store\'s six booking rules live (door ON, テスト東京店)', () => {
   type Props = Awaited<ReturnType<typeof settingsProps>>['props']
   const blockOf = (props: Props, blockId: string) => props.sections.find((s) => s.id === 'reserve-acceptance')!.blocks.find((b) => b.id === blockId)!
   const controlOf = (props: Props, id: string) =>
