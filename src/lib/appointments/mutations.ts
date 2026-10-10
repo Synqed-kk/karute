@@ -415,13 +415,19 @@ async function insertP3IntentOrThrow(
 }
 
 /** The attempt after the status write, and the EXACT burnError map:
- *  settled / pending / withdrawn → null (no amber line for a generic failure —
- *  it is pending, ⚖ 10/3, design § 6a) · refused no_units → 'below_zero' ·
+ *  settled / pending → null (no amber line for a generic failure —
+ *  it is pending, ⚖ 10/3, design § 6a) · withdrawn by this first attempt →
+ *  'burn_failed' (S127 FIX 7: the ticket was NOT consumed; a duplicate_of
+ *  withdrawal stays null) · refused no_units → 'below_zero' ·
  *  refused already_redeemed → 'already_burned' · any other named final refusal
  *  → 'burn_failed' (staff can act). A throw leaves the written row pending. */
 async function attemptP3(synqed: MutationClient, p: P3Intent): Promise<{ burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null; row: IntentRow }> {
   const core = synqed as unknown as Parameters<typeof systemDepsFor>[1]
   const row = await attemptIntent({ store: p.store, synqed: core, ...systemDepsFor(p.row, core, p.store) }, p.row).catch(() => p.row)
+  // S127 FIX 7 (C6): the writer's OWN first attempt withdrew the row (e.g. a stale
+  // booking read, status_changed) → the ticket was NOT consumed; staff must see it.
+  // A duplicate_of withdrawal is excluded: that booking's ticket was consumed once.
+  if (row.state === 'withdrawn' && row.last_error_code !== 'duplicate_of') return { burnError: 'burn_failed', row }
   if (row.state !== 'refused') return { burnError: null, row }
   return { burnError: row.refused_code === 'no_units' ? 'below_zero' : row.refused_code === 'already_redeemed' ? 'already_burned' : 'burn_failed', row }
 }

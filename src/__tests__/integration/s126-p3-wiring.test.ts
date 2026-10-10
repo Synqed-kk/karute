@@ -127,6 +127,18 @@ describe('17 — R2: every P3 attempt re-checks the booking (driven through muta
   })
 })
 
+describe('S127 FIX 7 (C6) — the writer’s own first attempt withdraws the row', () => {
+  it('a stale booking read (not NO_SHOW yet) → withdrawn status_changed, burnError burn_failed (the ticket was NOT consumed), nothing sent', async () => {
+    const c = fakeCore()
+    c.get.mockImplementationOnce(async () => ({ ...c.booking })).mockImplementationOnce(async () => ({ ...c.booking, status: 'SCHEDULED' }))
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
+    expect(res).toMatchObject({ success: true, burnError: 'burn_failed' })
+    expect(lastDetail()).toMatchObject({ burn_error: 'burn_failed', ledger_state: 'withdrawn' })
+    expect(await rowsOf(mockLedger.store as Store, lastDetail().intent_id as string)).toMatchObject({ state: 'withdrawn', withdrawn_by: 'system', last_error_code: 'status_changed' })
+    expect(c.addRedemption).not.toHaveBeenCalled()
+  })
+})
+
 describe('A26 — a generic core failure on the first P3 attempt', () => {
   it('→ pending, burnError null (no amber line), the audit row carries intent id + state', async () => {
     const c = fakeCore(); c.addRedemption.mockImplementationOnce(genericFailure)
