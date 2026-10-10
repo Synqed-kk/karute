@@ -596,7 +596,7 @@ describe('⚖ PKT-S38 R7 — the screen speaks the route’s contract', () => {
     expect(SCREEN).toContain('const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined')
     expect(SCREEN).toContain('{liveColors.canSave === false ? null : roomSave(section)}')
     expect(SCREEN).toContain('<p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>')
-    expect(SCREEN).toContain('{bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}')
+    expect(SCREEN).toContain('{bookingFail && <p className="st-act-error" role="alert"><FailText text={withCoreRef(BOOKING_SAVE_FAIL[bookingFail], failRef.booking)} /></p>}') // P2 · R-S97-2 fix 2: the line drawn by FailText, the number on its own line
     expect(SCREEN).toContain('onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}')
     expect(SCREEN.match(/setBookingFail\(null\)/g)).toHaveLength(4) // the save itself, a pick, openSection, backToList
   })
@@ -632,5 +632,23 @@ describe('P2 — writeBookingColors fails fast on a hung core read', () => {
     expect(error).toHaveBeenCalledWith(tag, `no answer within 5000 ms ref=${ref}`)
     expect(mockCore.upsert).not.toHaveBeenCalled()
     expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('the route: a 503 carries the bound\'s ref', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    const res = put()
+    await jest.advanceTimersByTimeAsync(5000)
+    expect(await answer(await res)).toEqual({ status: 503, body: { ok: false, reason: 'core', ref: boundRef() } })
+  })
+  it('the screen\'s client: putBookingColors keeps the ref (8 hex) and drops anything else', async () => {
+    const realFetch = global.fetch
+    try {
+      for (const [ref, want] of [['0a1b2c3d', { ref: '0a1b2c3d' }], ['<b>', {}], [undefined, {}]] as Array<[unknown, object]>) {
+        global.fetch = jest.fn(async () => ({ ok: false, status: 503, json: async () => ({ ok: false, reason: 'core', ref }) })) as unknown as typeof fetch
+        expect(await putBookingColors({ businessId: TENANT, storeId: S, canSave: true, colors: PICK }, PICK)).toEqual({ ok: false, reason: 'core', ...want })
+      }
+    } finally {
+      global.fetch = realFetch
+    }
   })
 })

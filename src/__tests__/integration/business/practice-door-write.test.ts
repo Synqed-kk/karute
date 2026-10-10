@@ -412,4 +412,11 @@ describe('P2 — writeReserveCardColor fails fast on a hung core read', () => {
     expect(mockCore.upsert).not.toHaveBeenCalled()
     expect(jest.getTimerCount()).toBe(0)
   })
+
+  it('the route: a 503 carries the bound\'s ref (the screen prints it)', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    const res = put()
+    await jest.advanceTimersByTimeAsync(5000)
+    expect(await answer(await res)).toEqual({ status: 503, body: { ok: false, reason: 'core', ref: boundRef() } })
+  })
 })

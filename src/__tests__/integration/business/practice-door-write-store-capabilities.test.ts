@@ -611,4 +611,30 @@ describe('P2 — writeStoreCapabilities fails fast on a hung core read', () => {
     expect(mockCore.upsert).not.toHaveBeenCalled()
     expect(jest.getTimerCount()).toBe(0)
   })
+
+  it('orgSettingsGet (the read before the write) never answers', async () => {
+    const basedOn = await loaded()
+    withReads()
+    ;(mockCore.reads.orgSettingsGet as jest.Mock).mockImplementation(hang)
+    const result = await at5000(data.writeStoreCapabilities(S, seedRecord('other'), [], basedOn))
+    const ref = boundRef()
+    expect(result).toEqual({ ok: false, reason: 'core', ref })
+    expect(error).toHaveBeenCalledWith('[business store capabilities] core did not save:', `no answer within 5000 ms ref=${ref}`)
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+  it('the route: a 503 carries the bound\'s ref', async () => {
+    const { PUT } = jest.requireActual('@/app/api/business/store-capabilities/route') as typeof import('@/app/api/business/store-capabilities/route')
+    const basedOn = await loaded()
+    withReads()
+    ;(mockCore.reads.answerSheet as jest.Mock).mockImplementation(hang)
+    const HOST = 'karute.test'
+    const res = PUT(new Request(`https://${HOST}/api/business/store-capabilities`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', host: HOST, origin: `https://${HOST}`, 'x-expected-business': TENANT },
+      body: JSON.stringify({ storeId: S, record: seedRecord('other'), reset_keys: [], based_on: basedOn }),
+    }))
+    await jest.advanceTimersByTimeAsync(5000)
+    const r = await res
+    expect({ status: r.status, body: await r.json() }).toEqual({ status: 503, body: { ok: false, reason: 'core', ref: boundRef() } })
+  })
 })

@@ -1154,10 +1154,26 @@ describe('P2 · R-S97-2 — a hung read inside a save: refused before any write,
     const bound = error.mock.calls.filter((c) => c[0] === '[business core read]')
     expect(bound).toHaveLength(1)
     const { ref } = bound[0][1] as { ref: string }
-    expect(result).toEqual({ ok: false, reason: 'core', message: fail + ja.coreUnanswered.reference.replace('{ref}', ref) })
+    expect(result).toEqual({ ok: false, reason: 'core', message: `${fail}\n${ja.coreUnanswered.reference.replace('{ref}', ref)}` })
     expect(error).toHaveBeenCalledWith(tag, `no answer within 5000 ms ref=${ref}`)
     expect(mockCore.writerFor).not.toHaveBeenCalled()
     expectWrites()
     expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('canWriteStoreDays: a hung actor read → \'unknown\' at 5,000 ms; the bound\'s one line and NO store-days line (the log-skip)', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    expect(await at5000(data.readCanWriteStoreDays(STORE_ID))).toBe('unknown')
+    expect([error.mock.calls.filter((c) => c[0] === '[business core read]').length, error.mock.calls.filter((c) => c[0] === '[business store days] core did not answer:').length]).toEqual([1, 0])
+  })
+  it('HQ_GRANTED: a hung grant check is evicted at 5,000 ms — the next save in the same process asks core afresh', async () => {
+    as('login-admin')
+    const spy = withReads()
+    spy.businessGrantsCheck.mockImplementation(hang)
+    expect(await at5000(data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' }))).toMatchObject({ ok: false, reason: 'core' })
+    spy.businessGrantsCheck.mockResolvedValue({ granted: false })
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-10-30', reason: '' })).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(spy.businessGrantsCheck).toHaveBeenCalledTimes(2)
+    expectWrites()
   })
 })

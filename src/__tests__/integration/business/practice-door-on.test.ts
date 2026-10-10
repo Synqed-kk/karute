@@ -2856,4 +2856,40 @@ describe('P2 — every core read is bounded at CORE_READ_BOUND_MS', () => {
     withReads().storesList.mockRejectedValue(Object.assign(new Error('x'), { name: 'CoreUnanswered', ref: 'deadbeef', digest: 'deadbeef' }))
     await expect(call()).rejects.toMatchObject({ name: 'CoreUnanswered', message: 'x' })
   })
+
+  it('P2 FIX 3 — one outage, one line: the read that hung first mints the ref and writes the line; a later timer finds the ref and writes nothing, carrying the same ref', async () => {
+    const spy = withReads()
+    const actor = await practiceActor()
+    spy.menusList.mockImplementation(hang)
+    spy.customersList.mockImplementation(hang)
+    const first = actor.reads.menusList().catch((e: unknown) => e as CoreUnanswered)
+    await jest.advanceTimersByTimeAsync(100)
+    const second = actor.reads.customersList().catch((e: unknown) => e as CoreUnanswered)
+    await jest.advanceTimersByTimeAsync(4900)
+    const atFirst = coreLines().length
+    await jest.advanceTimersByTimeAsync(100)
+    const [a, b] = [(await first) as CoreUnanswered, (await second) as CoreUnanswered]
+    expect([atFirst, coreLines().length, a.read, b.read, b.ref === a.ref, (coreLines()[0][1] as { read: string }).read]).toEqual([1, 1, 'menusList', 'customersList', true, 'menusList'])
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('P2 FIX 3 — a sibling that REJECTS first (no ref yet): the hung read\'s own timer is the outage\'s first, so it writes the one line at its fire, and only one', async () => {
+    const spy = withReads()
+    const actor = await practiceActor()
+    spy.menusList.mockRejectedValue(new Error('core down'))
+    spy.customersList.mockImplementation(hang)
+    const all = Promise.all([actor.reads.menusList(), actor.reads.customersList()]).catch((e: unknown) => e as Error)
+    expect(((await all) as Error).message).toBe('core down')
+    expect(coreLines()).toHaveLength(0)
+    await jest.advanceTimersByTimeAsync(5000)
+    await jest.advanceTimersByTimeAsync(5000)
+    expect([coreLines().length, (coreLines()[0][1] as { read: string }).read, jest.getTimerCount()]).toEqual([1, 'customersList', 0])
+  })
+
+  it('P2 — readCanManageCardColor: a hung actor read → false at 5,000 ms; the bound\'s one line and NO card-colour line (the log-skip)', async () => {
+    withReads().answerSheet.mockImplementation(hang)
+    const r = await at5000(() => data.readCanManageCardColor())
+    expect([r.early, r.out]).toEqual([false, { ok: true, v: false }])
+    expect([coreLines().length, quiet.mock.calls.filter((c) => c[0] === '[business card colour] core did not answer:').length]).toEqual([1, 0])
+  })
 })
