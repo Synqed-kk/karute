@@ -28,7 +28,7 @@
 // shape (`isSynqedError`) rather than `instanceof` — no import needed either way.
 import { CoreUnanswered, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings } from './door'
+import { canManageSettings, failText, withCoreRef } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
 import { pickReservePolicy, type ReservePolicy } from './reserve-policy'
@@ -244,8 +244,8 @@ function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal
     console.warn('[business store days] core refused:', e.status, e.message)
     return { ok: false, reason: 'core', message: MSG.genericFail }
   }
-  console.error('[business store days] core did not save:', e instanceof Error ? e.message : String(e))
-  return { ok: false, reason: 'core', message: MSG.genericFail }
+  console.error('[business store days] core did not save:', failText(e))
+  return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, e) }
 }
 
 // ── admission (shared by all four exports) ──────────────────────────────────
@@ -267,8 +267,8 @@ async function admitActor(): Promise<Admitted | Refusal> {
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return TENANT_REFUSAL
-    console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core', message: MSG.genericFail }
+    console.error('[business store days] core did not answer:', failText(e))
+    return { ok: false, reason: 'core', message: withCoreRef(MSG.genericFail, e) }
   }
   return { ok: true, actor, reach }
 }

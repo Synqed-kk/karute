@@ -10,7 +10,7 @@
 
 import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings } from './door'
+import { canManageSettings, failText, withCoreRef } from './door'
 import { renderNow } from '../clock'
 import { planesOf } from './sample-facade'
 import { READ_ONLY_NOTE } from '../store-days-state'
@@ -82,8 +82,8 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return refuse('tenant', MSG.fail)
-    console.error('[business reserve policy] core did not answer:', e instanceof Error ? e.message : String(e))
-    return refuse('core', MSG.fail)
+    console.error('[business reserve policy] core did not answer:', failText(e))
+    return refuse('core', withCoreRef(MSG.fail, e))
   }
   if (!visibleIds(actor).includes(storeId)) return refuse('forbidden', MSG.readOnly)
   if (!canManageSettings(actor)) return refuse('forbidden', MSG.readOnly)
@@ -105,7 +105,7 @@ export async function setReservePolicy(storeId: string, draft: unknown, basedOn:
     if (e instanceof reach.PracticeTenantMismatch) return refuse('tenant', MSG.fail)
     if (isSynqedError(e) && e.status === 403) return refuse('forbidden', MSG.readOnly)
     // English never reaches the screen — logged for whoever reads the server console.
-    console.error('[business reserve policy] core did not save:', isSynqedError(e) ? `${e.status} ${e.message}` : e instanceof Error ? e.message : String(e))
-    return refuse('core', MSG.fail)
+    console.error('[business reserve policy] core did not save:', isSynqedError(e) ? `${e.status} ${e.message}` : failText(e))
+    return refuse('core', withCoreRef(MSG.fail, e))
   }
 }

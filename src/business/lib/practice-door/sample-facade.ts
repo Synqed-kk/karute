@@ -13,6 +13,10 @@ import { fixtureIdOf, liveIdOf, samplePolicyFor, type StoreSamplePolicy } from '
 
 export type TwinKind = 'stores' | 'staff' | 'menus' | 'customers' | 'appointments'
 
+/** ⚖ R-S97-2 — the page notice's エラー番号 line (LABEL-FINAL, ja.json), for door.ts's save refusals: this module is the
+ *  door's one existing reach into the Business strings (the folder's import inventory is sealed). */
+export const CORE_REF_LINE: string = businessStrings.coreUnanswered.reference
+
 const FIELD_KIND: Record<string, TwinKind> = {
   store_id: 'stores',
   staff_id: 'staff',

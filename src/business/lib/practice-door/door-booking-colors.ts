@@ -7,13 +7,13 @@
 
 import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
-import { canManageSettings, orgSettingsOf } from './door'
+import { canManageSettings, coreRefOf, failText, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
 import { BOOKING_PALETTE, bookingColorsFor, bookingColorsKeyFor, type BookingColors } from '../booking-colors'
 
 export type WriteBookingColorsResult =
   | { ok: true; colors: BookingColors }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core'; ref?: string }
 
 const BOOKING_KEYS = ['new', 'repeat', 'ticket', 'vip'] as const
 /** A plain object: no array, and its prototype is null or SOME realm's Object.prototype (a parsed request body
@@ -58,8 +58,8 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    console.error('[business booking colours] core did not answer:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business booking colours] core did not answer:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   if (!visibleIds(actor).includes(storeId)) return { ok: false, reason: 'forbidden' }
@@ -82,7 +82,7 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
     return { ok: true, colors: out }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    console.error('[business booking colours] core did not save:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business booking colours] core did not save:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
 }

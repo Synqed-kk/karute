@@ -15,7 +15,7 @@
 import { assertLensVisible, CoreUnanswered, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor } from './registry'
 import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
-import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
+import { borrows, CORE_REF_LINE, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
 import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
 import {
@@ -499,6 +499,14 @@ export async function readBookingColors(): Promise<Record<string, unknown> | nul
   return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
 
+/** ⚖ R-S97-2 — a SAVE refused because core did not answer keeps its own log line, carrying the bound's ref, and its
+ *  message gains the page notice's エラー番号 line: one outage, one number wherever it surfaces. Any other failure: the
+ *  text and the message exactly as before. */
+export const failText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) + (e instanceof CoreUnanswered ? ` ref=${e.ref}` : '')
+export const withCoreRef = (message: string, e: unknown): string => (e instanceof CoreUnanswered ? message + CORE_REF_LINE.replace('{ref}', e.ref) : message)
+/** The same number for a save whose result carries no message (the screen owns its words). */
+export const coreRefOf = (e: unknown): { ref?: string } => (e instanceof CoreUnanswered ? { ref: e.ref } : {})
+
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
 export const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
 
@@ -519,7 +527,7 @@ export async function readCanManageCardColor(): Promise<boolean> {
 
 export type WriteCardColorResult =
   | { ok: true; color: string | null }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core'; ref?: string }
 
 /** ⚖ A2 (Liam 9/24, CONTRACT-CARD-LOOK §5) — THE ONE BUSINESS WRITER: the Reserve card colour.
  *  OFF has no writer. Only the 12 palette hex values or null, checked before any core call.
@@ -536,8 +544,8 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
     // The route promises 503 honesty: a failed staff / sheet / store read is core's failure, never a 500.
-    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business card colour] core did not answer:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   try {
@@ -553,8 +561,8 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
     return { ok: true, color }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    console.error('[business card colour] core did not save:', e instanceof Error ? e.message : String(e))
-    return { ok: false, reason: 'core' }
+    console.error('[business card colour] core did not save:', failText(e))
+    return { ok: false, reason: 'core', ...coreRefOf(e) }
   }
 }
 
