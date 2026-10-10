@@ -460,6 +460,20 @@ describe('Reserve S69 — round 2: the token is committed state; the last good s
     expect(fetchLog[0].body.basedOn).toBe(policyHash(THIRD))
   })
 
+  it('(NIT 2) re-read moves the grid null → 30; 0 → blur → the field restores 30 (not empty) with its usual message', async () => {
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: null, updated_at: '2026-10-07T01:00:00Z' })
+    const { rerender } = await mountKeep()
+    expect(grid().value).toBe('')
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: 30, updated_at: STAMP })
+    const again = await pageOf(STORE.tokyo)
+    await act(async () => { rerender(again) })
+    await settle()
+    expect(grid().value).toBe('30')
+    set('お客様が選べる開始時刻', '0')
+    expect(grid().value).toBe('30')
+    expect(grid().parentElement!.querySelector('.st-field-msg')?.textContent ?? '').toContain('前の値の30')
+  })
+
   it('(SHOULD-FIX) the token is committed state set only in adoptReserveRow — no ref, nothing written to it during render', () => {
     // A behavioural repro is not feasible here: under act() a transition held by a suspending sibling is not kept
     // uncommitted — the next urgent render already shows the re-read's row (measured on cd37d0c35: 無断キャンセル料 read

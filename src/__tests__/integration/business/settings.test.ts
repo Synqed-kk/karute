@@ -1522,9 +1522,15 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY')
     expect(SCREEN_CODE).not.toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
     // S69 (Greptile #1157 P2) — an emptyLabel field's empty box is a last good state too; every other field seeds the clamped number
-    expect(SCREEN_CODE).toContain("const lastGood = useRef<number | ''>(k.emptyLabel && text.trim() === '' ? '' : clampInt(Number(text), k.min, ceiling))")
+    expect(SCREEN_CODE).toContain("const goodOf = (t: string): number | '' => (k.emptyLabel && t.trim() === '' ? '' : clampInt(Number(t), k.min, ceiling))")
+    expect(SCREEN_CODE).toContain("const lastGood = useRef<number | ''>(goodOf(text))")
     expect(SCREEN_CODE).not.toContain('n >= k.min && n <= k.max) lastGood.current')
-    expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1) // ONE home: the onBlur commit
+    // ONE home, still: the single setter `remember`; it is called by the onBlur commit and by the resync of a value that
+    // arrived from OUTSIDE the field (S69 round 2) — never by a keystroke
+    expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1)
+    expect(SCREEN_CODE).toContain("const remember = (v: number | '') => { lastGood.current = v }")
+    expect((SCREEN_CODE.match(/remember\(/g) ?? []).length).toBe(2)
+    expect(SCREEN_CODE).toContain('useEffect(() => { if (text !== ownText.current) { ownText.current = text; remember(goodOf(text)) } })')
     // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, never a
     // number to round (「1.5」→2, 「1e2」→100). `isIntegerTextAtLeast` is the
     // SAME predicate `commitMinutes` (StorePolicySection.tsx) uses — imported
@@ -1535,7 +1541,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''")
     // S69 — the last good state is read once as `back`; an empty one (emptyLabel fields only) commits '' instead
     expect(SCREEN_CODE).toContain('commitNumberField(raw, back === \'\' ? k.min : back, k.min, ceiling, k.unit ?? \'\')')
-    expect(SCREEN_CODE).toContain('lastGood.current = commit.value')
+    expect(SCREEN_CODE).toContain('remember(commit.value)')
     expect(SCREEN_CODE).toContain('setMessage(commit.message)')
     expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
     // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) omits the DOM

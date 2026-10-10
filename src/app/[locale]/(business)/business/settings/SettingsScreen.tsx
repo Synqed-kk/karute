@@ -3463,7 +3463,14 @@ function NumberField({
   const ceilingLive = effectiveCeiling(c, values)
   const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
   // S69 (Greptile #1157 P2) — an `emptyLabel` field's empty box is a real state (core's null), so it is a last good state too
-  const lastGood = useRef<number | ''>(k.emptyLabel && text.trim() === '' ? '' : clampInt(Number(text), k.min, ceiling))
+  const goodOf = (t: string): number | '' => (k.emptyLabel && t.trim() === '' ? '' : clampInt(Number(t), k.min, ceiling))
+  const lastGood = useRef<number | ''>(goodOf(text))
+  /** S69 round 2 — THE ONE HOME of `lastGood`'s writes: the onBlur commit, and the resync below. */
+  const remember = (v: number | '') => { lastGood.current = v }
+  // the last text this field itself sent (a keystroke or its commit); a value that arrives different came from OUTSIDE
+  // (a re-read, a stale merge, core's 200) and is the new last good state — keystrokes still never move it (D-27/D-30)
+  const ownText = useRef(text)
+  useEffect(() => { if (text !== ownText.current) { ownText.current = text; remember(goodOf(text)) } })
   const [message, setMessage] = useState<string | null>(null)
   // The unit is the field's DESCRIPTION, never folded into its name: a screen
   // reader hears 「…の清掃時間、分」 while every name-based query keeps its name.
@@ -3487,7 +3494,7 @@ function NumberField({
         aria-describedby={k.unit ? unitId : undefined}
         value={text}
         {...inert}
-        onChange={locked ? noop : (e) => { setMessage(null); onChange(c.id, e.target.value) }}
+        onChange={locked ? noop : (e) => { setMessage(null); ownText.current = e.target.value; onChange(c.id, e.target.value) }}
         // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
         // every character makes 「1」 unreachable on the way to 「14」 — the
         // guardrail would be fighting the reader instead of protecting them.
@@ -3511,7 +3518,8 @@ function NumberField({
           // S69 — a cleared emptyLabel box, or invalid text over an empty last good state, commits '' (no message)
           const back = lastGood.current
           const commit = cleared || (raw === '' && back === '') ? { value: '' as const, message: null } : commitNumberField(raw, back === '' ? k.min : back, k.min, ceiling, k.unit ?? '')
-          lastGood.current = commit.value
+          remember(commit.value)
+          ownText.current = String(commit.value)
           setMessage(commit.message)
           onChange(c.id, String(commit.value))
         }}
