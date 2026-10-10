@@ -352,7 +352,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
     const p = applyLiveCalendar(p0, cal)
     calLine = liveLine(cal, p0, p)
     run.dropped = { bookings: p.dropped.length, karutes: p0.karutes.length - p.karutes.length, dates: [...new Set(p.dropped.map((d) => d.date))].sort() }
-    if (policy.source === 'default')
+    if (policy.source === 'default' || policy.weekly_hours == null) // QUEUE-S93 b: a policy row with no weekly_hours gets them too
       await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
     const staffId = new Map<string, string>()
