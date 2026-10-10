@@ -73,6 +73,13 @@ create index if not exists pack_use_intents_open_idx
   on pack_use_intents (state, business_id, created_at)
   where state in ('held', 'pending', 'parked');
 
+-- the id-only lookup (getAllById): N4's cross-business check must read every
+-- row carrying this id in ANY business, so it cannot use the (business_id, id)
+-- unique, which leads with business_id (S126 F5). Plain, not unique: ids are
+-- unique per business only.
+create index if not exists pack_use_intents_id_idx
+  on pack_use_intents (id);
+
 -- the card read + the gate (H10, H13)
 create index if not exists pack_use_intents_customer_open_idx
   on pack_use_intents (business_id, customer_id)
