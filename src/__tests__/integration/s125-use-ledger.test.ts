@@ -24,7 +24,7 @@ const TODAY = '2026-10-20'
 
 function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; failReads?: boolean } {
   const rows: IntentRow[] = []
-  const st = {
+  const st: LedgerStore & { rows: IntentRow[]; failNext?: boolean; failReads?: boolean } = {
     rows,
     async insertIgnore(row: IntentRow) {
       if (st.failNext) throw new Error('db down')
@@ -49,10 +49,10 @@ function memStore(): LedgerStore & { rows: IntentRow[]; failNext?: boolean; fail
       return rows.filter((r) => r.business_id === b && ids.includes(r.customer_id) &&
         ['held', 'pending', 'parked', 'refused'].includes(r.state) && !r.staff_resolution).map((r) => ({ ...r }))
     },
-    async listOpen(b: string, states: string[], limit: number) {
+    async listOpen(b: string, states: IntentRow['state'][], limit: number) {
       return rows.filter((r) => r.business_id === b && states.includes(r.state)).slice(0, limit).map((r) => ({ ...r }))
     },
-    async listOpenBusinessIds(states: string[]) { return [...new Set(rows.filter((r) => states.includes(r.state)).map((r) => r.business_id))] },
+    async listOpenBusinessIds(states: IntentRow['state'][]) { return [...new Set(rows.filter((r) => states.includes(r.state)).map((r) => r.business_id))] },
     async claimedCoreIds(b: string, ids: string[]) { return new Set(rows.filter((r) => r.business_id === b && r.settled_core_id && ids.includes(r.settled_core_id)).map((r) => r.settled_core_id as string)) },
   }
   return st
