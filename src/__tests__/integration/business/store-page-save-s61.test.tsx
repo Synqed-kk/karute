@@ -896,7 +896,7 @@ describe('P2 · R-S97-2 — the number under the colour\'s and the switches\' re
   const REF = '0a1b2c3d'
   const core = (): Answer => ({ status: 503, body: { ok: false, reason: 'core', ref: REF } })
   const refLines = () => [...document.querySelectorAll('.st-act-error[role="alert"] .st-fail-ref')].map((el) => el.textContent)
-  it('カードの見たPP colour 503 + ref → its line, then the number line'.replace('PP', '目 —'), async () => {
+  it('カードの見た目 — colour 503 + ref → its line, then the number line', async () => {
     stub(echo, core)
     await mount(await propsFor(STORE.tokyo))
     await pickOther()

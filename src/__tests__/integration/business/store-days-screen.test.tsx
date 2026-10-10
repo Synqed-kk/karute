@@ -836,6 +836,23 @@ describe('B2 act 1c stamp time', () => {
     await settle()
     expect(stamps()).toEqual(['✓ 保存しました 03:17'])
   })
+  it('P2 · R-S97-2 fix 5 — 予約の色分け, door ON: a 503 with the bound\'s ref shows the 「エラー番号：」 line; a following 403 clears it; a 503 without a ref shows none', async () => {
+    const { businessStrings } = jest.requireActual('@/business/i18n') as typeof import('@/business/i18n')
+    await open(STORE.tokyo, 'language-display')
+    const replies = [fakeRes(503, { ok: false, reason: 'core', ref: '0a1b2c3d' }), fakeRes(403, { ok: false, reason: 'forbidden' }), fakeRes(503, { ok: false, reason: 'core' })]
+    global.fetch = jest.fn(() => Promise.resolve(replies.shift()!)) as unknown as typeof fetch
+    const group = document.querySelector('.st-swatches[aria-label="新規予約の色"]')
+    fireEvent.click([...group!.querySelectorAll('button.st-swatch')].find((b) => b.getAttribute('aria-pressed') !== 'true') as HTMLButtonElement)
+    const alert = () => document.querySelector('.st-act-error[role="alert"]')
+    const seen: unknown[] = []
+    for (let k = 0; k < 3; k++) {
+      await act(async () => { saveBtn().click() })
+      await settle()
+      seen.push([alert() !== null, alert()?.querySelector('.st-fail-ref')?.textContent ?? null, alert()?.querySelector('.st-fail-ref-num')?.textContent ?? null])
+    }
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+    expect(seen).toEqual([[true, businessStrings.coreUnanswered.reference.replace('{ref}', '0a1b2c3d'), '0a1b2c3d'], [true, null, null], [true, null, null]])
+  })
   it('(f) source pin: jstClock( twice in the screen, the render-time stamp prop gone from the screen and from src/', () => {
     const fs = jest.requireActual('node:fs') as typeof import('node:fs')
     const path = jest.requireActual('node:path') as typeof import('node:path')
