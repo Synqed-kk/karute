@@ -83,6 +83,13 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
     await import('@/lib/appointments/mutations') // (iv)'s entry: loaded here too, so F12 covers it
     const missing = ENV_NAMES.filter((n) => !process.env[n])
     if (missing.length) throw new Error(`missing env: ${missing.join(', ')}`)
+    // S127 FIX 2: the jest default cutover day (jest.config.ts) must never drive a live run;
+    // a wrong day lets (ii') pass by adopting a stray core row.
+    const { cutoverDay } = await import('@/lib/packs/use-ledger')
+    const { ymdInJst: todayJst } = await import('@/lib/date/jst')
+    if (cutoverDay() !== todayJst()) {
+      throw new Error(`export KARUTE_LEDGER_CUTOVER_DAY=${todayJst()} (today JST) before a live run; cutoverDay() = ${cutoverDay()}`)
+    }
     businessId = assertDevSalon(DEV_SALON)
     real = newSynqedClient(businessId)
     dead = new Sdk({ baseUrl: DEAD_HOST, apiKey: process.env.SYNQED_CORE_API_KEY!, businessId })
@@ -148,6 +155,7 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
     say("(ii') after settle", row?.id, row?.state)
     console.log(`[live-proof] settle summary: attempted=${summary.attempted} settled=${summary.settled} stillOpen=${summary.stillOpen}`)
     expect(row?.state).toBe('settled')
+    expect(row?.resolved_by).toBe('system') // settled under its own key, never adopted (S127 FIX 2)
   })
 
   test('(iv) a P3 no-show burn → pending (packs on the dead host) → one settle pass with core reachable → settled, created_by = a real uuid', async () => {
@@ -178,8 +186,21 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
     const SLOT_REFUSALS = new Set(['STORE_CLOSED', 'SLOT_CONTENTION', 'RESOURCE_TAKEN'])
     let appt: Appointment | null = null
     let actor: Staff | undefined
-    for (const hour of [12, 13, 14, 15, 16, 17]) {
-      const startsAt = new Date(`${day}T${hour}:00:00+09:00`)
+    // R-S127-6 / U4: hours whose start is already >= 30 min in the past (JST, run time) first,
+    // then the future ones (core's acceptance of a no-show on a future booking is unproven).
+    const hourStart = (hour: number) => new Date(`${day}T${hour}:00:00+09:00`)
+    const runAt = Date.now()
+    const isPast = (hour: number) => hourStart(hour).getTime() <= runAt - 30 * 60_000
+    const HOURS = [12, 13, 14, 15, 16, 17]
+    const ordered = [...HOURS.filter(isPast), ...HOURS.filter((h) => !isPast(h))]
+    let group: 'past' | 'future' | null = null
+    for (const hour of ordered) {
+      const g = isPast(hour) ? 'past' : 'future'
+      if (g !== group) {
+        group = g
+        console.log(`[live-proof] (iv) trying the ${g} hours: ${HOURS.filter((h) => isPast(h) === (g === 'past')).map((h) => `${h}:00`).join(', ')} JST`)
+      }
+      const startsAt = hourStart(hour)
       const endsAt = new Date(startsAt.getTime() + 30 * 60_000)
       actor = actors.find((s) => !busy(s.id, startsAt.getTime(), endsAt.getTime()))
       if (!actor) continue
