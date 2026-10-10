@@ -3459,7 +3459,8 @@ function NumberField({
   // field's math already understands (⚖ D-15).
   const ceilingLive = effectiveCeiling(c, values)
   const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
-  const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
+  // S69 (Greptile #1157 P2) — an `emptyLabel` field's empty box is a real state (core's null), so it is a last good state too
+  const lastGood = useRef<number | ''>(k.emptyLabel && text.trim() === '' ? '' : clampInt(Number(text), k.min, ceiling))
   const [message, setMessage] = useState<string | null>(null)
   // The unit is the field's DESCRIPTION, never folded into its name: a screen
   // reader hears 「…の清掃時間、分」 while every name-based query keeps its name.
@@ -3504,10 +3505,12 @@ function NumberField({
           // S67 — an `emptyLabel` field: the cleared box IS the state (core's null), committed as ''.
           const cleared = Boolean(k.emptyLabel) && e.target.value.trim() === ''
           const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''
-          const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? '')
-          lastGood.current = commit.value // a cleared box keeps the last number to fall back to
-          // the one commit, fed '' (and no message) for a cleared emptyLabel box — the shape's single onChange stays single
-          ;((commit: { value: number | ''; message: string | null }) => { setMessage(commit.message); onChange(c.id, String(commit.value)) })(cleared ? { value: '', message: null } : commit)
+          // S69 — a cleared emptyLabel box, or invalid text over an empty last good state, commits '' (no message)
+          const back = lastGood.current
+          const commit = cleared || (raw === '' && back === '') ? { value: '' as const, message: null } : commitNumberField(raw, back === '' ? k.min : back, k.min, ceiling, k.unit ?? '')
+          lastGood.current = commit.value
+          setMessage(commit.message)
+          onChange(c.id, String(commit.value))
         }}
       />
       {k.unit && <span id={unitId} className="st-unit">{k.unit}</span>}

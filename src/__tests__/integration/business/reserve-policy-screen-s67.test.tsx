@@ -372,5 +372,29 @@ describe('Reserve S69 — the save token and the grid’s last good state', () =
     expect(alertLine()).toBe(STALE_LINE)
     expect(inp('無断キャンセル料').value).toBe('50')
   })
-})
+
+  const grid = () => inp('お客様が選べる開始時刻')
+  it('P2: saved grid null → 0 → blur → the box is empty (標準（30分）) and the draft is unchanged', async () => {
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...SIX, reserve_start_grid_min: null, updated_at: STAMP })
+    await mount()
+    expect(grid().value).toBe('')
+    set('お客様が選べる開始時刻', '0')
+    expect(grid().value).toBe('')
+    expect(blk('reserve.window').textContent).toContain('標準（30分）')
+    await press()
+    expect(fetchLog.length).toBe(0)
+  })
+
+  it('P2: a numbered grid → 0 restores its number; cleared → 0 restores the cleared (標準) state', async () => {
+    await mount()
+    set('お客様が選べる開始時刻', '0')
+    expect(grid().value).toBe('15')
+    set('お客様が選べる開始時刻', '')
+    expect(grid().value).toBe('')
+    set('お客様が選べる開始時刻', '0')
+    expect(grid().value).toBe('')
+    replies = [{ status: 200, body: { ok: true, row: { ...SIX, reserve_start_grid_min: null }, basedOn: 'h' } }]
+    await press()
+    expect(fetchLog[0].body.policy.reserve_start_grid_min).toBeNull()
+  })
 })
