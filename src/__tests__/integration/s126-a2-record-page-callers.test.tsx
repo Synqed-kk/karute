@@ -56,10 +56,11 @@ jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 // return type (not the full RecordingConsent shape) — isConsentCurrent only
 // reads policy_version, same partial shape review-screen-discard.test.tsx
 // already mocks.
-const mockGetCustomerConsent = jest.fn(
-  async (
-    _id: string,
-  ): Promise<{ consent: { policy_version: string; granted_at: string } | null }> => ({
+const mockGetCustomerConsent = jest.fn<
+  Promise<{ consent: { policy_version: string; granted_at: string } | null }>,
+  [string]
+>(
+  async () => ({
     consent: null,
   }),
 )
@@ -68,8 +69,10 @@ jest.mock('@/actions/customers', () => ({
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
 }))
 
-const mockCreatePackAction = jest.fn(async (_input: unknown) => ({ ok: true }))
-const mockRedeemSessionAction = jest.fn(async (_input: unknown) => ({ ok: true, redemptionId: 'red-1' }))
+const mockCreatePackAction = jest.fn<Promise<{ ok: boolean }>, [unknown]>(async () => ({ ok: true }))
+const mockRedeemSessionAction = jest.fn<Promise<{ ok: boolean; redemptionId?: string }>, [unknown]>(
+  async () => ({ ok: true, redemptionId: 'red-1' }),
+)
 jest.mock('@/actions/packs', () => ({
   createPackAction: (input: unknown) => mockCreatePackAction(input),
   redeemSessionAction: (input: unknown) => mockRedeemSessionAction(input),
