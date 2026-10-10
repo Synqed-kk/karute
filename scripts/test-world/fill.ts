@@ -120,12 +120,14 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
-/** The futureDays the 新規 start days were drawn over before the horizon widened (S94); frozen so existing keys never move. */
-const NEW_START_FUTURE_DAYS = 14
+/** The futureDays the 新規 start days were drawn over before the horizon widened (S94); frozen so existing keys never move.
+ *  It is also the horizon every pre-FILL-2 run wrote with (today + 14), so lastWindowEnd derives an unrecorded legacyThrough
+ *  from it — never from registry.futureDays, which widened to 30 after those runs (QUEUE-S94 item 6). */
+export const NEW_START_FUTURE_DAYS = 14
 
-/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + futureDays; null = none. */
+/** ⚖ E2: the last day the pre-FILL-2 planner already wrote for a store = its latest recorded run's today + 14 (NEW_START_FUTURE_DAYS); null = none. */
 export const lastWindowEnd = (runs: readonly { store: string; today: string }[], storeId: string): string | null =>
-  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, registry.futureDays)).sort().pop() ?? null
+  runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, NEW_START_FUTURE_DAYS)).sort().pop() ?? null
 
 export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number; legacyThrough?: string | null }, runs: readonly { store: string; today: string }[] = []): StoreCtx => {
   // ⚖ R6: an applied store plans from the pastDays its manifest recorded at first apply; a differing registry value is logged and ignored
