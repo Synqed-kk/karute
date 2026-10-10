@@ -2721,7 +2721,10 @@ export function RecordPageView({
               if (res.ok) {
                 legs.burn = 'done'
                 burnAck = 'redeemed'
-                if (answer.auto) {
+                // § 6a: held = 確認待ち (no error styling, the flow moves on); pending = the mock's toast
+                if (res.state === 'held') toast.info(tPacks('redeemHeld'))
+                else if (res.state === 'pending') toast.success(tPacks('redeemDone'))
+                else if (answer.auto) {
                   const from = answer.burnFrom ?? 0
                   toast.success(
                     tPacks('autoRedeemed', { from, to: from - 1 }),
@@ -3156,7 +3159,12 @@ export function RecordPageView({
         // undefined for walk-in targets → null (no booking to link)
         appointmentId: saveBinding.appointmentId ?? null,
       }).then((res) => {
-        if (res.ok) {
+        // § 6a: held = 確認待ち, no dialog, the flow moves on; pending = the mock's toast
+        if (res.ok && res.state === 'held') {
+          toast.info(tPacks('redeemHeld'))
+        } else if (res.ok && res.state === 'pending') {
+          toast.success(tPacks('redeemDone'))
+        } else if (res.ok) {
           toast.success(
             tPacks('autoRedeemed', { from, to: from - 1 }),
             res.redemptionId
@@ -3813,7 +3821,9 @@ export function RecordPageView({
                       appointmentId: saveBinding.appointmentId ?? null,
                     })
                       .then((res) => {
-                        if (res.ok) toast.success(tPacks('redeemDone'))
+                        // § 6a: held = 確認待ち (no error styling); pending/settled = the mock's toast
+                        if (res.ok && res.state === 'held') toast.info(tPacks('redeemHeld'))
+                        else if (res.ok) toast.success(tPacks('redeemDone'))
                         else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
                       })
                       .catch(() => toast.error(tPacks('redeemFailed')))

@@ -59,6 +59,7 @@ export function ReconcileStrip({ data }: { data: ReconcileData }) {
 
 function ReconcileRow({ entry: e }: { entry: ReconcileEntry }) {
   const t = useTranslations('dashboard.reconcile')
+  const tPacks = useTranslations('customers.profile.packs')
   const router = useRouter()
   const [busy, setBusy] = useState(false)
 
@@ -73,7 +74,15 @@ function ReconcileRow({ entry: e }: { entry: ReconcileEntry }) {
       source: 'backfill',
     })
     setBusy(false)
-    if (res.ok) {
+    // § 6a: pending = success with the mock's toast; held = 確認待ち, no error
+    // styling, the row moves on (the one staff choice is PR-B's strip)
+    if (res.ok && res.state === 'held') {
+      toast.info(tPacks('redeemHeld'))
+      router.refresh()
+    } else if (res.ok && res.state === 'pending') {
+      toast.success(tPacks('redeemDone'))
+      router.refresh()
+    } else if (res.ok) {
       const rid = res.redemptionId
       toast.success(t('redeemed', { date: visitDayLabel(e.visitDay) }), {
         action: rid
