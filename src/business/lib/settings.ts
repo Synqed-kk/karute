@@ -393,7 +393,9 @@ export type ControlKind =
   // (「制限なし」/「販売なし」/…), carried on the control so `labelOfValue` can
   // answer every reader (a preview sentence, this field's own display) from
   // ONE place rather than each one re-deciding what 0 means.
-  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string }
+  // S67 — `emptyLabel`: a field whose empty box is a real state (core's null, e.g. 「標準（30分）」): clearing it
+  // commits '' and reads as this label, never restored to a number.
+  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string; emptyLabel?: string }
   | { kind: 'time' }
   /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
    *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
@@ -608,7 +610,7 @@ export interface SettingsBlock {
    *  next breath): a sentence that contradicts a zero state is dropped, not
    *  reworded — the gap-fill row's `zeroLabel` does the same at D-33 R2. See
    *  `previewTemplate` below, the one place this is resolved. */
-  preview: { template: string; attrs?: Record<string, string>; dropWhen?: { controlId: string; is: string; sentence: string } } | null
+  preview: { template: string; attrs?: Record<string, string>; dropWhen?: PreviewDrop | readonly PreviewDrop[] } | null
   /** A block-level action button — canon's エクスポートする, 需要履歴をリセット,
    *  招待を送信する, 接続をリクエストする. Pressing it resolves `template` into
    *  the block's result line. `requires` names a chips control that must not be
@@ -805,6 +807,8 @@ export interface SettingsProps {
   openedByUrl: boolean
   /** ⚠ ONE HONEST FOOTNOTE REPLACES SIXTEEN REFUSAL PARAGRAPHS. */
   demoSaveLine: string
+  /** S67 F4 — Reserve 受付's foot while its six save to core (demoSaveLine's live twin). */
+  reserveSaveLine: string
   selfSaveLine: string
   boundaryFallback: string
   /** ⚖ S17 fix round 5 · G3 — WHO IS READING, as an id.
@@ -845,6 +849,7 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
       // `Number(value) === 0`: the field writes every keystroke into the
       // live values map, and `Number('') === 0` would make a box the reader
       // has just cleared read as the zero state before they retype anything.
+      if (String(value) === '' && control.emptyLabel) return control.emptyLabel
       return String(value) === '0' && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
     default:
       return String(value)
@@ -893,11 +898,13 @@ export function fillTemplate(template: string, label: (id: string) => string | n
  *  string); otherwise the template is returned unchanged. The template
  *  still CONTAINS the sentence either way — dropping it is a fact about the
  *  live values, never about the template's own text. */
+/** One sentence a preview drops: when the control's live value is `is` (or, S68, when ANY `orWhen` control's live
+ *  value is its `is`) — or, with `not`, when none of them matches. */
+export type PreviewDrop = { controlId: string; is: string; sentence: string; not?: true; orWhen?: readonly { controlId: string; is: string }[] }
 export function previewTemplate(preview: NonNullable<SettingsBlock['preview']>, values: Record<string, RowValue>): string {
-  if (preview.dropWhen && String(values[preview.dropWhen.controlId]) === preview.dropWhen.is) {
-    return preview.template.replace(preview.dropWhen.sentence, '')
-  }
-  return preview.template
+  const drops: readonly PreviewDrop[] = preview.dropWhen === undefined ? [] : 'sentence' in preview.dropWhen ? [preview.dropWhen] : preview.dropWhen
+  const hit = (c: { controlId: string; is: string }) => String(values[c.controlId]) === c.is
+  return drops.reduce((t, d) => ((hit(d) || (d.orWhen ?? []).some(hit)) !== (d.not === true) ? t.replace(d.sentence, '') : t), preview.template)
 }
 
 /** ⚠ ARRAY VALUES COMPARE BY CONTENT, NOT BY REFERENCE. A chips control whose

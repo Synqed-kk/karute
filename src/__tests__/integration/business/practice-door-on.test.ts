@@ -69,6 +69,7 @@ import { accessFor as karuteAccessFor } from '@/business/lib/karute'
 import { accessFor as recordingAccessFor } from '@/business/lib/recording'
 import { accessFor as registerAccessFor } from '@/business/lib/register'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { LATE_FROM_BOOKING_NOTE } from '@/business/lib/data'
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
@@ -540,7 +541,9 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    // Reserve S66 §9 R1 — the admitted store's six booking rules read core's row: bookingPolicy is its one override.
+    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: { ...PRACTICE_PLANES, bookingPolicy: 'live' } })
+    expect(STORE_PLANE_OVERRIDES).toEqual({ [STORE.tokyo]: { bookingPolicy: 'live' } })
     // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
     const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
     expect(storeSample(true, STORE.laEstro)).toEqual(onA)
@@ -589,8 +592,10 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
 })
 
 describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', () => {
+  const SHIPPED = structuredClone(STORE_PLANE_OVERRIDES) // Reserve S66 — the table ships one row (テスト東京店 · bookingPolicy)
   afterEach(() => {
     for (const k of Object.keys(STORE_PLANE_OVERRIDES)) delete STORE_PLANE_OVERRIDES[k]
+    Object.assign(STORE_PLANE_OVERRIDES, structuredClone(SHIPPED))
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
   })
   const BOARD = ['shifts', 'absence', 'sellSlots', 'operatingHours'] as const
@@ -641,6 +646,8 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
     expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
+    // Reserve S66 — bookingPolicy's read is connected (setReservePolicy / settings-props), so it left the list.
+    expect(PLANE_MAP_SAYS_LIVE).toEqual(['closures'])
   })
   it('a borrowed label is the field\'s OWN on-screen name, verbatim from the block that prints it', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/settings-props.ts'), 'utf8')
@@ -652,6 +659,11 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(PLANE_LABEL.menuVisible).toEqual(['表示・非表示'])
     expect(PLANE_LABEL.tickets).toEqual(['回数券'])
     expect(PLANE_LABEL.company).toEqual(['本部による一括の管理'])
+    // Reserve S66 R1 — 受付ウィンドウ's fixture rows, each its row title verbatim.
+    for (const word of PLANE_LABEL.opsConfig) expect(src).toMatch(new RegExp(`row\\(\\s*'reserve\\.row-[a-z]+',\\s*'${word}'`))
+    expect(samplePart(true, STORE.tokyo, 'opsConfig')).toEqual({ form: 'part', labels: [...PLANE_LABEL.opsConfig] })
+    expect(sampleWhole(true, STORE.tokyo, 'bookingPolicy')).toBeUndefined()
+    expect(sampleWhole(true, STORE.devSalon, 'bookingPolicy')).toEqual({ form: 'whole' })
   })
   it('V4-3 — the sample history credits the fixture operator, never the admitted person', () => {
     expect(historyOperatorName()).toBe(operator.name)
@@ -742,9 +754,13 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'people-equipment', 'people.business-type').sample).toEqual({ form: 'whole' })
     expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'part', labels: ['本部による一括の管理'] }) // §v5 V5-2 — the store count is live
     // ⚖ §v4 V4-3 — the sample history credits the fixture operator, never the signed-in person.
-    const audits = everyBlock(props).map((b) => b.audit).filter((a): a is string => a !== null)
+    // Reserve S66 R11/R11b — the two LIVE 受付 blocks print core's own date (updated_at) or nothing; every other
+    // block's line is the sample history and names the sample operator.
+    const LIVE_RESERVE = ['reserve.window', 'reserve.cancel']
+    const audits = everyBlock(props).filter((b) => !LIVE_RESERVE.includes(b.id)).map((b) => b.audit).filter((a): a is string => a !== null)
     expect(audits.length).toBeGreaterThan(5)
     expect(audits.every((a) => a.startsWith('最終変更: 見本 あずさ ・'))).toBe(true)
+    for (const id of LIVE_RESERVE) expect(blockOf(props, 'reserve-acceptance', id).audit ?? null).toMatch(/^最終変更: \d+月\d+日\(.\)$/)
     // ⚖ §v3 V3-5 — the dateline drops サンプルデータ under the door (the topbar names the practice world).
     expect(props.dateline).not.toContain('サンプルデータ')
     expect(props.dateline.endsWith(' / テスト東京店')).toBe(true)
@@ -2646,5 +2662,49 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(inbox.dateline).toBe(data.sampleDateline(data.renderNow(), inbox.lensLabel, true))
     expect(register.dateline).not.toContain('サンプル')
     expect((await inboxProps({ locale: 'ja', store: STORE.tokyo, world: { threads: [] } })).props.threads).toEqual([])
+  })
+})
+
+describe('(14) Reserve S66 — 受付 reads the store\'s six booking rules live (door ON, テスト東京店)', () => {
+  type Props = Awaited<ReturnType<typeof settingsProps>>['props']
+  const blockOf = (props: Props, blockId: string) => props.sections.find((s) => s.id === 'reserve-acceptance')!.blocks.find((b) => b.id === blockId)!
+  const controlOf = (props: Props, id: string) =>
+    props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).find((c) => c.id === id)!
+  const SIX = { booking_open_days: 21, cutoff_minutes: 90, reserve_start_grid_min: 15, cancel_free_until_hours: 12, cancel_late_pct: 30, no_show_pct: 100 }
+  const read = async (six: Partial<typeof SIX>, updated_at: string | null = '2026-10-07T01:00:00Z') => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], ...SIX, ...six, updated_at } : POLICIES[id]))
+    return (await settingsProps({ locale: 'ja', store: STORE.tokyo, section: 'reserve-acceptance' })).props
+  }
+
+  it('the six rows show core\'s row; 直前の空きは売らない is linked to 直前締切 (locked, never written)', async () => {
+    const props = await read({})
+    expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map((id) => controlOf(props, id).value))
+      .toEqual(['21', '90', '15', '12', '30', '100'])
+    expect(controlOf(props, 'reserve.lead')).toMatchObject({ value: '90', locked: '上の「直前締切」と同じ値です。変えるときは「直前締切」を変更してください' })
+    const lead = props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows)).find((r) => r.controls.some((c) => c.id === 'reserve.lead'))!
+    expect(lead.trio!.base).toBe('初期値: 直前締切と同じ')
+  })
+
+  it('R5/R5b — the late-from-booking note shows only when cutoff < free×60 AND the late fee is above 0', async () => {
+    expect(blockOf(await read({}), 'reserve.cancel').facts).toEqual([LATE_FROM_BOOKING_NOTE])
+    expect(blockOf(await read({ cancel_late_pct: 0 }), 'reserve.cancel').facts ?? []).not.toContain(LATE_FROM_BOOKING_NOTE)
+    expect(blockOf(await read({ cutoff_minutes: 720 }), 'reserve.cancel').facts ?? []).not.toContain(LATE_FROM_BOOKING_NOTE)
+    expect(blockOf(await read({ cutoff_minutes: 719 }), 'reserve.cancel').facts).toEqual([LATE_FROM_BOOKING_NOTE])
+  })
+
+  it('R11/R11b — 最終変更 is core\'s updated_at on both live blocks; no line when updated_at is null', async () => {
+    const props = await read({})
+    expect(blockOf(props, 'reserve.window').audit).toBe('最終変更: 10月7日(水)')
+    expect(blockOf(props, 'reserve.cancel').audit).toBe('最終変更: 10月7日(水)')
+    const none = await read({}, null)
+    expect(blockOf(none, 'reserve.window').audit ?? null).toBeNull()
+    expect(blockOf(none, 'reserve.cancel').audit ?? null).toBeNull()
+  })
+
+  it('R1 — the window block marks only its opsConfig rows; the cancel block is unmarked while live', async () => {
+    const props = await read({})
+    expect(blockOf(props, 'reserve.window').sample).toEqual({ form: 'part', labels: [...PLANE_LABEL.opsConfig] })
+    expect(blockOf(props, 'reserve.cancel')).not.toHaveProperty('sample')
   })
 })

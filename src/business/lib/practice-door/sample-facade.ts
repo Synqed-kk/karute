@@ -307,8 +307,12 @@ const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k
  *  予約の色分け under the door, saved by its writer), so it is LIVE here. */
 export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = { ...every('sample'), bookingColors: 'live' }
 /** The later one-line flip, per live store × plane — here and nowhere else.
- *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures + bookingPolicy in PLANE_MAP_SAYS_LIVE are the open case, PR-4). */
+ *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures in PLANE_MAP_SAYS_LIVE is the open case, PR-4; bookingPolicy left it when Reserve S66 connected its read). */
 export const STORE_PLANE_OVERRIDES: Record<string, Partial<Record<PlaneKey, PlaneState>>> = {}
+// Reserve S66 §9 R1 — 受付's six booking rules read core's per-store row (settings-props.ts, readStoreDays' one
+// `storePolicyGet`) for the Dev Salon's admitted store, テスト東京店; saved by setReservePolicy.
+const ADMITTED_STORE = liveIdOf('stores', 'store-test-ginza')
+if (ADMITTED_STORE !== null) STORE_PLANE_OVERRIDES[ADMITTED_STORE] = { bookingPolicy: 'live' }
 const ALL_LIVE: Readonly<Record<PlaneKey, PlaneState>> = every('live')
 
 /** A store's planes under the door: the practice table, then its overrides. */
@@ -319,7 +323,7 @@ export function planesOf(storeId: string): Readonly<Record<PlaneKey, PlaneState>
 const anySample = (planes: Readonly<Record<PlaneKey, PlaneState>>) => Object.values(planes).some((s) => s === 'sample')
 
 /** Each plane's CONTRACT-MAP row, by the row's own name — the citation the
- *  table stands on. Every key must name a row the map marks SAMPLE; the two in
+ *  table stands on. Every key must name a row the map marks SAMPLE; the ones in
  *  `PLANE_MAP_SAYS_LIVE` are rows the map already calls LIVE (a core field
  *  exists) while Business still reads the fixture — sample ON SCREEN until the
  *  read is connected. The lane's harness reads the map itself against this. */
@@ -339,7 +343,7 @@ export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
   export: 'exportScopes', auditLog: 'auditLog[].dayOffset', language: 'uiLanguage',
   bookingColors: 'bookingColors[category]', colorTokens: 'colorTokens[token]', billing: 'cardLast4',
 }
-export const PLANE_MAP_SAYS_LIVE: readonly PlaneKey[] = ['closures', 'bookingPolicy']
+export const PLANE_MAP_SAYS_LIVE: readonly PlaneKey[] = ['closures']
 
 const PART = businessStrings.sampleMark.part
 /** The words a part-form mark names its planes by (V3-3): the native-pass
@@ -363,6 +367,8 @@ export const PLANE_LABEL = {
   tickets: ['回数券'],
   // ブランド・本部's own fact line: 「…本部による一括の管理は使っていません。」 (the store count before it is live).
   company: ['本部による一括の管理'],
+  // Reserve 受付's 受付ウィンドウ rows that still read the fixture (the six booking rules beside them are live).
+  opsConfig: ['標準セッションの長さ', '販売する枠の長さ', 'スキマ枠の販売', 'スキマ割', '確保枠の自動解除'],
 } as const satisfies Partial<Record<PlaneKey, readonly string[]>>
 export type LabeledPlaneKey = keyof typeof PLANE_LABEL
 

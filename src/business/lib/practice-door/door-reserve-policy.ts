@@ -23,6 +23,8 @@ type StoredPolicy = ReservePolicy & { updated_at: string | null }
  *  as core holds it now and ITS fingerprint (S67 W1, replacing fix batch 1's blind second press): the screen
  *  merges that row into the fields the manager left as they were, keeps the ones they changed, shows the stale
  *  line and takes this basedOn; only a second, explicit press saves. */
+/** The six as the writer's `storePolicies.set` types them (its grid type lags core's; see setReservePolicy). */
+type WirePolicy = ReservePolicy & { reserve_start_grid_min: Parameters<ReturnType<typeof import('./core-reach').storeDaysWriterFor>['storePolicies']['set']>[1]['reserve_start_grid_min'] }
 export type SetReservePolicyResult =
   | { ok: true; row: StoredPolicy; basedOn: string }
   | { ok: false; reason: 'stale'; message: string; current: StoredPolicy; basedOn: string }
@@ -37,7 +39,7 @@ const MSG = {
   range: '設定できる範囲を超えた値があるため、保存できませんでした。',
   cutoffOverOpen: '直前締切が受け付ける日数より長く、予約できる枠がなくなるため、保存できませんでした。',
   freeOverOpen: '無料キャンセル期限が受け付ける日数より長く、すべての予約が期限後になるため、保存できませんでした。',
-  lateFromBooking: '直前締切が無料キャンセル期限より短いため、無料キャンセル期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。',
+  lateFromBooking: '直前締切が無料キャンセル期限より短いため、期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。',
   readOnly: READ_ONLY_NOTE,
   fail: 'いまは保存できないため、時間をおいてもう一度保存してください。',
 } as const
@@ -65,7 +67,9 @@ async function hasHqGrant(actor: PracticeActor): Promise<boolean> {
  *  main), so two saves inside it can still cross. A core failure is reported, never swallowed or retried. */
 export async function setReservePolicy(storeId: string, draft: unknown, basedOn: string): Promise<SetReservePolicyResult> {
   if (practiceTenant() === null) return refuse('tenant', MSG.fail)
-  const next = parseReservePolicy(draft)
+  // S67 — core's validator takes ANY positive grid (core routes/store-policies.ts:76; client types.ts:1477 on core
+  // main); the installed SDK's type still narrows it to 15|30|60, so the parsed six are typed as the wire's here.
+  const next = parseReservePolicy(draft) as WirePolicy | null
   if (next === null || typeof storeId !== 'string' || storeId === '' || typeof basedOn !== 'string') return refuse('invalid', MSG.range)
   const problem = reservePolicyProblem(next)
   if (problem) return refuse('invalid', MSG[problem])

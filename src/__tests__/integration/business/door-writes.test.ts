@@ -946,7 +946,7 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
   })
 
   it.each([
-    ['grid 20', { ...PROOF, reserve_start_grid_min: 20 }],
+    ['grid 0', { ...PROOF, reserve_start_grid_min: 0 }], // S67: core holds any grid > 0 (20 is a real row now); 0 never
     ['101%', { ...PROOF, cancel_late_pct: 101 }],
     ['0 days', { ...PROOF, booking_open_days: 0 }],
     ['cutoff 40000', { ...PROOF, cutoff_minutes: 40000 }],
@@ -1080,6 +1080,8 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
       ['grid 15', { ...D, reserve_start_grid_min: 15 }],
       ['grid 30', { ...D, reserve_start_grid_min: 30 }],
       ['grid 60', { ...D, reserve_start_grid_min: 60 }],
+      ['grid 45 (S68: any positive whole minutes)', { ...D, reserve_start_grid_min: 45 }],
+      ['grid 10', { ...D, reserve_start_grid_min: 10 }],
       ['grid null', { ...D, reserve_start_grid_min: null }],
       ['30.0 as sent on the wire', JSON.parse('{"booking_open_days":30.0,"cutoff_minutes":0,"reserve_start_grid_min":null,"cancel_free_until_hours":24,"cancel_late_pct":0,"no_show_pct":0}')],
     ])('accepted: %s → ONE set with exactly these six', async (_n, draft) => {
@@ -1109,13 +1111,13 @@ describe('Reserve S66 — setReservePolicy, door-reserve-policy.ts through data.
   })
 
   it('the R5/R5b note condition: cutoff shorter than the free deadline AND a late-cancel fee above 0', () => {
-    const { lateFromBooking } = jest.requireActual('@/business/lib/practice-door/reserve-policy') as typeof import('@/business/lib/practice-door/reserve-policy')
+    const { lateFromBooking } = jest.requireActual('@/business/lib/reserve-policy-view') as typeof import('@/business/lib/reserve-policy-view')
     expect(lateFromBooking(PROOF)).toBe(true) // 90 min < 12 h, 30 %
     expect(lateFromBooking({ ...PROOF, cutoff_minutes: 719 })).toBe(true) // one minute short of 12 h
     expect(lateFromBooking({ ...PROOF, cutoff_minutes: 720 })).toBe(false) // equal: not shorter
     expect(lateFromBooking({ ...PROOF, cancel_late_pct: 0 })).toBe(false) // R5b: no fee, nothing late that costs
     expect(lateFromBooking({ ...PROOF, cancel_late_pct: 1 })).toBe(true)
     expect(lateFromBooking(RESERVE_POLICY_DEFAULTS)).toBe(false) // core's defaults: 0 < 24 h, but 0 % → no note
-    expect(data.LATE_FROM_BOOKING_NOTE).toBe('直前締切が無料キャンセル期限より短いため、無料キャンセル期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。')
+    expect(data.LATE_FROM_BOOKING_NOTE).toBe('直前締切が無料キャンセル期限より短いため、期限を過ぎてから入った予約は、最初からキャンセル料の対象になります。')
   })
 })

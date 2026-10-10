@@ -31,6 +31,7 @@ import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
+import { pickReservePolicy, type ReservePolicy } from './reserve-policy'
 import { applySpecialOpenDays, DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
@@ -45,6 +46,8 @@ export type StoreClosedDay = ClosedDaysRead['closed_days'][number]
 export interface StoreDaysRead {
   closures: StoreClosedDay[] | null
   specialOpenDays: SpecialOpenDay[] | null
+  /** Reserve S66 §9 R19 — the six booking rules from the SAME `storePolicyGet` (受付 reads no second time); null = that read failed. */
+  reservePolicy: (ReservePolicy & { updated_at: string | null }) | null
 }
 type Reason = 'forbidden' | 'tenant' | 'invalid' | 'core'
 type Refusal = { ok: false; reason: Reason; message: string }
@@ -317,6 +320,7 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
     ok: true,
     closures: closedDays.status === 'fulfilled' ? closedDays.value.closed_days : null,
     specialOpenDays: policy.status === 'fulfilled' ? fromToday(policy.value.special_open_days) : null,
+    reservePolicy: policy.status === 'fulfilled' ? { ...pickReservePolicy(policy.value), updated_at: policy.value.updated_at } : null,
   }
 }
 
