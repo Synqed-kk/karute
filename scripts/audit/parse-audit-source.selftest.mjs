@@ -115,6 +115,20 @@ ok('action removal vs allowlist addition cannot share a ledger key', () => {
   assert.deepEqual(keysOf(actions), ['action:staff.update'])
   assert.deepEqual(keysOf(allow), ['SDK_WRITE_ALLOWLIST:src/x.ts::staff.update'])
 })
+ok('allowlist: entries sharing file::call are unioned — HEAD == main reports nothing', () => {
+  const split = [
+    { file: 'src/m.ts', call: 'storage.x.upload', symbols: ['a'] },
+    { file: 'src/m.ts', call: 'storage.x.upload', symbols: ['b', 'c'] },
+  ]
+  const same = findAllowlistWeakenings({ sdkAllowlist: split, rawAllowlist: [] }, { sdkAllowlist: split, rawAllowlist: [] }, false)
+  assert.deepEqual(keysOf(same), [])
+  const added = findAllowlistWeakenings(
+    { sdkAllowlist: split, rawAllowlist: [] },
+    { sdkAllowlist: [...split, { file: 'src/m.ts', call: 'storage.x.upload', symbols: ['d'] }], rawAllowlist: [] },
+    false,
+  )
+  assert.deepEqual(keysOf(added), ['SDK_WRITE_ALLOWLIST:src/m.ts::storage.x.upload#d'])
+})
 ok('coveredBy repoint on a plain-skip row present both sides is flagged', () => {
   const ws = findRowWeakenings(
     V({ k: { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/a.ts#one' } }),
