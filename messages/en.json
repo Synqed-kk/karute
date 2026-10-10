@@ -1134,6 +1134,7 @@
         "redeemConfirm": "Record",
         "redeemHeld": "Needs a look",
         "ledgerUnreadable": "Checking remaining",
+        "ledgerSaveError": "Could not save. Please try again.",
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
         "redeemNoSessionsLeft": "No sessions left to redeem",

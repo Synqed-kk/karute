@@ -357,7 +357,12 @@ async function appointmentAlreadyBurned(
 
 /** S125 R1 (P3): the action's loud, actionable failure when the use ledger
  *  cannot take the intent — returned BEFORE any status write (nothing half done). */
-export const P3_LEDGER_SAVE_ERROR = '保存できませんでした。もう一度お試しください'
+export const P3_LEDGER_SAVE_ERROR_KEY = 'ledgerSaveError'
+/** The sentence lives behind the i18n key (⚖ all languages; F6, R-S126-9 b). */
+async function p3LedgerSaveError(): Promise<string> {
+  const { getTranslations } = await import('next-intl/server')
+  return (await getTranslations('customers.profile.packs'))(P3_LEDGER_SAVE_ERROR_KEY)
+}
 
 type P3Intent = { store: LedgerStore; row: IntentRow }
 
@@ -402,7 +407,7 @@ async function insertP3IntentOrThrow(
     })
     return { store, row }
   } catch {
-    throw new Error(P3_LEDGER_SAVE_ERROR)
+    throw new Error(await p3LedgerSaveError())
   }
 }
 

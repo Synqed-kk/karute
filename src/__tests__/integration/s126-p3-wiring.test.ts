@@ -28,7 +28,16 @@ jest.mock('@/lib/packs/store', () => ({
 const PACKS = [{ id: 'pack-1', kind: 'pack', status: 'active', remaining: 3, purchased_at: '2026-01-01' }]
 const mockListPacks = jest.fn(async (): Promise<unknown[]> => PACKS)
 
-import { cancelAppointmentCore, markNoShowAppointmentCore, P3_LEDGER_SAVE_ERROR } from '@/lib/appointments/mutations'
+// F6: the P3 error is read through its i18n key; this mock serves messages/ja.json by namespace.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async (ns: string) => (k: string) =>
+    [...ns.split('.'), k].reduce<unknown>((o, p) => (o as Record<string, unknown> | undefined)?.[p], jest.requireActual('../../../messages/ja.json')),
+}))
+import { cancelAppointmentCore, markNoShowAppointmentCore, P3_LEDGER_SAVE_ERROR_KEY } from '@/lib/appointments/mutations'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+/** design § 3 R1's sentence, now served by the key (ja); the guards below pin it through the key. */
+const P3_LEDGER_SAVE_ERROR = '保存できませんでした。もう一度お試しください'
 import { settlePending, type IntentRow } from '@/lib/packs/use-ledger'
 import { memLedgerStore } from './helpers/ledger-fake'
 import { UUID_RE } from '@/lib/uuid-shape'
@@ -195,5 +204,17 @@ describe('B (hole 2, alarm part) — a SYSTEM withdrawal of a P3 row is never si
         expect.objectContaining({ kind: 'ledger.p3_withdrawn', business_id: B, ref: id, facts: { reason: 'status_changed' } }),
       ])
     } finally { spy.mockRestore() }
+  })
+})
+
+describe('C (F6) — the P3 save error lives behind an i18n key, never as lib-code Japanese', () => {
+  const at = (file: string) => (JSON.parse(readFileSync(join(process.cwd(), 'messages', file), 'utf8')) as { customers: { profile: { packs: Record<string, string> } } }).customers.profile.packs[P3_LEDGER_SAVE_ERROR_KEY]
+  it('ja = the design sentence exactly; en = Could not save. Please try again.', () => {
+    expect(at('ja.json')).toBe(P3_LEDGER_SAVE_ERROR)
+    expect(at('en.json')).toBe('Could not save. Please try again.')
+  })
+  it('mutations.ts holds no Japanese string literal', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/appointments/mutations.ts'), 'utf8')
+    expect(src.match(/'[^'\n]*[぀-ヿ一-鿿][^'\n]*'/g) ?? []).toEqual([])
   })
 })
