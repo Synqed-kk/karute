@@ -426,8 +426,9 @@ async function attemptP3(synqed: MutationClient, p: P3Intent): Promise<{ burnErr
   const row = await attemptIntent({ store: p.store, synqed: core, ...systemDepsFor(p.row, core, p.store) }, p.row).catch(() => p.row)
   // S127 FIX 7 (C6): the writer's OWN first attempt withdrew the row (e.g. a stale
   // booking read, status_changed) → the ticket was NOT consumed; staff must see it.
-  // A duplicate_of withdrawal is excluded: that booking's ticket was consumed once.
-  if (row.state === 'withdrawn' && row.last_error_code !== 'duplicate_of') return { burnError: 'burn_failed', row }
+  // A duplicate_of withdrawal (code `duplicate_of:<owner id>`) is excluded: that
+  // booking's ticket was consumed once.
+  if (row.state === 'withdrawn' && !row.last_error_code?.startsWith('duplicate_of')) return { burnError: 'burn_failed', row }
   if (row.state !== 'refused') return { burnError: null, row }
   return { burnError: row.refused_code === 'no_units' ? 'below_zero' : row.refused_code === 'already_redeemed' ? 'already_burned' : 'burn_failed', row }
 }

@@ -16,11 +16,16 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedC
 const mockAudit = jest.fn()
 jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: (...a: unknown[]) => mockAudit(...a) }))
 // eslint-disable-next-line no-var
-var mockLedger: { store: import('@/lib/packs/use-ledger').LedgerStore }
-jest.mock('@/lib/packs/use-ledger', () => ({
-  ...jest.requireActual('@/lib/packs/use-ledger'),
-  defaultLedgerStore: async () => mockLedger.store,
-}))
+var mockLedger: { store: import('@/lib/packs/use-ledger').LedgerStore; attempt?: typeof import('@/lib/packs/use-ledger').attemptIntent }
+jest.mock('@/lib/packs/use-ledger', () => {
+  const actual = jest.requireActual('@/lib/packs/use-ledger')
+  return {
+    ...actual,
+    defaultLedgerStore: async () => mockLedger.store,
+    // S127 delta item 2: a test may stand in the first attempt's outcome; unset = the real one
+    attemptIntent: (...a: Parameters<typeof actual.attemptIntent>) => (mockLedger.attempt ?? actual.attemptIntent)(...a),
+  }
+})
 jest.mock('@/lib/packs/store', () => ({
   ...jest.requireActual('@/lib/packs/store'),
   listCustomerPacksWithClient: () => mockListPacks(),
@@ -136,6 +141,14 @@ describe('S127 FIX 7 (C6) — the writer’s own first attempt withdraws the row
     expect(lastDetail()).toMatchObject({ burn_error: 'burn_failed', ledger_state: 'withdrawn' })
     expect(await rowsOf(mockLedger.store as Store, lastDetail().intent_id as string)).toMatchObject({ state: 'withdrawn', withdrawn_by: 'system', last_error_code: 'status_changed' })
     expect(c.addRedemption).not.toHaveBeenCalled()
+  })
+  it('S127 delta item 2: a duplicate_of withdrawal (stored code `duplicate_of:<owner id>`) → burnError null (the booking’s ticket WAS consumed once)', async () => {
+    const c = fakeCore()
+    mockLedger.attempt = async (_deps, row) => ({ ...row, state: 'withdrawn', withdrawn_by: 'system', last_error_code: 'duplicate_of:intent-owner' })
+    const res = await markNoShowAppointmentCore(c.synqed, 'appt-1', { burnPack: true }, null, ACTOR, SCOPE)
+    expect(res).toMatchObject({ success: true })
+    expect((res as { burnError?: unknown }).burnError ?? null).toBeNull()
+    expect(lastDetail()).toMatchObject({ ledger_state: 'withdrawn' })
   })
 })
 
