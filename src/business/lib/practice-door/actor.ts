@@ -33,6 +33,79 @@ export interface PracticeActor {
 
 const MAX_PAGES = 50
 
+/** ⚖ S81 F3 · S82 R2 · P2 (S97) — THE bound on every core read Business makes: no answer within it = a failed read,
+ *  never a hung page. The SDK client sets no timeout of its own. One per core REQUEST (a paged read that keeps answering
+ *  is never cut; pageAll's MAX_PAGES caps its length). STEP 0 (S97): slowest single Dev Salon request 418 ms. */
+export const CORE_READ_BOUND_MS = 5000
+
+/** P2 — a core read that did not answer within the bound. `digest` = `ref`: Next keeps an error's own digest, so the
+ *  number a Business error boundary shows is the one in the `[business core read]` line. */
+export class CoreUnanswered extends Error {
+  readonly read: string
+  readonly ms: number
+  readonly ref: string
+  readonly digest: string
+  constructor(read: string, ms: number, ref: string) {
+    super(`no answer within ${ms} ms`)
+    this.name = 'CoreUnanswered'
+    this.read = read
+    this.ms = ms
+    this.ref = ref
+    this.digest = ref
+  }
+}
+
+/** Symbol slots on the RAW reads object (never a Map: this folder's fence bans the `.set(` token): the bounded object,
+ *  once per raw object (practice-door-on pins `a.reads === b.reads`); the outage ref, minted once, so one outage is one
+ *  line and one number; the staff-store assignments, read once per actor (door.ts asks three times per render). */
+const BOUND = Symbol('bounded reads, once per raw reads object')
+const OUTAGE = Symbol('the outage ref, once per raw reads object')
+const ASSIGN_ONCE = Symbol('staff-store assignments, once per actor')
+type Slotted = CoreReads & { [BOUND]?: CoreReads; [OUTAGE]?: string; [ASSIGN_ONCE]?: ReturnType<CoreReads['staffStoresList']> }
+
+/** One core request raced against the bound. The timer is cleared on success AND failure; a late answer after the
+ *  rejection reaches nobody. The first timeout per reads object logs the one black-box line (admission-failure-record's
+ *  shape: reason, ref, facts; no message text, no customer data). */
+function bounded<T>(raw: Slotted, read: keyof CoreReads, call: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    call(),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const first = raw[OUTAGE] === undefined
+        const ref = (raw[OUTAGE] ??= Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0'))
+        if (first) console.error('[business core read]', { reason: 'no-answer', ref, read, ms: CORE_READ_BOUND_MS })
+        reject(new CoreUnanswered(read, CORE_READ_BOUND_MS, ref))
+      }, CORE_READ_BOUND_MS)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+/** P2 — every reader of `raw`, bounded; the method is looked up at CALL time (a re-stubbed mock is still seen). Typed
+ *  CoreReads with an explicit return type, so a missing or extra reader is a type error. */
+export function boundReads(raw: CoreReads): CoreReads {
+  const r: Slotted = raw
+  return (r[BOUND] ??= boundOf(r))
+}
+function boundOf(r: Slotted): CoreReads {
+  return {
+    storesList: () => bounded(r, 'storesList', () => r.storesList()),
+    staffList: (o) => bounded(r, 'staffList', () => r.staffList(o)),
+    staffStoresList: () => (r[ASSIGN_ONCE] ??= bounded(r, 'staffStoresList', () => r.staffStoresList())),
+    answerSheet: (id) => bounded(r, 'answerSheet', () => r.answerSheet(id)),
+    menusList: (o) => bounded(r, 'menusList', () => r.menusList(o)),
+    customersList: (o) => bounded(r, 'customersList', () => r.customersList(o)),
+    customerVisits: (id) => bounded(r, 'customerVisits', () => r.customerVisits(id)),
+    appointmentsList: (o) => bounded(r, 'appointmentsList', () => r.appointmentsList(o)),
+    orgSettingsGet: () => bounded(r, 'orgSettingsGet', () => r.orgSettingsGet()),
+    resourcesList: (o) => bounded(r, 'resourcesList', () => r.resourcesList(o)),
+    storePolicyGet: (storeId) => bounded(r, 'storePolicyGet', () => r.storePolicyGet(storeId)),
+    storePolicyListClosedDays: (storeId, range) => bounded(r, 'storePolicyListClosedDays', () => r.storePolicyListClosedDays(storeId, range)),
+    businessGrantsCheck: (staffId) => bounded(r, 'businessGrantsCheck', () => r.businessGrantsCheck(staffId)),
+    auditList: (o) => bounded(r, 'auditList', () => r.auditList(o)),
+  }
+}
+
 /** Every row of a paged read — never a truncated list. The LAST page is the
  *  SHORT one (fewer rows than the page size): core's `total` is never the stop
  *  condition, so a count that under-reports cannot cut the list. The size is
@@ -72,7 +145,7 @@ export const practiceActor = cache(async (): Promise<PracticeActor> => {
   const { requireBusinessAdmission } = await import('../admission')
   const admitted = await requireBusinessAdmission()
   const { clientFor } = await import('./core-reach')
-  const reads = clientFor(admitted) // the tenant throw lives there (§2), before any read
+  const reads = boundReads(clientFor(admitted)) // the tenant throw lives there (§2), before any read
   const staff = await pageAll('staff list', 200, async (page) => {
     const r = await reads.staffList({ page, page_size: 200 })
     return { rows: r.staff, page_size: r.page_size }

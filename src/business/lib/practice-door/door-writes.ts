@@ -26,7 +26,7 @@
 // Every type below is derived from `CoreReads`/`CoreClient` instead (same
 // trick practice-door-recorded.ts uses), and `SynqedError` is recognised by
 // shape (`isSynqedError`) rather than `instanceof` — no import needed either way.
-import { practiceActor, visibleIds, type PracticeActor } from './actor'
+import { CoreUnanswered, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
@@ -147,7 +147,7 @@ export async function canWriteStoreDays(storeId: string): Promise<StoreDaysWrite
     const actor = await practiceActor()
     return (await canWriteStoreDaysFor(actor, storeId)) ? 'writable' : 'read-only'
   } catch (e) {
-    console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
+    if (!(e instanceof CoreUnanswered)) console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
     return 'unknown'
   }
 }
