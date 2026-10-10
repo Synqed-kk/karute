@@ -139,3 +139,17 @@ describe('W4.1 — D5 (recoveryDayPrecheck) counts an open ledger use on the cus
     expect(await recoveryDayPrecheck(core, store)({ ...recovery, redeemed_on: ymdInJst(new Date()) })).toEqual({ ok: true })
   })
 })
+
+describe('F7 — a shared pack: the holder card and the visitor card both subtract a pending use (§ 6a H8/N6)', () => {
+  const SHARED = { id: 'p-shared', remaining: 5, eligible_customer_ids: ['holder', 'visitor'] }
+  it.each([['visitor', 'holder'], ['holder', 'visitor'], ['visitor', 'visitor']])('a pending use by the %s → the %s card reads one fewer', async (user, viewer) => {
+    const store = memLedgerStore()
+    await insertP3Intent(store, { businessId: BIZ, ownerUserId: null, source: 'no_show', customerId: user, appointmentId: `appt-${user}`, bookingDay: YESTERDAY, packId: 'p-shared', createdBy: null })
+    expect(await applyLedgerToPacks([SHARED], viewer, { store, businessId: BIZ })).toEqual({ packs: [{ ...SHARED, remaining: 4 }], ledgerUnreadable: false })
+  })
+  it('a pack with no eligible list folds the viewer only (unchanged)', async () => {
+    const store = memLedgerStore()
+    await insertP3Intent(store, { businessId: BIZ, ownerUserId: null, source: 'no_show', customerId: 'other', appointmentId: 'appt-o', bookingDay: YESTERDAY, packId: 'p-own', createdBy: null })
+    expect((await applyLedgerToPacks([{ id: 'p-own', remaining: 5 }], 'holder', { store, businessId: BIZ })).packs[0].remaining).toBe(5)
+  })
+})

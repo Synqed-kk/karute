@@ -417,7 +417,15 @@ export async function applyLedgerToPacks<P extends { id: string; remaining: numb
 ): Promise<{ packs: P[]; ledgerUnreadable: boolean }> {
   const ref = ledger === undefined ? await cookieUsageLedger() : ledger
   if (!ref) return { packs, ledgerUnreadable: true }
-  const fold = await foldLedger(ref, [customerId])
+  // § 6a H8/N6 (F7): a shared pack's pending use counts on the holder's AND the
+  // visitor's card — fold every eligible customer the packs read carries.
+  const ids = new Set([customerId])
+  for (const p of packs) {
+    if ('eligible_customer_ids' in p && Array.isArray(p.eligible_customer_ids)) {
+      for (const id of p.eligible_customer_ids) if (typeof id === 'string') ids.add(id)
+    }
+  }
+  const fold = await foldLedger(ref, [...ids])
   if (!fold.ok) return { packs, ledgerUnreadable: true }
   return { packs: packs.map((p) => ({ ...p, remaining: foldRemaining(fold, p.remaining, p.id) })), ledgerUnreadable: false }
 }
