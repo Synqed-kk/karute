@@ -156,7 +156,7 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
     async update(businessId, id, where, patch) {
       let q = db.from(T).update(patch).eq('business_id', businessId).eq('id', id).eq('state', where.state)
       if (where.attempts !== undefined) q = q.eq('attempts', where.attempts)
-      if (where.leaseFreeAt) q = q.or(`leased_until.is.null,leased_until.lt.${where.leaseFreeAt}`)
+      if (where.leaseFreeAt) q = q.or(`leased_until.is.null,leased_until.lt."${where.leaseFreeAt}"`)
       const { data, error } = await q.select('*')
       fail(error)
       return ((data ?? []) as IntentRow[])[0] ?? null
@@ -299,7 +299,7 @@ export function preReadMatch(intent: IntentRow, rows: CoreRow[], claimed: Set<st
     return nullRow?.id ?? null
   }
   const walk = inWindow.filter((r) => r.appointment_id === null && (r.source === 'manual' || r.source === 'backfill'))
-  const preCutover = intent.redeemed_on <= CUTOVER_DAY
+  const preCutover = intent.redeemed_on < CUTOVER_DAY
   const m = walk.find((r) => day(r.redeemed_on) > CUTOVER_DAY || (preCutover && day(r.redeemed_on) === intent.redeemed_on))
   return m?.id ?? null
 }
