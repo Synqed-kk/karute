@@ -104,6 +104,7 @@ describe('S125 use ledger — the numbered list', () => {
     const row = sysRow({ id: 'aaaaaaaa-0000-4000-8000-000000000002' }); await s2.insertIgnore(row)
     const out = await attemptIntent({ store: s2, synqed: c2 as never, now: () => NOW, repick: async (_r, tried) => (tried.has('pack-B') ? null : 'pack-B') }, row)
     expect(out).toMatchObject({ state: 'settled', settled_core_id: 'core-B', pack_id: 'pack-B' })
+    expect(s2.rows[0]).toMatchObject({ repicked_from: 'pack-A', frozen_payload: { pack_id: 'pack-A' }, repick_payload: { pack_id: 'pack-B' } })
     expect(c2.packs.addRedemption.mock.calls[1][0].pack_id).toBe('pack-B')
     expect(c2.packs.addRedemption.mock.calls[1][1]).toEqual({ idempotencyKey: row.id })
 
@@ -276,6 +277,13 @@ describe('S125 use ledger — the numbered list', () => {
     const r = await recordUse(deps(store, core), walkIn({ intentId: id }))
     expect(r).toMatchObject({ ok: false, error: 'foreign_key' })
     expect(core.packs.addRedemption).not.toHaveBeenCalled()
+  })
+
+  test('F1 · a withdrawn row answers withdrawn (its own ack state)', async () => {
+    const store = memStore()
+    const id = 'aaaaaaaa-0000-4000-8000-0000000000f1'
+    await store.insertIgnore(sysRow({ id, state: 'withdrawn' }))
+    expect(await recordUse(deps(store, fakeCore()), walkIn({ intentId: id }))).toEqual({ ok: false, state: 'withdrawn', intentId: id })
   })
 
   test('19 · ledger read failure → usage read is ok:false (the card shows 残数確認中) and the gate still runs', async () => {

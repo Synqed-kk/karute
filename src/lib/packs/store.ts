@@ -130,7 +130,7 @@ export async function updatePackStatus(
 export async function findCustomerAppointmentForDate(
   customerId: string,
   dateYmd: string,
-): Promise<string | null> {
+): Promise<string | null | 'unknown'> {
   return findCustomerAppointmentForDateWithClient(await getSynqedClient(), customerId, dateYmd)
 }
 
@@ -140,7 +140,7 @@ export async function findCustomerAppointmentForDateWithClient(
   synqed: Pick<SynqedClient, 'appointments'>,
   customerId: string,
   dateYmd: string,
-): Promise<string | null> {
+): Promise<string | null | 'unknown'> {
   try {
     const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
     const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
@@ -158,7 +158,9 @@ export async function findCustomerAppointmentForDateWithClient(
     return (candidates.find((a) => a.starts_at >= nowIso) ?? candidates[0]).id
   } catch (err) {
     warn('findCustomerAppointmentForDate', err)
-    return null
+    // H15 (design v4.2 R2): a failed lookup is NOT "no booking" — the ledger
+    // keeps the use pending instead of sending it walk-in shaped.
+    return 'unknown'
   }
 }
 

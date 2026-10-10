@@ -122,15 +122,8 @@ export async function redeemSessionAction(
   // R1 (design v4.2): the gesture is written to the use ledger before core is
   // asked. No ledger = no core call: the device-held shape (PR-B's client
   // wrapper replays it), never an unledgered burn.
-  const ledger = await (async () => {
-    const [{ getBusinessId }, { defaultLedgerStore }] = await Promise.all([
-      import('@/lib/staff'),
-      import('@/lib/packs/use-ledger'),
-    ])
-    return { store: await defaultLedgerStore(), businessId: await getBusinessId(), ownerUserId: null }
-  })().catch(() => null)
-  if (!ledger?.businessId) return { ok: false, error: 'ledger_unavailable' }
-  const result = await redeemSessionActionWithClient(synqed, staffId, input, ledger)
+  // (the core resolves this session's ledger itself; no ledger = no core call)
+  const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   // D7 (⚖ 8/21 ②) — recovery-resolved burns are visible to reconcile. VERIFIED
   // against @synqed-kk/client 1.28.0, the version package.json PINS (re-checked
@@ -148,7 +141,8 @@ export async function redeemSessionAction(
   // facade twin could carry no per-call detail; it can, and now does. What is
   // still missing on BOTH is a queryable source column, which stays the OPTIONAL
   // Anthony one-liner: add 'recovery' to the redemption source enum.
-  if (result.ok && input.recovery) {
+  // D7 tags a LANDED recovery burn only: a pending/held use has no redemption yet
+  if (result.ok && (result.state ?? 'settled') === 'settled' && input.recovery) {
     await auditWeb({
       category: 'customer',
       action: 'customer.pack_redeem',

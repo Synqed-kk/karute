@@ -11,9 +11,8 @@
 // a conditional UPDATE … WHERE state = <prior state> (zero rows = a lost race).
 // ⚖ no hardcoded durations: every threshold below is ONE named export.
 
-import { addRedemptionWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
+import { addRedemptionWithClient, findCustomerAppointmentForDateWithClient, type AddRedemptionFailure } from '@/lib/packs/store'
 import { ymdInJst } from '@/lib/date/jst'
-import { isTerminalStatus } from '@/lib/appointments/status'
 import type { SynqedClient } from '@synqed-kk/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -42,8 +41,19 @@ export const ALARM_TOP_N = 10
 export const IN_FLIGHT_RETRY_DEFAULT_MS = 5_000
 /** R4/H12: the ledger deploy day (JST). Core rows dated AFTER it can only be
  *  ledgered uses or unclaimed-by-construction rows; the day itself is excluded
- *  because no core read returns created_at (C5 would allow it). SET AT MERGE. */
-export const CUTOVER_DAY = '2026-10-11'
+ *  because no core read returns created_at (C5 would allow it). Set
+ *  KARUTE_LEDGER_CUTOVER_DAY to the deploy day; this is the documented fallback. */
+export const CUTOVER_DAY_FALLBACK = '2026-10-11'
+export const CUTOVER_DAY = parseCutoverDay(process.env.KARUTE_LEDGER_CUTOVER_DAY)
+
+/** A bad value throws at module load (boot), never silently. */
+function parseCutoverDay(raw: string | undefined): string {
+  const v = raw?.trim() || CUTOVER_DAY_FALLBACK
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || ymdInJst(new Date(`${v}T12:00:00+09:00`)) !== v) {
+    throw new Error(`[use-ledger] KARUTE_LEDGER_CUTOVER_DAY is not a JST date (yyyy-mm-dd): ${JSON.stringify(raw)}`)
+  }
+  return v
+}
 
 // ── Row + store port ─────────────────────────────────────────────────────────
 export type IntentState = 'held' | 'pending' | 'parked' | 'settled' | 'refused' | 'withdrawn'
@@ -82,6 +92,9 @@ export interface IntentRow {
   another_session: boolean
   target_redemption_id?: string | null
   frozen_payload: CorePayload | null
+  /** R3-pick: the body actually sent after a system re-pick (frozen_payload stays as written). */
+  repick_payload?: CorePayload | null
+  repicked_from?: string | null
   audit_payload: Record<string, unknown> | null
   created_at?: string
   state: IntentState
@@ -136,6 +149,8 @@ export interface LedgerStore {
 
 const T = 'pack_use_intents'
 const IN_CHUNK = 200
+/** Ids per page of the distinct-business read. */
+export const BUSINESS_PAGE = 1000
 
 function fail(error: { message: string } | null): void {
   if (error) throw new Error(`[use-ledger] ${error.message}`)
@@ -179,9 +194,23 @@ export function supabaseLedgerStore(db: SupabaseClient): LedgerStore {
       return (data ?? []) as IntentRow[]
     },
     async listOpenBusinessIds(states) {
-      const { data, error } = await db.from(T).select('business_id').in('state', states)
-      fail(error)
-      return [...new Set(((data ?? []) as Array<{ business_id: string }>).map((r) => r.business_id))]
+      // DISTINCT business_id on the open-row predicate, paginated by key
+      // (business_id > the last one seen): never a full-row read, and each page
+      // reads at most BUSINESS_PAGE ids (PostgREST has no DISTINCT; the table
+      // carries no function by design).
+      const out: string[] = []
+      let after: string | null = null
+      for (;;) {
+        let q = db.from(T).select('business_id').in('state', states).order('business_id', { ascending: true }).limit(BUSINESS_PAGE)
+        if (after) q = q.gt('business_id', after)
+        const { data, error } = await q
+        fail(error)
+        const ids = ((data ?? []) as Array<{ business_id: string }>).map((r) => r.business_id)
+        if (ids.length === 0) return out
+        for (const id of ids) if (out[out.length - 1] !== id) out.push(id)
+        after = ids[ids.length - 1]
+        if (ids.length < BUSINESS_PAGE) return out
+      }
     },
     async claimedCoreIds(businessId, coreIds) {
       const out = new Set<string>()
@@ -202,6 +231,12 @@ export async function defaultLedgerStore(): Promise<LedgerStore> {
   return supabaseLedgerStore(createServiceClient())
 }
 
+/** The web server action's ledger: the store + the cookie session's business. */
+export async function defaultLedgerContext(): Promise<{ store: LedgerStore; businessId: string; ownerUserId: string | null }> {
+  const [{ getBusinessId }, store] = await Promise.all([import('@/lib/staff'), defaultLedgerStore()])
+  return { store, businessId: await getBusinessId(), ownerUserId: null }
+}
+
 // ── § 7 the alarm: ONE writer (structured log; the ⚖ 9/30 black box replaces
 // the body, never the callers) ───────────────────────────────────────────────
 export interface FailureReport {
@@ -213,6 +248,17 @@ export interface FailureReport {
 }
 export function reportFailure(r: FailureReport): void {
   console.error('[alarm]', JSON.stringify(r))
+  // The app's existing Sentry client (src/instrumentation.ts initialises it
+  // server-side); the intent id rides as a tag. An alarm must never break a use.
+  void import('@sentry/nextjs')
+    .then((Sentry) => {
+      Sentry.captureMessage(`[karute] ${r.kind}`, {
+        level: 'error',
+        tags: { product: r.product, kind: r.kind, business_id: r.business_id ?? 'none', intent_id: r.ref ?? 'none' },
+        extra: r.facts,
+      })
+    })
+    .catch(() => {})
 }
 
 // ── R6 gesture_at ─────────────────────────────────────────────────────────────
@@ -254,7 +300,11 @@ export function classifyCoreFailure(f: AddRedemptionFailure, booked: boolean): C
   if (status === 400 && body && (Array.isArray(body.issues) || Array.isArray(body.error))) {
     return { kind: 'refused', code: 'invalid_body' }
   }
-  if (status === 500 && /over-redeemed|23514/.test(message)) return { kind: 'refused', code: 'no_units' }
+  // the trigger raise the design names (500 'over-redeemed' / 23514); the store's
+  // below_zero discriminator is that same match, kept when no status survived
+  if ((status === 500 && /over-redeemed|23514/.test(message)) || (status === null && f.error === 'below_zero')) {
+    return { kind: 'refused', code: 'no_units' }
+  }
   if (booked && status === 500 && /P2002|23505|pack_redemptions_active_appointment_unique/.test(message)) {
     return { kind: 'booked_duplicate' }
   }
@@ -319,18 +369,10 @@ export async function lookupAppointmentForDay(
   synqed: Pick<SynqedClient, 'appointments'>,
   customerId: string,
   dateYmd: string,
-  nowIso: string,
 ): Promise<string | null | 'unknown'> {
+  // the store's ONE lookup (store.ts), which answers 'unknown' on error (H15)
   try {
-    const { appointments } = await synqed.appointments.list({
-      customer_id: customerId,
-      from: new Date(`${dateYmd}T00:00:00+09:00`).toISOString(),
-      to: new Date(`${dateYmd}T23:59:59.999+09:00`).toISOString(),
-      page_size: 200,
-    })
-    const c = appointments.filter((a) => !isTerminalStatus(a.status)).sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))
-    if (c.length === 0) return null
-    return (c.find((a) => a.starts_at >= nowIso) ?? c[0]).id
+    return await findCustomerAppointmentForDateWithClient(synqed, customerId, dateYmd)
   } catch {
     return 'unknown'
   }
@@ -393,11 +435,13 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     }
     let cur = row
     if (!cur.appointment_resolved) {
-      const appt = await lookupAppointmentForDay(synqed, cur.customer_id, cur.redeemed_on, cur.gesture_at)
+      const appt = await lookupAppointmentForDay(synqed, cur.customer_id, cur.redeemed_on)
       if (appt === 'unknown') return keepPending(store, cur, { leased_until: null, last_error_code: 'booking_lookup_unknown' })
+      // frozen_payload is written ONCE, here, on the first successful lookup
+      const draft = cur.audit_payload?.draft_payload as CorePayload | undefined
       cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
         appointment_id: appt, appointment_resolved: true,
-        frozen_payload: cur.frozen_payload ? { ...cur.frozen_payload, appointment_id: appt } : null,
+        frozen_payload: draft ? { ...draft, appointment_id: appt } : null,
       })) ?? cur
     }
     const pre = deps.precheck ? await deps.precheck(cur) : ({ ok: true } as const)
@@ -409,7 +453,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
     if ('refuse' in pre) return refuse(store, cur, pre.refuse, now)
     const tried = new Set<string>()
     for (;;) {
-      const p = cur.frozen_payload
+      const p = cur.repick_payload ?? cur.frozen_payload
       if (!p) return keepPending(store, cur, { leased_until: null, last_error_code: 'no_payload' })
       tried.add(p.pack_id)
       const res = await addRedemptionWithClient(synqed, {
@@ -431,7 +475,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
           const next = await deps.repick(cur, tried)
           if (next && !tried.has(next)) {
             cur = (await store.update(cur.business_id, cur.id, { state: 'pending' }, {
-              pack_id: next, frozen_payload: { ...p, pack_id: next },
+              pack_id: next, repicked_from: cur.pack_id, repick_payload: { ...p, pack_id: next },
             })) ?? cur
             continue
           }
@@ -482,7 +526,7 @@ export interface RecordUseInput {
   anotherSession?: boolean
   karuteRecordId?: string | null
 }
-export type UseState = 'settled' | 'pending' | 'held' | 'refused'
+export type UseState = 'settled' | 'pending' | 'held' | 'refused' | 'withdrawn'
 export interface RecordUseResult {
   ok: boolean
   state?: UseState
@@ -499,7 +543,7 @@ export function answerFromRow(row: IntentRow): RecordUseResult {
     case 'pending':
     case 'parked': return { ...base, ok: true, state: 'pending' }
     case 'held': return { ...base, ok: true, state: 'held', heldAgainst: row.held_against ?? undefined }
-    case 'withdrawn': return { ...base, ok: false, state: 'refused', error: 'withdrawn' }
+    case 'withdrawn': return { ...base, ok: false, state: 'withdrawn' }
     case 'refused': {
       const code = row.refused_code
       const error = code === 'no_units' ? 'below_zero' : code === 'already_redeemed' ? 'already_redeemed' : (row.last_error_text ?? code ?? 'refused')
@@ -533,7 +577,7 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
       const redeemedOn = input.redeemedOn ?? ymdInJst(new Date(g.gestureAt))
       const appt = input.appointmentId !== undefined
         ? input.appointmentId
-        : await lookupAppointmentForDay(synqed, input.customerId, redeemedOn, g.gestureAt)
+        : await lookupAppointmentForDay(synqed, input.customerId, redeemedOn)
       const resolved = appt !== 'unknown'
       const appointmentId = resolved ? appt : null
       const source: LedgerSource = input.recovery ? 'recovery' : (input.source ?? 'manual')
@@ -543,17 +587,22 @@ export async function recordUse(deps: AttemptDeps, input: RecordUseInput): Promi
         const earlier = gatingIntent(await store.listForCustomers(input.businessId, [input.customerId]), input.customerId, redeemedOn, id)
         if (earlier) { state = 'held'; heldAgainst = earlier.id }
       }
+      const payload: CorePayload = {
+        pack_id: input.packId, customer_id: input.customerId, redeemed_on: redeemedOn, appointment_id: appointmentId,
+        karute_record_id: input.karuteRecordId ?? null, source: input.source ?? 'manual', created_by: input.staffId,
+      }
       await store.insertIgnore({
         id, business_id: input.businessId, owner_user_id: input.ownerUserId, kind: 'use',
         ledger_source: source, core_source: input.source ?? 'manual', customer_id: input.customerId,
         pack_id: input.packId, pack_picked_by: 'staff', appointment_id: appointmentId, appointment_resolved: resolved,
         gesture_at: g.gestureAt, gesture_at_client: g.gestureAtClient, clock_suspect: g.clockSuspect,
         redeemed_on: redeemedOn, counts_as_visit: null, another_session: Boolean(input.anotherSession),
-        frozen_payload: {
-          pack_id: input.packId, customer_id: input.customerId, redeemed_on: redeemedOn, appointment_id: appointmentId,
-          karute_record_id: input.karuteRecordId ?? null, source: input.source ?? 'manual', created_by: input.staffId,
+        // written once: now when the booking is known, else on the first successful lookup
+        frozen_payload: resolved ? payload : null,
+        audit_payload: {
+          ...(g.gestureAtClient ? { gesture_at_client: g.gestureAtClient } : {}),
+          ...(resolved ? {} : { draft_payload: payload }),
         },
-        audit_payload: g.gestureAtClient ? { gesture_at_client: g.gestureAtClient } : null,
         state, attempts: 0, held_at: state === 'held' ? iso(now) : null, held_against: heldAgainst,
       })
       const back = (await store.getAllById(id))

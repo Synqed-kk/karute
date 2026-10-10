@@ -25,8 +25,6 @@ export const runtime = 'nodejs'
 
 type Params = { id: string }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 const RedeemSchema = z
   .object({
     packId: z.string().min(1),
@@ -101,9 +99,8 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
     recovery: parsed.data.recovery,
-    // R1: the phone's key IS the ledger intent id (a non-UUID key gets a
-    // server-minted intent id; core still sees that id as the key).
-    intentId: UUID_RE.test(idempotencyKey) ? idempotencyKey : globalThis.crypto.randomUUID(),
+    // R1: the phone's key IS the ledger intent id, sent to core unchanged.
+    intentId: idempotencyKey,
     idempotencyKey,
   }, { store: await defaultLedgerStore(), businessId: ctx.identity.businessId, ownerUserId: ctx.identity.authUserId })
   // PR-A keeps TODAY's wire contract: ok:true ONLY for a settled use, so an

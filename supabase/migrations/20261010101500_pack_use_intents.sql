@@ -17,7 +17,7 @@
 -- =====================================================
 
 create table if not exists pack_use_intents (
-  id                    uuid not null,
+  id                    text not null,   -- = the Idempotency-Key exactly as the client sent it
   business_id           uuid not null,
   owner_user_id         uuid,
   kind                  text not null check (kind in ('use', 'undo')),
@@ -36,6 +36,8 @@ create table if not exists pack_use_intents (
   another_session       boolean not null default false,
   target_redemption_id  text,
   frozen_payload        jsonb,
+  repick_payload        jsonb,          -- R3-pick: the body sent after a system re-pick; frozen_payload is never rewritten
+  repicked_from         text,
   audit_payload         jsonb,
   created_at            timestamptz not null default now(),
   state                 text not null check (state in ('held', 'pending', 'parked', 'settled', 'refused', 'withdrawn')),
@@ -53,7 +55,7 @@ create table if not exists pack_use_intents (
   parked_reason         text,
   resumed_at            timestamptz,
   held_at               timestamptz,
-  held_against          uuid,
+  held_against          text,
   withdraw_requested_at timestamptz,
   withdrawn_at          timestamptz,
   withdrawn_by          text,
@@ -62,7 +64,7 @@ create table if not exists pack_use_intents (
   staff_resolved_by     text,
   staff_resolved_at     timestamptz,
   last_alarmed_at       timestamptz,
-  undone_by             uuid,
+  undone_by             text,
   constraint pack_use_intents_business_id_unique unique (business_id, id)
 );
 
