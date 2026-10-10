@@ -2,9 +2,11 @@
 // Reads only: storePolicies.get (live weekly_hours + special_open_days) and storePolicies.listClosedDays (臨時休業 rows) over the
 // plan's FULL window (epoch − pastDays … today + futureDays: past days are written too). A failed read throws — the caller
 // fails that store loud, never plans unfiltered against live core. The closed-day rows are test data the loader respects.
-import type { StoreBookingPolicy, WeeklyHours } from '@synqed-kk/client'
+import type { WeeklyHours } from '@synqed-kk/client'
 import type { FillCore } from './fill'
 import { addDays, type LiveCalendar, type Plan } from './plan'
+
+type StoreBookingPolicy = Awaited<ReturnType<FillCore['storePolicies']['get']>>
 
 const isYmd = (d: unknown): d is string =>
   typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d
