@@ -427,7 +427,21 @@ export async function applyLedgerToPacks<P extends { id: string; remaining: numb
   }
   const fold = await foldLedger(ref, [...ids])
   if (!fold.ok) return { packs, ledgerUnreadable: true }
-  return { packs: packs.map((p) => ({ ...p, remaining: foldRemaining(fold, p.remaining, p.id) })), ledgerUnreadable: false }
+  return { packs: packs.map((p) => foldPack(p, foldRemaining(fold, p.remaining, p.id))), ledgerUnreadable: false }
+}
+
+/** Greptile #1163 F1: one card, one balance — the dots (redeemedCount) and the
+ *  未消化 ¥ (unconsumedValue) follow the folded remaining. Only fields the pack
+ *  already carries move; a null/absent factor keeps core's value; an unchanged
+ *  remaining leaves the pack exactly as core sent it. */
+function foldPack<P extends { id: string; remaining: number }>(p: P, r: number): P {
+  if (r === p.remaining) return { ...p }
+  const out: P & { redeemedCount?: number; unconsumedValue?: number } = { ...p, remaining: r }
+  const size = 'pack_size' in p ? p.pack_size : undefined
+  const price = 'unit_price' in p ? p.unit_price : undefined
+  if ('redeemedCount' in p && typeof size === 'number') out.redeemedCount = Math.max(0, size - r)
+  if ('unconsumedValue' in p && typeof price === 'number') out.unconsumedValue = r * price
+  return out
 }
 
 /** Bulk pack usage for the customer LIST page — two business-scoped reads,

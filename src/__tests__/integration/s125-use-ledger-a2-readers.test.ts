@@ -153,3 +153,52 @@ describe('F7 — a shared pack: the holder card and the visitor card both subtra
     expect((await applyLedgerToPacks([{ id: 'p-own', remaining: 5 }], 'holder', { store, businessId: BIZ })).packs[0].remaining).toBe(5)
   })
 })
+
+describe('Greptile #1163 F1 — one card, one balance: the fold moves remaining, redeemedCount and unconsumedValue together', () => {
+  // withUsage's shape for a 10-session pack with 7 used at core, ¥5000 a session
+  const PACK = { id: 'p1', pack_size: 10, redeemedCount: 7, remaining: 3, unit_price: 5000, unconsumedValue: 15000 }
+  const rowsStore = (rows: Partial<IntentRow>[]): LedgerStore => ({ ...memLedgerStore(), listForCustomers: async () => rows as IntentRow[] })
+  const use = { kind: 'use', customer_id: 'c1', pack_id: 'p1', appointment_id: 'a1', redeemed_on: YESTERDAY } as Partial<IntentRow>
+
+  it('one pending use → {remaining 2, redeemedCount 8, unconsumedValue 10000}', async () => {
+    const store = mockLedger.current as LedgerStore
+    await pendingUse(store)
+    const { packs } = await applyLedgerToPacks([PACK], 'c1', { store, businessId: BIZ })
+    expect(packs[0]).toMatchObject({ remaining: 2, redeemedCount: 8, unconsumedValue: 10000 })
+  })
+
+  it('one held use → the same shape', async () => {
+    const { packs } = await applyLedgerToPacks([PACK], 'c1', { store: rowsStore([{ ...use, id: 'h', state: 'held' }]), businessId: BIZ })
+    expect(packs[0]).toMatchObject({ remaining: 2, redeemedCount: 8, unconsumedValue: 10000 })
+  })
+
+  it('a pending undo (取消待ち) adds back → {4, 6, 20000}', async () => {
+    const { packs } = await applyLedgerToPacks([PACK], 'c1', { store: rowsStore([{ ...use, id: 'u', kind: 'undo', state: 'pending' }]), businessId: BIZ })
+    expect(packs[0]).toMatchObject({ remaining: 4, redeemedCount: 6, unconsumedValue: 20000 })
+  })
+
+  it('unit_price null keeps unconsumedValue as it was; a pack without the fields gets none invented', async () => {
+    const store = mockLedger.current as LedgerStore
+    await pendingUse(store)
+    const noPrice = { ...PACK, unit_price: null as number | null, unconsumedValue: 15000 }
+    const [a] = (await applyLedgerToPacks([noPrice], 'c1', { store, businessId: BIZ })).packs
+    expect(a).toMatchObject({ remaining: 2, redeemedCount: 8, unconsumedValue: 15000 })
+    const [b] = (await applyLedgerToPacks([{ id: 'p1', remaining: 3 }], 'c1', { store, businessId: BIZ })).packs
+    expect(b).toEqual({ id: 'p1', remaining: 2 })
+  })
+
+  it('the fold happens once: the same pack read twice through the reader gives the same numbers', async () => {
+    const store = mockLedger.current as LedgerStore
+    await pendingUse(store)
+    const first = (await applyLedgerToPacks([PACK], 'c1', { store, businessId: BIZ })).packs[0]
+    const second = (await applyLedgerToPacks([PACK], 'c1', { store, businessId: BIZ })).packs[0]
+    expect(second).toEqual(first)
+    expect(PACK).toMatchObject({ remaining: 3, redeemedCount: 7, unconsumedValue: 15000 }) // input untouched
+  })
+
+  it('an empty ledger leaves every field at core\'s value (no recompute when nothing is open)', async () => {
+    const over = { ...PACK, redeemedCount: 11, remaining: 0, unconsumedValue: 0 } // over-redeemed at core
+    const { packs } = await applyLedgerToPacks([over], 'c1', { store: memLedgerStore(), businessId: BIZ })
+    expect(packs[0]).toEqual(over)
+  })
+})
