@@ -13,7 +13,6 @@ import { fixtureIdOf, liveIdOf, samplePolicyFor, type StoreSamplePolicy } from '
 
 export type TwinKind = 'stores' | 'staff' | 'menus' | 'customers' | 'appointments'
 
-
 const FIELD_KIND: Record<string, TwinKind> = {
   store_id: 'stores',
   staff_id: 'staff',
