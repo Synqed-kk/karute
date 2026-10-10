@@ -8,6 +8,9 @@ import { parseInternalRecord, recordHash, type CapKey, type CapRecord } from './
 export type CapsSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' | 'disconnected' | 'locked'
 export type CapsSaveResult = { ok: true; record: CapRecord; basedOn: string } | { ok: false; reason: CapsSaveReason; ref?: string }
 
+/** ⚖ P2 · R-S97-2 — THE one check of a refusal's ref (the bound's 8 hex) for the room's saves; anything else is none. */
+export const isCoreRef = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}$/.test(v)
+
 const CAPS_SAVE_URL = '/api/business/store-capabilities'
 const CAPS_SAVE_REASONS: ReadonlyArray<CapsSaveReason> = ['forbidden', 'tenant', 'invalid', 'stale', 'core', 'disconnected']
 
@@ -35,7 +38,7 @@ export async function putStoreCapabilities(
     if (answer.reason === 'invalid' && typeof answer.locked === 'string') return { ok: false, reason: 'locked' }
     const reason = CAPS_SAVE_REASONS.find((r) => r === answer.reason)
     // ⚖ P2 · R-S97-2 — the bound's ref (8 hex) rides along so the room can print the number.
-    return { ok: false, reason: reason ?? 'core', ...(typeof answer.ref === 'string' && /^[0-9a-f]{8}$/.test(answer.ref) ? { ref: answer.ref } : {}) }
+    return { ok: false, reason: reason ?? 'core', ...(isCoreRef(answer.ref) ? { ref: answer.ref } : {}) }
   } catch {
     return { ok: false, reason: 'core' }
   }

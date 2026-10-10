@@ -87,7 +87,7 @@ import { STORE_PAGE_HEADINGS, TYPE_BLOCK, UNDO } from '@/business/lib/store-page
 // S60 P7A-R2b — the 業種 / 機能 blocks mounted under the card look, the room's one draft, and the room's toast (R207).
 import type { CapKey, CapRecord } from '@/business/lib/store-page/model'
 import { afterHandFlip, flippedKeys, storePageDraft, storePageEdits, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
-import { putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
+import { isCoreRef, putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
 import { saveFailLines } from '@/business/lib/store-page/save-lines'
 // S61 P7B-R1 (R224) — the sample of the type core last accepted (pure; imports only copy/model types).
 import { practiceSample } from '@/business/lib/store-page/practice-counts'
@@ -404,7 +404,7 @@ const CARD_SAVE_URL = '/api/business/card-color'
 const CARD_SAVE_REASONS: ReadonlyArray<CardSaveReason> = ['forbidden', 'tenant', 'invalid', 'core']
 
 /** ⚖ P2 · R-S97-2 — the bound's ref on a refusal (8 hex), so the room can print the number; anything else: none. */
-const refOf = (v: unknown): { ref?: string } => (typeof v === 'string' && /^[0-9a-f]{8}$/.test(v) ? { ref: v } : {})
+const refOf = (v: unknown): { ref?: string } => (isCoreRef(v) ? { ref: v } : {})
 /** The route's answer → the room's: core's colour on 200, else one of the four reasons; anything the
  *  room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
 async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: true; color: string | null } | { ok: false; reason: CardSaveReason; ref?: string }> {
@@ -2378,9 +2378,6 @@ function Side({
   )
 }
 
-/** The save state, and the ONE piece of chrome that moves on its own: it rises
- *  when there is something to save and sits back down after 保存, on the room's
- *  own spring. */
 /** ⚖ P2 · R-S97-2 fix 2 — THE one renderer of a save's failure text for all five saves (カードの見た目, お店ページの機能,
  *  予約の色分け, 受付ルール, 臨時休業・特別営業日): each line withCoreRef composed is its OWN line, and on the
  *  「エラー番号：」 line (LABEL-FINAL) the number is monospace and selectable. */
@@ -2399,6 +2396,9 @@ function FailText({ text }: { text: string }) {
   )
 }
 
+/** The save state, and the ONE piece of chrome that moves on its own: it rises
+ *  when there is something to save and sits back down after 保存, on the room's
+ *  own spring. */
 function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: boolean; reduced: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const spring = useRef<ReturnType<typeof makeSpring> | null>(null)
