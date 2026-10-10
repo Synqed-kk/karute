@@ -673,14 +673,17 @@ const createdMs = (r: { created_at?: string | null }) => {
 /** A held/pending/parked WALK-IN use for this customer on this JST day created
  *  EARLIER than `self` — by created_at, then id, so of two simultaneous rows only
  *  the later one is held (S128 F2/X1). `self.created_at` unset = not written yet:
- *  every existing row is earlier. A BOOKED intent never gates and is never held
+ *  every existing row is earlier; a row held against `self` never gates it. A BOOKED intent never gates and is never held
  *  (⚖ 8/21); refused never gates. */
 export function gatingIntent(rows: IntentRow[], self: Pick<IntentRow, 'id' | 'customer_id' | 'redeemed_on' | 'created_at'>): IntentRow | null {
   const mine = self.created_at ? createdMs(self) : Infinity
   const earlier = (r: IntentRow) => createdMs(r) < mine || (createdMs(r) === mine && r.id < self.id)
   return rows
     .filter((r) => r.id !== self.id && r.kind === 'use' && r.customer_id === self.customer_id &&
-      r.appointment_id === null && OPEN.includes(r.state) && day(r.redeemed_on) === day(self.redeemed_on) && earlier(r))
+      r.appointment_id === null && OPEN.includes(r.state) && day(r.redeemed_on) === day(self.redeemed_on) &&
+      // S128 fix 3: a row already held AGAINST self never gates self — else a
+      // same-ms pair whose id order disagrees with the write order holds both.
+      r.held_against !== self.id && earlier(r))
     .sort((a, b) => createdMs(a) - createdMs(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0] ?? null
 }
 

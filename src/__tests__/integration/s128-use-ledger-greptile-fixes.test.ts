@@ -130,6 +130,22 @@ describe('S128 A1 Greptile fixes', () => {
     expect(core.packs.addRedemption.mock.calls[0][1]).toEqual({ idempotencyKey: a.id })
   })
 
+  test('F2 (d) · fix 3: A written, then B in the same ms with B.id < A.id → B held against A at write; A\'s attempt is NOT held by B, core called once; B stays held', async () => {
+    const store = memStore(); const core = fakeCore()
+    const a = intentRow({ id: 'dddddddd-0000-4000-8000-000000000002', created_at: NOW.toISOString() })
+    await store.insertIgnore(a)
+    const r = await recordUse(deps(store, core), { businessId: B, ownerUserId: null, staffId: null, customerId: 'cust-1', packId: 'pack-A', appointmentId: null, intentId: 'dddddddd-0000-4000-8000-000000000001' })
+    expect(r).toMatchObject({ ok: true, state: 'held', heldAgainst: a.id })
+    const b = store.rows.find((x) => x.id === r.intentId) as IntentRow
+    expect(b.created_at).toBe(a.created_at) // same ms, and b.id < a.id
+    expect(b.id < a.id).toBe(true)
+    const outA = await attemptIntent(deps(store, core), { ...(store.rows.find((x) => x.id === a.id) as IntentRow) }) // a copy: the fake mutates its own row
+    expect(outA).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
+    expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
+    expect(core.packs.addRedemption.mock.calls[0][1]).toEqual({ idempotencyKey: a.id })
+    expect(store.rows.find((x) => x.id === b.id)).toMatchObject({ state: 'held', held_against: a.id })
+  })
+
   test('F2 (c) · a row carrying the another_session answer still sends past an earlier open same-day walk-in', async () => {
     const store = memStore(); const core = fakeCore()
     const earlier = intentRow({ id: 'cccccccc-0000-4000-8000-000000000001', created_at: ago(60_000), attempts: 1, leased_until: new Date(NOW.getTime() + 60_000).toISOString() })
