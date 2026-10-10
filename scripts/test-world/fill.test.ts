@@ -7,10 +7,11 @@ import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
-import { movedLine, todayStatusFixes } from './close-out'
+import { closeOut, movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, DEFAULT_THROTTLE, jstToday, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
-import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
+import { readLiveCalendar } from './live-calendar'
+import { apply, DEFAULT_THROTTLE, jstToday, lastWindowEnd, NEW_START_FUTURE_DAYS, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { addDays, applyLiveCalendar, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type LiveCalendar, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
@@ -23,7 +24,7 @@ const paged = (key: string, rows: unknown[], { page = 1, page_size = 20 }: Q = {
 }
 const conflict = (msg: string) => Object.assign(new Error(msg), { status: 409 })
 
-function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[]; closed?: string[]; special?: { date: string; open: string; close: string }[]; calendarFails?: boolean } = {}) {
+function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[]; closed?: string[]; rawClosed?: unknown[]; special?: { date: string; open: string; close: string }[]; calendarFails?: boolean } = {}) {
   let n = 0
   const t = { staff: [] as Row[], links: new Map<string, string[]>(), resources: [] as Row[], menus: [] as Row[], customers: [] as Row[], packs: [] as Row[], burns: [] as Row[], appts: [] as Row[], karutes: [] as Row[] }
   const stats = { writes: 0, policy: null as null | Record<string, unknown>, updates: [] as { id: string; status: unknown }[] }
@@ -50,13 +51,14 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
     staffStores: {
       get: async (id: string) => ({ store_ids: t.links.get(id) ?? [] }),
       set: async (id: string, ids: string[]) => (stats.writes++, t.links.set(id, ids), { ok: true }),
+      counts: async () => ({ counts: {} }), // the read-back's one call (S95 T8 reads its karute row)
     },
     storePolicies: {
       get: async () => ({ special_open_days: o.special ?? [], updated_at: '2026-09-01T00:00:00Z', ...(stats.policy ?? { source: 'default', weekly_hours: o.defaultHours ?? null }) }),
       // like core: YYYY-MM-DD range, `to` exclusive
       listClosedDays: async (sid: string, q: { from?: string; to?: string } = {}) => {
         if (o.calendarFails) throw Object.assign(new Error('closed days unavailable'), { status: 400 })
-        return { closed_days: (o.closed ?? []).filter((d) => (!q.from || d >= q.from) && (!q.to || d < q.to)).map((date, i) => ({ id: `cd-${i}`, store_id: sid, date, reason: '店内研修（テスト）', created_by: 'dev', created_at: '2026-09-28T00:00:00Z' })) }
+        return { closed_days: o.rawClosed ?? (o.closed ?? []).filter((d) => (!q.from || d >= q.from) && (!q.to || d < q.to)).map((date, i) => ({ id: `cd-${i}`, store_id: sid, date, reason: '店内研修（テスト）', created_by: 'dev', created_at: '2026-09-28T00:00:00Z' })) }
       },
       set: async (_: string, i: Record<string, unknown>) => (stats.writes++, (stats.policy = { ...i, source: 'custom' })),
     },
@@ -850,6 +852,175 @@ async function main() {
       stable.push(`${registry.stores[sid].type}@${sid.slice(0, 8)} ${p14.appointments.length}⊂${p30.appointments.length}`)
     }
     console.log(`✓ S94 horizon 14 → 30: every 14-day booking + karute unchanged, ${stable.length} stores (${stable.join(', ')})`)
+  }
+
+  // ── S95: the live calendar only REMOVES (D1) ───────────────────────────────────────────────────────────
+  {
+    const hours = recipe.policy.weekly_hours
+    const sctx = storeCtx(STORE, { weeklyHours: hours, pastDays: registry.pastDays, legacyThrough: null })
+    const cal = (o: Partial<LiveCalendar> = {}): LiveCalendar => ({ weeklyHours: hours, closedDates: new Set(), specialOpen: new Map(), ...o })
+    const base = plan(recipe, sctx, TODAY, TODAY)
+    const on = (d: string) => (x: { date: string }) => x.date === d
+    const off = (d: string) => (x: { date: string }) => x.date !== d
+    const dow = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay()
+    assert.deepEqual(plan(recipe, { ...sctx, liveCalendar: cal() }, TODAY, TODAY), base, 'an empty live calendar = the plan, byte-identical')
+    // T1 one closed row on an open weekday
+    const kd = base.karutes[base.karutes.length >> 1].date
+    const t1 = plan(recipe, { ...sctx, liveCalendar: cal({ closedDates: new Set([kd]) }) }, TODAY, TODAY)
+    assert.ok(hoursOn(hours, kd) && base.appointments.filter(on(kd)).length > 1 && base.karutes.some(on(kd)), 'T1 fixture: an open day with bookings and a karute')
+    assert.ok(!t1.appointments.some(on(kd)) && !t1.karutes.some(on(kd)), 'T1: nothing planned on the closed day')
+    assert.deepEqual(t1.appointments, base.appointments.filter(off(kd)), 'T1: every other booking identical')
+    assert.deepEqual(t1.karutes, base.karutes.filter(off(kd)), 'T1: every other karute identical')
+    assert.deepEqual(t1.dropped, base.appointments.filter(on(kd)).map((a) => ({ key: a.key, date: kd, why: 'closed-day' })), 'T1: dropped names them')
+    assert.deepEqual(t1.packs, base.packs, 'T1: packs untouched')
+    assert.deepEqual(applyLiveCalendar(base, cal({ closedDates: new Set([kd]) })), t1, 'fill\'s applyLiveCalendar(plan) = plan() with StoreCtx.liveCalendar')
+    console.log(`✓ S95 T1 closed day ${kd}: dropped ${t1.dropped.length} bookings + ${base.karutes.length - t1.karutes.length} karutes, ${t1.appointments.length} others identical`)
+    // T3 a live-closed weekday (Wednesday, open in the snapshot); a special-open Wednesday keeps only rows inside its window
+    const t3 = plan(recipe, { ...sctx, liveCalendar: cal({ weeklyHours: { ...hours, wed: null } }) }, TODAY, TODAY)
+    const isWed = (x: { date: string }) => dow(x.date) === 3
+    assert.ok(base.appointments.some(isWed), 'T3 fixture: Wednesday bookings')
+    assert.deepEqual(t3.appointments, base.appointments.filter((a) => !isWed(a)), 'T3: only Wednesdays dropped, others identical')
+    assert.ok(t3.dropped.length === base.appointments.filter(isWed).length && t3.dropped.every((d) => d.why === 'live-weekday-closed'), 'T3: why live-weekday-closed')
+    const wd = base.appointments.find(isWed)!.date
+    const sp = plan(recipe, { ...sctx, liveCalendar: cal({ weeklyHours: { ...hours, wed: null }, specialOpen: new Map([[wd, { open: '12:00', close: '16:00' }]]) }) }, TODAY, TODAY)
+    const inside = (a: Plan['appointments'][number]) => a.startsAt >= jstIso(a.date, 720) && a.endsAt <= jstIso(a.date, 960)
+    assert.deepEqual(sp.appointments.filter(on(wd)), base.appointments.filter(on(wd)).filter(inside), 'T3: the special-open Wednesday keeps the rows inside its window only')
+    assert.ok(sp.dropped.filter(on(wd)).every((d) => d.why === 'outside-live-hours'), 'T3: the rest of that day: outside-live-hours')
+    // T4 live close 18:00 against the snapshot's 19:00
+    const h18 = Object.fromEntries(Object.entries(hours).map(([k, v]) => [k, v ? { ...v, close: '18:00' } : v])) as typeof hours
+    const t4 = plan(recipe, { ...sctx, liveCalendar: cal({ weeklyHours: h18 }) }, TODAY, TODAY)
+    const late = (a: Plan['appointments'][number]) => a.endsAt > jstIso(a.date, 1080)
+    assert.ok(base.appointments.some(late), 'T4 fixture: rows ending after 18:00')
+    assert.deepEqual(t4.appointments, base.appointments.filter((a) => !late(a)), 'T4: rows ending after 18:00 dropped, others identical')
+    assert.ok(t4.dropped.every((d) => d.why === 'outside-live-hours'), 'T4: why outside-live-hours')
+    // T5 a closed row AND a special-open entry on the same date = closed
+    const t5 = plan(recipe, { ...sctx, liveCalendar: cal({ closedDates: new Set([kd]), specialOpen: new Map([[kd, { open: '10:00', close: '19:00' }]]) }) }, TODAY, TODAY)
+    assert.deepEqual(t5.dropped, t1.dropped.map((d) => ({ ...d, why: 'closed-and-special' })), 'T5: closed-and-special')
+    // stress 5: a special-open entry on the snapshot-closed Tuesday plans nothing (removes, never adds) and does not crash
+    const tue = addDays(TODAY, (2 - dow(TODAY) + 7) % 7)
+    const t5b = plan(recipe, { ...sctx, liveCalendar: cal({ specialOpen: new Map([[tue, { open: '10:00', close: '19:00' }]]) }) }, TODAY, TODAY)
+    assert.deepEqual(t5b, base, 'special-open on a snapshot-closed Tuesday: nothing added')
+    console.log(`✓ S95 T3–T5: live-closed Wednesday −${t3.dropped.length}, special window keeps ${sp.appointments.filter(on(wd)).length}, close 18:00 −${t4.dropped.length}, closed+special = closed`)
+  }
+  // T2 the 14 → 30 stability with a live calendar
+  {
+    const [epoch, today, saved] = ['2026-09-24', '2026-10-10', registry.futureDays]
+    const r = await loadRecipe('beauty_chiropractic', STORE, registry.pastDays)
+    const hours = r.policy.weekly_hours
+    const at = (futureDays: number, closed: string[]) => {
+      registry.futureDays = futureDays
+      try {
+        const rr = { ...r, counts: { ...r.counts, futureDays } }
+        return plan(rr, { ...storeCtx(STORE, { weeklyHours: hours, pastDays: registry.pastDays, legacyThrough: today, realismFrom: addDays(today, -1) }), liveCalendar: { weeklyHours: hours, closedDates: new Set(closed), specialOpen: new Map() } }, today, epoch)
+      } finally { registry.futureDays = saved }
+    }
+    const end = addDays(today, 14)
+    const open = (from: number) => { let d = addDays(today, from); while (!hoursOn(hours, d)) d = addDays(d, 1); return d }
+    const [far, near] = [open(20), open(4)]
+    assert.deepEqual(at(14, [far]), at(14, []), 'T2: a closed row on day 15–30 leaves the 14-day plan byte-identical')
+    const [p14, p30] = [at(14, [near]), at(30, [near])]
+    assert.ok(p14.dropped.length > 0, 'T2 fixture: the near closed day drops bookings')
+    assert.deepEqual(p30.appointments.filter((a) => a.date <= end), p14.appointments, 'T2: filtered 30-day plan holds the filtered 14-day plan, whole objects')
+    const k30 = new Set(p30.appointments.map((a) => a.key))
+    assert.ok(p14.appointments.every((a) => k30.has(a.key)) && p30.appointments.length > p14.appointments.length, 'T2: strict superset')
+    console.log(`✓ S95 T2 horizon 14 → 30 with closed days ${near} (−${p14.dropped.length}) and ${far}: ${p14.appointments.length}⊂${p30.appointments.length}`)
+  }
+  // readLiveCalendar: range (to exclusive), out-of-window and malformed rows, a paged answer, a default policy
+  {
+    const calls: unknown[] = []
+    const lines: string[] = []
+    const w = { from: '2026-06-11', to: '2026-10-24' }
+    const mk = (res: unknown, pol: Record<string, unknown>) => ({ storePolicies: {
+      get: async () => pol, listClosedDays: async (_: string, q: unknown) => (calls.push(q), res) } }) as unknown as FillCore
+    const rows = { closed_days: [{ id: 'a', date: '2026-10-24' }, { id: 'b', date: '2031-03-03' }, { id: 'c', date: '2026-13-45' }, { id: 'd', date: '2026-02-30' }, { id: 'e', date: '2026-10-02' }] }
+    const special = [{ date: '2026-10-20', open: '10:00', close: '19:00' }, { date: '2031-03-10', open: '10:00', close: '19:00' }, { date: '2026-10-21', open: 'late', close: '19:00' }]
+    const c1 = await readLiveCalendar(mk(rows, { source: 'custom', weekly_hours: { mon: null }, special_open_days: special }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, (l) => void lines.push(l))
+    assert.deepEqual(calls, [{ from: w.from, to: '2026-10-25' }], 'the read asks for the full window, `to` exclusive = window end + 1')
+    assert.deepEqual([...c1.closedDates].sort(), ['2026-10-02', '2026-10-24'], 'the last window day counts; 2031 and malformed dates do not')
+    assert.deepEqual([...c1.specialOpen.keys()], ['2026-10-20'], 'special-open: in window, well-formed only')
+    assert.equal(lines.filter((l) => l.includes('malformed')).length, 3, 'one line per malformed row')
+    assert.deepEqual(c1.weeklyHours, { mon: null }, 'a custom policy: its live hours')
+    const c2 = await readLiveCalendar(mk({ closed_days: [] }, { source: 'default', weekly_hours: null }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {})
+    assert.ok(c2.weeklyHours === recipe.policy.weekly_hours && c2.closedDates.size === 0, 'a default policy: the recipe hours, 0 closed')
+    await assert.rejects(readLiveCalendar(mk({ closed_days: [{ id: 'a', date: '2026-10-02' }], total: 2 }, { source: 'custom', weekly_hours: {} }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {}), /1 of 2/, 'a paged answer fails loud')
+    console.log('✓ S95 readLiveCalendar: to-exclusive range, last day in, 2031 + malformed out (3 lines), paged = loud, default = recipe hours')
+  }
+  // T6 fill dry + apply with one closed row · T11 a failed calendar read · T10 weekly_hours null · T9 lastWindowEnd
+  {
+    const base = plan(recipe, storeCtx(STORE, { weeklyHours: recipe.policy.weekly_hours, pastDays: registry.pastDays, legacyThrough: null }), TODAY, TODAY)
+    const d = base.appointments.find((a) => a.date > TODAY && a.member !== 'BC-0003')!.date
+    const dropping = base.appointments.filter((a) => a.date === d && a.member !== 'BC-0003').length
+    const wc = (l: string[]) => JSON.parse(l.find((x) => x.startsWith('would create: '))!.slice(14).split(' · ')[0]).appointments as number
+    const [dl, ol]: string[][] = [[], []]
+    assert.equal(await apply(fakeCore({ closed: [d] }).core, { ...opts(empty()), dry: true, log: (l: string) => void dl.push(l) }), 0, 'T6 dry: exit 0')
+    assert.equal(await apply(fakeCore().core, { ...opts(empty()), dry: true, log: (l: string) => void ol.push(l) }), 0)
+    assert.equal(wc(ol) - wc(dl), dropping, 'T6: would-create excludes the closed day\'s bookings')
+    assert.ok(dl.some((l) => l.startsWith(`live calendar: 1 closed days in window [${d}] · 0 special-open days · dropped `) && l.endsWith(`[${d}]`)), `T6: the summary line names ${d}`)
+    const fc = fakeCore({ closed: [d] })
+    const mc = empty()
+    assert.equal(await apply(fc.core, opts(mc)), 0, 'T6 apply: exit 0')
+    assert.ok(!fc.t.appts.some((a) => (a.notes as string).includes(`:${d}]`)) && fc.t.appts.length > 100, 'T6: no create on the closed day')
+    assert.deepEqual(mc.runs[0].dropped, { bookings: base.appointments.filter((a) => a.date === d).length, karutes: base.karutes.filter((k) => k.date === d).length, dates: [d] }, 'T6: the Run entry records dropped')
+    console.log(`✓ S95 T6 closed ${d}: would-create ${wc(ol)} → ${wc(dl)}, apply exit 0, run.dropped ${JSON.stringify(mc.runs[0].dropped)}`)
+    // T11
+    const ff = fakeCore({ calendarFails: true })
+    const fl: string[] = []
+    const mf = empty()
+    assert.equal(await apply(ff.core, { ...opts(mf), log: (l: string) => void fl.push(l) }), 1, 'T11: a failed calendar read exits 1')
+    assert.ok(ff.stats.writes === 0 && !ff.t.appts.length && !mf.stores[STORE], 'T11: no write, no epoch left behind')
+    assert.ok(fl.some((l) => l.startsWith('FAILED: live calendar: read failed')), 'T11: said loud')
+    // T10
+    const fn = fakeCore()
+    fn.stats.policy = { source: 'custom', weekly_hours: null }
+    assert.equal(await apply(fn.core, opts(empty())), 0)
+    assert.deepEqual(fn.stats.policy?.weekly_hours, recipe.policy.weekly_hours, 'T10: a policy row with weekly_hours null gets the recipe hours')
+    // T9
+    assert.equal(lastWindowEnd([{ store: STORE, today: '2026-10-01' }, { store: OTHER, today: '2026-10-05' }], STORE), addDays('2026-10-01', 14), 'T9: today + 14')
+    assert.ok(NEW_START_FUTURE_DAYS === 14 && registry.futureDays !== 14, 'T9: not registry.futureDays')
+    // stress 11: the plan command offline
+    const pl: string[] = []
+    assert.equal(await runCli(['plan', '--store', STORE], async () => { throw new Error('no client offline') }, { log: (...l: unknown[]) => void pl.push(l.join(' ')), today: TODAY }), 0)
+    assert.ok(pl[0] === 'live calendar: not read (no core env)', 'the plan command offline says so and plans')
+    console.log('✓ S95 T9–T11: lastWindowEnd today + 14 · weekly_hours null → recipe hours · failed calendar read exit 1, 0 writes · plan offline')
+  }
+  // T7 close-out after a closure added once rows exist · stress 9 fill leaves them · T8 a CANCELLED booking's karute
+  {
+    const cfg = { closed: [] as string[] }
+    const f7 = fakeCore(cfg)
+    const m7 = empty()
+    assert.equal(await apply(f7.core, opts(m7)), 0)
+    const d = addDays(TODAY, 1)
+    const onD = f7.t.appts.filter((a) => (a.notes as string).includes(`:${d}]`))
+    assert.ok(onD.length > 0 && onD.every((a) => a.status === 'SCHEDULED'), 'T7 fixture: SCHEDULED rows on the day after')
+    cfg.closed.push(d) // the store closes that day after the rows were written
+    const later = addDays(TODAY, 3)
+    assert.equal(await closeOut(f7.core, STORE, m7, new Date(jstIso(later, 18 * 60)), true, () => {}), 0)
+    const upd = new Set(f7.stats.updates.map((u) => u.id))
+    const closedOut = onD.filter((a) => upd.has(a.id))
+    assert.ok(closedOut.length > 0 && onD.every((a) => a.status !== 'SCHEDULED' || !upd.has(a.id)), 'T7: rows on the now-closed day are still closed out')
+    const l7: string[] = []
+    const before = f7.t.appts.length
+    assert.equal(await apply(f7.core, { ...opts(m7, later), log: (l: string) => void l7.push(l) }), 0)
+    assert.ok(onD.every((a) => l7.some((l) => l.includes(`booking ${a.id} is on ${d}, which the live calendar now closes (closed-day), left alone`))), 'stress 9: fill leaves them and says so')
+    assert.ok(!f7.t.appts.slice(before).some((a) => (a.notes as string).includes(`:${d}]`)), 'stress 9: nothing new on the closed day')
+    console.log(`✓ S95 T7 closure after writing: ${closedOut.length}/${onD.length} rows on ${d} closed out; fill leaves ${onD.length} and says so`)
+    // T8
+    const f8 = fakeCore()
+    const m8 = empty()
+    assert.equal(await apply(f8.core, opts(m8)), 0)
+    const k = f8.t.karutes[0]
+    const appt = f8.t.appts.find((a) => a.id === k.appointment_id)!
+    const key = /\[(tw:[^\]]+)\]/.exec(appt.notes as string)![1]
+    f8.t.karutes.splice(0, 1)
+    Object.assign(appt, { status: 'CANCELLED', status_reason: 'cancel-advance-contact', status_set_by: 'dev' }) // realism's shape
+    const l8: string[] = []
+    const writes = f8.stats.writes
+    assert.equal(await apply(f8.core, { ...opts(m8), readBack: true, log: (l: string) => void l8.push(l) }), 0)
+    assert.ok(l8.includes(`karute skipped: booking ${key} is CANCELLED in core`), 'T8: the skip line')
+    assert.ok(!f8.t.karutes.some((x) => x.appointment_id === appt.id) && f8.stats.writes === writes, 'T8: no karute write')
+    const row = l8.find((l) => l.startsWith('karuteRecords of the store (all) | '))!.split(' | ')
+    assert.equal(row[1], row[2], `T8: planned karutes = what fill can write (${row[1]} vs ${row[2]} in core)`)
+    console.log(`✓ S95 T8 CANCELLED booking ${key}: karute skipped and said; planned ${row[1]} = in core ${row[2]}`)
   }
 
   console.log('✓ fill: all assertions passed')
