@@ -7,6 +7,18 @@
 type InitOptions = Record<string, unknown>
 
 const mockInitCalls: InitOptions[] = []
+// W1 (item 102): the seam is sentry-exit's exported wrapTransport; the mock
+// returns one sentinel per call so each init's `transport` is traced to its inner factory.
+const mockFetchTransport = () => undefined
+const mockNodeTransport = () => undefined
+const mockWrapCalls: { inner: unknown; flags: unknown; sentinel: object }[] = []
+jest.mock('@/lib/observability/sentry-exit', () => ({
+  wrapTransport: (inner: unknown, flags?: unknown) => {
+    const sentinel = { sentinel: mockWrapCalls.length }
+    mockWrapCalls.push({ inner, flags, sentinel })
+    return sentinel
+  },
+}))
 
 jest.mock('@sentry/nextjs', () => ({
   init: (options: InitOptions) => {
@@ -14,6 +26,8 @@ jest.mock('@sentry/nextjs', () => ({
   },
   captureRequestError: () => undefined,
   captureRouterTransitionStart: () => undefined,
+  makeFetchTransport: mockFetchTransport,
+  makeNodeTransport: mockNodeTransport,
 }))
 
 type ScrubModule = typeof import('@/lib/observability/sentry-scrub')
@@ -24,6 +38,7 @@ let saved: Record<string, string | undefined> = {}
 
 beforeEach(() => {
   mockInitCalls.length = 0
+  mockWrapCalls.length = 0
   saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]))
   process.env[DSN_VAR] = 'https://public@example.invalid/1'
 })
@@ -59,6 +74,18 @@ describe('every Sentry.init is wired to the scrub', () => {
     await register()
     expect(mockInitCalls).toHaveLength(1)
     expectWired(mockInitCalls[0], scrub!)
+    const options = mockInitCalls[0]
+    expect(options.spotlight).toBe(false)
+    if (runtime === 'nodejs') {
+      expect(mockWrapCalls).toHaveLength(1)
+      expect(mockWrapCalls[0].inner).toBe(mockNodeTransport)
+      expect(mockWrapCalls[0].flags).toEqual({ log: true })
+      expect(options.transport).toBe(mockWrapCalls[0].sentinel)
+    } else {
+      // PR 1: the edge init keeps today's hooks and has NO transport key (PR 2 adds it).
+      expect('transport' in options).toBe(false)
+      expect(mockWrapCalls).toHaveLength(0)
+    }
   })
 
   it('browser instrumentation-client', () => {
@@ -71,5 +98,9 @@ describe('every Sentry.init is wired to the scrub', () => {
     })
     expect(mockInitCalls).toHaveLength(1)
     expectWired(mockInitCalls[0], scrub!)
+    expect(mockWrapCalls).toHaveLength(1)
+    expect(mockWrapCalls[0].inner).toBe(mockFetchTransport)
+    expect(mockWrapCalls[0].flags).toBeUndefined()
+    expect(mockInitCalls[0].transport).toBe(mockWrapCalls[0].sentinel)
   })
 })

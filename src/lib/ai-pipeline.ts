@@ -4,12 +4,16 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import {
   adoptTakeSession,
   ensureFinalizedPath,
+  pinTakeFallback,
   readTakeSecureMeta,
   readTakeTranscript,
+  retireTakeFallback,
   stampTakeTranscript,
   type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
@@ -85,6 +89,58 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
   }
 }
 
+/**
+ * ⚖ A 409 FROM THE TRANSCRIBE DOOR IS "STILL WORKING", NEVER AN ERROR (S54 B).
+ * With transcribePaidOnce ON, a call on audio that another call is inside the
+ * provider for is answered 409 and pays nothing (the S53 A5 lease). The run
+ * stays on 「文字起こし中...」, waits what the door asked (capped: S55 below), and
+ * sends the SAME request again — that re-POST is the poll: 409 again while the lease holds,
+ * the saved answer once the first call finished, one payment if the holder
+ * died and its lease expired. Past the lease's own life (the SAME constant the
+ * server writes it with, plus one wait) the 409 goes back to fetchWithRetry
+ * exactly as before: one 1.5 s re-send, then the error card — honest by then.
+ * Opt-in: only the transcribe call wraps its request in this; every other
+ * status, and every other caller of fetchWithRetry, is untouched. Switch OFF:
+ * no door answers 409, so this never waits.
+ */
+function whileStillTranscribing(send: () => Promise<Response>): () => Promise<Response> {
+  let deadline: number | null = null
+  return async () => {
+    for (;;) {
+      const res = await send()
+      if (res.status !== 409) return res
+      const waitMs = await stillWorkingWaitMs(res)
+      // Monotonic (G8): a wall clock stepped mid-wait must not stretch or cut the polling.
+      deadline ??= performance.now() + TRANSCRIPT_LEASE_TTL_MS + waitMs
+      if (performance.now() + waitMs > deadline) return res
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
+  }
+}
+
+/** ⚖ S55 — ONE wait between re-asks is never longer than this. Both doors name the lease's
+ *  full seconds left (up to the TTL), so an uncapped wait held the pill ~5½ min after a first
+ *  call that finished in seconds. A capped wait can end while the lease still holds: the loop
+ *  above just asks again (a 409 again, nothing paid) until an answer or its unchanged deadline.
+ *  An engineering poll interval, not a business duration — no store setting. */
+export const STILL_WORKING_WAIT_CAP_MS = 10_000
+
+/** The wait a 409 asked for: the `Retry-After` header (web door), else the
+ *  body's `error.retry_after_seconds` (phone door — the facade's errorBody
+ *  carries the meter's detail and sets no header), else 5 s; never under 1 s,
+ *  never over the cap. Read from a clone, so the body stays whole for fetchWithRetry. */
+async function stillWorkingWaitMs(res: Response): Promise<number> {
+  let seconds = Number(res.headers.get('Retry-After') ?? NaN)
+  if (!Number.isFinite(seconds)) {
+    try {
+      seconds = Number((await res.clone().json())?.error?.retry_after_seconds ?? NaN)
+    } catch {
+      // Not JSON: the floor below.
+    }
+  }
+  return Math.max(1_000, Math.min((Number.isFinite(seconds) ? seconds : 5) * 1000, STILL_WORKING_WAIT_CAP_MS))
+}
+
 // ⚖ One tab at a time per finalized object: the browser's own cross-tab lock
 // (released by the browser if the tab dies). Where the API is absent the run
 // proceeds unlocked, as today.
@@ -125,6 +181,28 @@ export type PipelineContext = {
   paidFallback?: PaidFallback | null
   /** Told the fallback answer the moment it is paid for, so the chain keeps it. */
   onFallbackPaid?: (answer: PaidFallback) => void
+  /** ⚖ S53 A4: the key this run CHAIN's fallback PUT and was about to pay for
+   *  (global-pipeline keeps it across retry(), clears it in start()/reset()) —
+   *  a take-less run's only memory of it. */
+  fallbackPin?: FallbackPin | null
+  /** Told the key the moment it is pinned, before the POST. */
+  onFallbackPinned?: (pin: FallbackPin) => void
+  /** ⚖ S54 F10: told the pin, marked retired, when the server refused its key. */
+  onFallbackRetired?: (pin: FallbackPin) => void
+}
+
+/** ⚖ S53 A4: a key the fallback PUT and was about to pay for — whose take
+ *  (null = none), which row the mint named (null = none), which locale, and the
+ *  audio it carries. Re-presented only onto a run about to send the same. */
+export type FallbackPin = {
+  takeId: string | null
+  path: string
+  recordingSessionId: string | null
+  locale: string
+  audio: TakeAudioFingerprint
+  /** ⚖ S54 F10: set when the server refused this key outright — never re-presented. */
+  retiredAt?: number
+  retiredReason?: string
 }
 
 /** One fallback transcription the chain paid for: whose take (null = none),
@@ -145,6 +223,53 @@ function sameAudio(paid: TakeAudioFingerprint | undefined, now: TakeAudioFingerp
   return paid.durationSeconds === undefined || now.durationSeconds === undefined
     ? true
     : paid.durationSeconds === now.durationSeconds
+}
+
+/** ⚖ S56 (PR 1 Greptile Finding 2): the hex SHA-256 of the exact bytes, by
+ *  Web Crypto — this file runs on the device (the thin bundle imports it via
+ *  global-pipeline), where `crypto.subtle` is native, async and costs the
+ *  bundle nothing. The phone shell's page is a secure context
+ *  (capacitor://localhost: a scheme-handler scheme on a localhost host — both
+ *  potentially trustworthy in WebKit's SecurityOrigin), so `subtle` exists
+ *  there; where it does not (an insecure origin) or the digest throws, the
+ *  answer is `undefined` and ONE line says so — a pin then carries no hash and
+ *  never matches: the run mints fresh and pays once more, the safe direction. */
+async function digestSha256(data: Blob | ArrayBuffer): Promise<string | undefined> {
+  const subtle = globalThis.crypto?.subtle
+  try {
+    if (!subtle) throw new Error('no_subtle')
+    const bytes = data instanceof ArrayBuffer ? data : await data.arrayBuffer()
+    const hash = new Uint8Array(await subtle.digest('SHA-256', bytes))
+    return Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    // A flag only — never the bytes, never a key.
+    console.info('[ai-pipeline] audio digest unavailable', { subtle: !!subtle })
+    return undefined
+  }
+}
+
+/** ⚖ S56 (PR 1 Greptile Finding 2): A PIN IS RE-PRESENTED ONLY ONTO THE SAME
+ *  BYTES. Re-presenting a key makes the server transcribe the object already
+ *  under it — so a recovered blob with the same size, type and length but
+ *  different bytes used to skip its own upload and get the OLD recording's
+ *  words. The candidates have already passed the cheap coarse check
+ *  (sameAudio — no hashing unless one could match); the first whose stored
+ *  hash equals this audio's wins. A hash-less pin, on either side, NEVER
+ *  matches. No pin-writing code is on origin/main (git grep -e fallbackPin -e
+ *  transcribePaidOnce origin/main -- src thin: 0 hits), so no hash-less pin
+ *  exists in the field; from this change every pin carries a hash, and a
+ *  hash-less one from a preview rig simply never matches. */
+async function pinForSameBytes(
+  candidates: FallbackPin[],
+  audioDigest: () => Promise<string | undefined>,
+): Promise<FallbackPin | null> {
+  for (const pin of candidates) {
+    const paid = pin.audio.sha256
+    if (paid === undefined) continue
+    const now = await audioDigest()
+    if (now !== undefined && paid === now) return pin
+  }
+  return null
 }
 
 /**
@@ -192,6 +317,16 @@ async function adoptMintedSession(
   // Ids and a flag only — never a customer, never a key.
   console.info('[ai-pipeline] adopted minted session', { takeId, adopted })
   return adopted
+}
+
+/** The take's stored pin in the chain's shape (S53 A4). */
+function toChainPin(
+  takeId: string,
+  pin: { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: TakeAudioFingerprint; retiredAt?: number } | undefined,
+): FallbackPin | null {
+  return pin
+    ? { takeId, path: pin.finalizedPath, recordingSessionId: pin.recordingSessionId, locale: pin.locale, audio: pin.audio, ...(pin.retiredAt ? { retiredAt: pin.retiredAt } : {}) }
+    : null
 }
 
 export async function runAIPipeline(
@@ -245,6 +380,11 @@ export async function runAIPipeline(
   // The STAGED door is not a fallback: no transcribe door reads a `stg/` key
   // (S33 R1 — ports/recording-port.ts:507, v1/ai/transcribe/route.ts:50).
   let attachOutcome: AttachOutcome | null = null
+  // ⚖ S120 G2: the take's sealed object is provably SHORTER than this run's audio
+  // (the byte length this device sent to be sealed). No length recorded = today's rule.
+  // Local on purpose: suites that mock take-store need no new export.
+  const sealedShorter = (m: { finalizedBytes?: number } | null | undefined) =>
+    m?.finalizedBytes !== undefined && m.finalizedBytes < audioBlob.size
   if (!finalizedPath) {
     if (takeId)
       finalizedPath = await ensureAudioOnServer(
@@ -259,6 +399,13 @@ export async function runAIPipeline(
       (takeId ? (await readTakeSecureMeta(takeId))?.recordingSessionId : null) ??
       ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
+  }
+  // ⚖ S120 G2: the longer recording wins. A key sealed from a provably SHORTER
+  // copy than this run's audio is not this run's key — it goes the fallback way
+  // with its own bytes (one more payment, for the longer words).
+  if (finalizedPath && takeId && sealedShorter(await readTakeSecureMeta(takeId))) {
+    finalizedPath = null
+    attachOutcome = 'attach_failed'
   }
   // S46: the row that reserved the finalized key rides beside it (re-read: the
   // attach may have just stamped it). None → the door keeps today's answer.
@@ -310,7 +457,10 @@ export async function runAIPipeline(
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
     const stored = takeId ? await readTakeTranscript(takeId) : null
     const currentPath =
-      finalizedPath ?? (takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null)
+      finalizedPath ??
+      (takeId
+        ? await readTakeSecureMeta(takeId).then((m) => (m && !sealedShorter(m) ? (m.finalizedPath ?? null) : null))
+        : null)
     if (
       stored &&
       stored.locale === locale &&
@@ -345,36 +495,141 @@ export async function runAIPipeline(
     // exactly as before this round. A false that is the first-stamp-wins brace
     // is asked once more there and refused again in its own transaction:
     // nothing is written twice.
+    //
+    // S54 — composed with S53 A4 (below). The hand-over rides the MINT arm only:
+    // a re-presented pin names a key already PUT, so its port call mints and
+    // uploads nothing and the hook never fires there. S54 F9: its row is asked for again from the PIN
+    // below (a lost first adoption is linked there; first stamp wins, so a linked take is a no-op). For a minted key the order is: pin
+    // read (none matched) → mint + PUT → hand-over (adoption) → read URL → pin
+    // written → the paid POST.
     const upload = { adopted: false }
-    const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
-      await recordingPort.prepareTranscription(
-        audioBlob,
-        finalizedPath,
-        attachOutcome === 'no_session'
-          ? {
-              attachOutcome,
-              customerId: ctx.customerId,
-              appointmentId: ctx.appointmentId,
-              durationSeconds: takeLengthSeconds(meta?.durationMs),
-            }
-          : attachOutcome
-            ? { attachOutcome }
-            : takeRow
-              ? { takeRow }
-              : undefined,
-        async (row, at) => {
-          upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
-        },
-      )
+    // ⚖ S53 A4 — A KEY ALREADY PUT FOR THIS AUDIO IS RE-PRESENTED, NEVER
+    // RE-MINTED. The unbound door draws a new key on every mint, so an answer
+    // this device never RECEIVED (the response lost, the app killed mid-POST)
+    // used to be bought again under a fresh key the server could not link to
+    // the first. The fallback now pins its key before it pays (below); a run
+    // with still no finalized key, the same locale and the same audio sends
+    // THAT key again, through a fresh read, and the server's memo for it
+    // replays. Never once the take is finalized at ANY key (`currentPath`, the
+    // C3 rule above): a finalized key names its own bytes and is asked as such.
+    // OFF (RECORDING_SWITCHES.transcribePaidOnce) = no pin is read or written.
+    const pinning = RECORDING_SWITCHES.transcribePaidOnce
+    // ⚖ S56: …AND ONLY ONTO THE SAME BYTES (pinForSameBytes). The hash of THIS
+    // blob — the bytes a fresh mint would PUT — is taken at most once per
+    // attempt, and only when a pin passed the coarse check or one is written.
+    let nowDigest: Promise<string | undefined> | undefined
+    const audioDigest = () => (nowDigest ??= digestSha256(audioBlob))
+    const pinned =
+      currentPath || !pinning
+        ? null
+        : await pinForSameBytes(
+            [
+              takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
+              ctx.fallbackPin ?? null,
+            ].filter(
+              (pin): pin is FallbackPin =>
+                !!pin && !pin.retiredAt && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
+            ),
+            audioDigest,
+          )
+    // ⚖ S54 F10 — A KEY THE SERVER REFUSES OUTRIGHT IS RETIRED, NEVER DELETED: only the web read-URL door's
+    // 'forbidden' or the phone door's own key refusal (the 404 rule at the POST below; never a blip, 'unreadable'
+    // 502, a 403 gate, 429, 409 or 5xx). The mark (take + chain slot) makes the matcher above skip it, so the
+    // next 再試行 mints fresh — today's run.
+    const retire = async (retiredReason: string) => {
+      if (!pinned) return
+      const retiredAt = Date.now()
+      if (takeId) await retireTakeFallback(takeId, pinned.path, retiredAt, retiredReason)
+      ctx.onFallbackRetired?.({ ...pinned, retiredAt, retiredReason })
+    }
+    const prepared = pinned
+      ? await recordingPort
+          .prepareTranscription(audioBlob, pinned.path, pinned.recordingSessionId ? { takeRow: pinned.recordingSessionId } : undefined)
+          .catch(async (err: unknown) => {
+            if ((err as { refusal?: unknown } | null)?.refusal === 'forbidden') await retire('read_url_forbidden')
+            throw err
+          })
+      : await recordingPort.prepareTranscription(
+          audioBlob,
+          finalizedPath,
+          attachOutcome === 'no_session'
+            ? {
+                attachOutcome,
+                customerId: ctx.customerId,
+                appointmentId: ctx.appointmentId,
+                durationSeconds: takeLengthSeconds(meta?.durationMs),
+              }
+            : attachOutcome
+              ? { attachOutcome }
+              : takeRow
+                ? { takeRow }
+                : undefined,
+          async (row, at) => {
+            upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
+          },
+        )
+    let { body: transcribeBody, path: mintedPath } = prepared
+    // S54 F9: a re-presented key's row comes from the pin (the port names none).
+    let minted = pinned ? pinned.recordingSessionId : prepared.recordingSessionId
     if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
+    // The fallback's PUT has landed (prepareTranscription throws before this
+    // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
+    // store's C3 guard: never onto a take finalized at another key) and on the
+    // chain's slot for a take-less run.
+    // ⚖ S56: the pin carries the hash of the bytes that PUT just sent
+    // (audioBlob — the blob prepareTranscription uploaded). No hash (no
+    // `subtle`) → a pin that never matches, the safe direction.
+    if (pinning && !finalizedPath && !pinned) {
+      const sha256 = await audioDigest()
+      const pinAudio: TakeAudioFingerprint = sha256 === undefined ? audio : { ...audio, sha256 }
+      const kept = takeId
+        ? await pinTakeFallback(takeId, {
+            finalizedPath: mintedPath,
+            recordingSessionId: minted ?? null,
+            locale,
+            audio: pinAudio,
+          })
+        : null
+      // ⚖ S114 (F-CT-4): another attempt on this take pinned the same bytes
+      // first — its key may already be paid for. This run re-sends THAT key
+      // (the re-presentation path above) instead of paying for the one it
+      // just minted; the minted object stays where it is (nothing is deleted).
+      if (kept && kept.finalizedPath !== mintedPath) {
+        const again = await recordingPort.prepareTranscription(
+          audioBlob,
+          kept.finalizedPath,
+          kept.recordingSessionId ? { takeRow: kept.recordingSessionId } : undefined,
+        )
+        transcribeBody = again.body
+        mintedPath = again.path
+        minted = kept.recordingSessionId
+      }
+      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio: kept?.audio ?? pinAudio }
+      ctx.onFallbackPinned?.(pin)
+    }
 
-    const transcribeRes = await fetchWithRetry(() =>
-      getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...transcribeBody, locale }),
+    let status = 0 // the LAST answer's status (0 = none: a network error)
+    let keyRefusal: Response | null = null // a copy of the LAST answer, kept only for the 404 rule below
+    const transcribeRes = await fetchWithRetry(
+      whileStillTranscribing(async () => {
+        status = 0
+        keyRefusal = null
+        const res = await getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...transcribeBody, locale }),
+        })
+        status = res.status
+        if (status === 404 && recordingPort.refusesMissingKeyWith404) keyRefusal = res.clone()
+        return res
       }),
-    ).catch((err) => {
+    ).catch(async (err) => {
+      // The 404 rule — retired only when BOTH hold: (1) this port's door answers 404 for a refused key and
+      // nothing else (the phone door; the web door never answers 404, so a 404 there is the platform's — a
+      // deploy window, a misrouted base), and (2) the LAST answer's body carries that door's own code,
+      // 'not_found'. Any other 404 keeps the pin: the error stands and the next 再試行 re-presents the key.
+      const code = keyRefusal && (await keyRefusal.json().catch(() => null))?.error?.code
+      if (code === 'not_found') await retire('transcribe_404')
       throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
     })
 

@@ -261,6 +261,11 @@ export type TakeMeta = {
    *  existed — read as "no pointer of my own", which sends that take down the
    *  in-tab fallback leg instead of naming an object nobody proved. */
   finalizedPath?: string
+  /** S120 G2: the byte length this device sent to be sealed at `finalizedPath`
+   *  (secure-take's byteLength). Usually re-proved by the finalize door, but not
+   *  on its already-completed or superseded paths (finalize-take.ts), which skip the probe.
+   *  Absent on takes sealed before S120 and on keys recomposed or adopted. */
+  finalizedBytes?: number
   /** Capture pipeline PR4 fix round 4: where this take's audio was STAGED — the
    *  row-less copy the discard's word-collection uploads for a take that can
    *  never be sealed under a finalized key (lib/recording/discard-transcript).
@@ -396,15 +401,46 @@ export type TakeMeta = {
     fallback?: true
     audio?: TakeAudioFingerprint
   }
+  /** ⚖ S53 A4 — THE KEY A FALLBACK IS ABOUT TO PAY FOR, PINNED BEFORE IT PAYS.
+   *  Written after the unbound door's PUT landed and BEFORE the transcribe POST,
+   *  so an answer the device never received (a lost response, the app killed
+   *  mid-POST) is not re-bought under a NEW key: a later run with still no
+   *  finalized key, the same locale and the same audio (TakeAudioFingerprint)
+   *  re-presents THIS key, and the server's memo for it (trc/<key>) replays.
+   *  `recordingSessionId` = the row the mint named for it (switch ON), or null.
+   *  Written only while the take has no finalized key or has exactly this one
+   *  (the C3 guard, same transaction) — never read once the take is finalized
+   *  at any key (ai-pipeline's rule). Lives and dies with the take. */
+  fallbackPin?: TakeFallbackPin
+}
+
+/** S53 A4: see `TakeMeta.fallbackPin`. */
+export type TakeFallbackPin = {
+  finalizedPath: string
+  recordingSessionId: string | null
+  locale: string
+  audio: TakeAudioFingerprint
+  at: number
+  /** ⚖ S54 F10: the server refused this key outright — kept, never re-presented. */
+  retiredAt?: number
+  retiredReason?: string
 }
 
 /** ⚖ C3 fold (Greptile P1): the audio a fallback transcription actually sent —
  *  the blob's byte size and type, plus the run's measured length when the run
- *  knew one. Cheap on purpose (no hashing megabytes on a phone). A recovery
- *  run assembles the take from its saved segments, which can be SHORTER than
- *  the in-memory recording the first fallback sent (a tail that was never
- *  saved) — a different size, so that answer is not replayed onto it. */
-export type TakeAudioFingerprint = { size: number; type: string; durationSeconds?: number }
+ *  knew one. Cheap on purpose for the answer STAMP (no hashing megabytes on a
+ *  phone). A recovery run assembles the take from its saved segments, which
+ *  can be SHORTER than the in-memory recording the first fallback sent (a tail
+ *  that was never saved) — a different size, so that answer is not replayed
+ *  onto it.
+ *  ⚖ S56 (PR 1 Greptile Finding 2): `sha256` — hex SHA-256 of the exact bytes
+ *  the fallback PUT — is carried by the KEY PIN only (`TakeFallbackPin.audio`),
+ *  because a re-presented key makes the server transcribe the object ALREADY
+ *  under that key: the same size, type and length over different bytes would
+ *  be the old recording's words. Optional in the stored shape (IndexedDB holds
+ *  the whole meta object, DB version 1, no schema or migration): a pin written
+ *  without it reads back as a pin with no hash, which never matches. */
+export type TakeAudioFingerprint = { size: number; type: string; durationSeconds?: number; sha256?: string }
 
 /** What a pending discard-transcript needs to finish after a reload — the
  *  discard's own session id and duration, not the take's (the gate may have
@@ -760,7 +796,7 @@ export async function detachTakeFromRecordedSession(takeId: string): Promise<boo
  *  so nothing a null-uid mark writes is ever visible to a colleague. */
 async function patchTakeMeta(
   takeId: string,
-  patch: Partial<TakeMeta>,
+  patch: Partial<TakeMeta> | ((meta: TakeMeta) => Partial<TakeMeta>),
   when?: (meta: TakeMeta) => boolean,
   opts?: { gate?: 'require' | 'compare' },
 ): Promise<boolean> {
@@ -774,7 +810,7 @@ async function patchTakeMeta(
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
-      await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+      await req(tx.objectStore(TAKES).put({ ...meta, ...(typeof patch === 'function' ? patch(meta) : patch) }))
       return true
     } catch (err) {
       console.error('[take-store] patchTakeMeta failed:', err)
@@ -792,10 +828,11 @@ async function patchTakeMeta(
  *  and what the core job's audio_path names, so the take has to remember where
  *  it is — and the value is the MINT's own composed key, never one this device
  *  assembled from a tenant id it should not be composing with. */
-export async function markTakeFinalized(takeId: string, finalizedPath: string): Promise<void> {
+export async function markTakeFinalized(takeId: string, finalizedPath: string, finalizedBytes?: number): Promise<void> {
   await patchTakeMeta(takeId, {
     finalizedAt: Date.now(),
     finalizedPath,
+    ...(finalizedBytes !== undefined ? { finalizedBytes } : {}),
     secureError: undefined,
   })
 }
@@ -1045,6 +1082,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'target'
   | 'finalizedAt'
   | 'finalizedPath'
+  | 'finalizedBytes'
   | 'stagedPath'
   | 'secureError'
   | 'durationMs'
@@ -1055,6 +1093,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'heartbeatAt'
   | 'tailIncomplete'
   | 'stopPendingAt'
+  | 'fallbackPin'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1064,6 +1103,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     target: meta.target,
     finalizedAt: meta.finalizedAt,
     finalizedPath: meta.finalizedPath,
+    finalizedBytes: meta.finalizedBytes,
     stagedPath: meta.stagedPath,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
@@ -1074,6 +1114,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     heartbeatAt: meta.heartbeatAt,
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
+    fallbackPin: meta.fallbackPin,
   }
 }
 
@@ -1195,6 +1236,68 @@ export async function stampTakeTranscript(
     // would pay for it again. Checked HERE, in the write's own transaction, so
     // there is no window between the check and the put (as markTakeSecureError).
     fallback ? (meta) => !meta.finalizedPath || meta.finalizedPath === finalizedPath : undefined,
+  )
+}
+
+/** ⚖ S53 A4: pin the key a fallback transcription is about to pay for (see
+ *  `TakeMeta.fallbackPin`). Best-effort, no-throw, owner-gated through
+ *  patchTakeMeta like every stamp here: a pin that cannot land only means a
+ *  lost answer is re-bought under a new key, which is today's behaviour. The
+ *  C3 guard is the transcript stamp's own, in the write's own transaction: a
+ *  take finalized at ANOTHER key is never pinned.
+ *  ⚖ S114 (F-CT-4, Greptile #5) — A LIVE PIN FOR THE SAME BYTES AND LANGUAGE
+ *  IS NEVER REPLACED. Two attempts on one take (two tabs, or no tab lock) can
+ *  both read "no pin", both mint, and the later pin used to overwrite a key
+ *  that may already be paid for. In the same transaction: a live (unretired)
+ *  pin at another key, same locale, same size/type and the same SHA-256 on
+ *  both sides, stands — and is answered, so the later run re-sends THAT key.
+ *  Anything else (no hash on either side, other bytes, another locale, a
+ *  retired pin) is replaced as before: such a pin can never be re-presented
+ *  for this audio anyway (pinForSameBytes / the locale filter in ai-pipeline).
+ *  Answers the pin that stands after the write (this one, or the kept one),
+ *  the take's finalized key when it is finalized at another key (S115), or
+ *  null when nothing landed. */
+export async function pinTakeFallback(
+  takeId: string,
+  pin: Omit<TakeFallbackPin, 'at'>,
+): Promise<TakeFallbackPin | null> {
+  const fresh: TakeFallbackPin = { ...pin, at: Date.now() }
+  let kept: TakeFallbackPin | null = null
+  const wrote = await patchTakeMeta(takeId, { fallbackPin: fresh }, (meta) => {
+    kept = null
+    // ⚖ S115 (Opus S1): finalized at ANOTHER key — the take adopted another
+    // attempt's minted session (adoptTakeSession), whose key may already be
+    // paid. Nothing is written, and THAT key is answered so this run sends it
+    // (the C3 rule a later 再試行 follows through `currentPath`), never its own.
+    if (meta.finalizedPath && meta.finalizedPath !== pin.finalizedPath) {
+      // S120 G2: …unless the sealed object is provably SHORTER than the bytes this
+      // run just PUT — then nothing is answered and the run sends its own key.
+      if (!(meta.finalizedBytes !== undefined && meta.finalizedBytes < pin.audio.size))
+        kept = { ...fresh, finalizedPath: meta.finalizedPath, recordingSessionId: meta.recordingSessionId ?? null }
+      return false
+    }
+    const live = meta.fallbackPin
+    if (live && !live.retiredAt && live.finalizedPath !== pin.finalizedPath && live.locale === pin.locale && samePinnedBytes(live.audio, pin.audio)) {
+      kept = live
+      return false
+    }
+    return true
+  })
+  return wrote ? fresh : kept
+}
+
+/** Same bytes, provably: size, type and a SHA-256 present on BOTH sides and equal. */
+function samePinnedBytes(a: TakeAudioFingerprint, b: TakeAudioFingerprint): boolean {
+  return a.sha256 !== undefined && a.sha256 === b.sha256 && a.size === b.size && a.type === b.type
+}
+
+/** ⚖ S54 F10: the server refused the pinned key outright — MARK the pin retired (kept whole, never
+ *  deleted; ai-pipeline never re-presents it). Exactly this key's pin, once; owner-gated, no-throw. */
+export async function retireTakeFallback(takeId: string, finalizedPath: string, retiredAt: number, retiredReason: string) {
+  await patchTakeMeta(
+    takeId,
+    (meta) => ({ fallbackPin: { ...(meta.fallbackPin as TakeFallbackPin), retiredAt, retiredReason } }),
+    (meta) => meta.fallbackPin?.finalizedPath === finalizedPath && !meta.fallbackPin.retiredAt,
   )
 }
 

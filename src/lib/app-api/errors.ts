@@ -7,6 +7,7 @@
 
 import { BearerVerifyError } from '@/lib/auth/verify-bearer'
 import { RevocationError } from '@/lib/auth/revocation'
+import { decodeText, maskSensitive, preBound } from '@/lib/text/mask-sensitive'
 
 /** Stable, client-facing error codes. Additive-only — clients branch on these. */
 export type AppApiErrorCode =
@@ -112,6 +113,14 @@ export function toAppApiError(err: unknown): AppApiError {
 // safety, not a functional requirement).
 const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`)
 
+// R-S115-15 (log-line forging): control characters never reach a log field
+// raw. The name: every C0 control (ESC U+001B included), DEL and the line
+// terminators LS / PS. The message: every C0 control and DEL except LF and CR,
+// which the first-line cut below needs. Each becomes a space, after the decode
+// (a `%1B` is ESC only once decoded) and before masking.
+const NAME_CONTROL_RE = new RegExp(`[\\x00-\\x1F\\x7F${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`, 'g')
+const MESSAGE_CONTROL_RE = /[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g
+
 /** Sanitised, bounded one-line description of an unclassified thrown value —
  *  for SERVER logs only — `logFacadeError` (handler.ts) and the web actions'
  *  outage catches — never `errorBody`. Never the
@@ -125,7 +134,11 @@ const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${Stri
 export function describeUnknownThrow(err: unknown): { errName: string; errStatus?: number; errMessage: string } {
   try {
     const rawName = err instanceof Error ? err.name : typeof err
-    const errName = capWithEllipsis(maskSensitive(typeof rawName === 'string' ? rawName : typeof err), 60)
+    // Bounded first (R-S115-10 N4), then decoded (R-S115-15), like the
+    // message: a 1 MB name cost 21 ms; `password%3D…` is masked like plain
+    // text. Control characters and line breaks become spaces (one line).
+    const nameText = decodeText(preBound(typeof rawName === 'string' ? rawName : typeof err))
+    const errName = capWithEllipsis(maskSensitive(nameText.replace(NAME_CONTROL_RE, ' ').replace(/\s+/g, ' ').trim()), 60)
 
     const rawMessage = err instanceof Error ? err.message : String(err)
     const message = typeof rawMessage === 'string' ? rawMessage : ''
@@ -133,15 +146,27 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
     // just `\n`: a bare `\r` used to survive into "the first line" and then
     // get flattened to a space by the whitespace-collapse below, leaking
     // whatever followed it (fix round 2 SHOULD).
-    const lineEnd = message.search(LINE_TERMINATOR_RE)
-    const firstLine = lineEnd === -1 ? message : message.slice(0, lineEnd)
     // Bound BEFORE masking (fix round 2, MUST-2): keeps every regex below
     // operating on at most 2000 chars regardless of the original message
-    // size. `preBound` trims back to the last whitespace so a secret split
-    // by THIS bound is discarded rather than left half-exposed.
-    const bounded = preBound(firstLine).replace(/\s+/g, ' ').trim()
-    const masked = maskSensitive(bounded)
-    const errMessage = capWithEllipsis(masked, 200)
+    // size; `preBound` drops the word (and any phone stub) its cut lands in.
+    // Mask BEFORE the first-line cut (R-S114-12, the G2 class): a newline is
+    // a phone separator, so cutting first logged 「090 1234」 of
+    // 「090 1234\n5678」. The cut below is of already-masked text.
+    // Collapse whitespace BEFORE the mask (R-S114-13): the phone rule allows
+    // 1-3 separators between groups, so 「090    1234    5678」 must reach it
+    // as 「090 1234 5678」. A run holding a line terminator → one '\n' (the
+    // line boundary survives for the cut); any other run → one ' '.
+    // Decode AFTER the bound (R-S115-1 N1), the exit's own decode: an
+    // encoded label (`password%3D…`) or email (`%40`) is masked like plain
+    // text. A malformed `%XX` run logs as `[enc]`. Control characters other
+    // than LF / CR become spaces (R-S115-15).
+    const collapsed = decodeText(preBound(message))
+      .replace(MESSAGE_CONTROL_RE, ' ')
+      .replace(/\s+/g, (ws) => (LINE_TERMINATOR_RE.test(ws) ? '\n' : ' '))
+    const masked = maskSensitive(collapsed)
+    const lineEnd = masked.search(LINE_TERMINATOR_RE)
+    const firstLine = (lineEnd === -1 ? masked : masked.slice(0, lineEnd)).trim()
+    const errMessage = capWithEllipsis(firstLine, 200)
 
     const rawStatus = (err as { status?: unknown } | null)?.status
     const errStatus = typeof rawStatus === 'number' && Number.isFinite(rawStatus) ? rawStatus : undefined
@@ -154,77 +179,6 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
 
 function capWithEllipsis(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s
-}
-
-/** Defense-in-depth against a huge thrown message (perf, fix round 2,
- *  MUST-2): bound to 2000 chars BEFORE any masking regex runs. If the cut
- *  lands mid-token, trim back to the last whitespace char (found by scanning
- *  backward — cheap, bounded to 2000 steps); no whitespace in the first 2000
- *  chars → keep the 2000 and let the masks + the final 200-char cap handle it. */
-function preBound(firstLine: string): string {
-  if (firstLine.length <= 2000) return firstLine
-  const cut = firstLine.slice(0, 2000)
-  for (let i = cut.length - 1; i >= 0; i--) {
-    if (/\s/.test(cut[i])) return cut.slice(0, i)
-  }
-  return cut
-}
-
-// A canonical UUID (8-4-4-4-12 hex) is exempt from the blob rule below — ids
-// are already on the log line via other fields, and a UUID's hyphens don't
-// break a blob-charset run the way they'd need to for the rule to skip it
-// on its own. Ids are not secrets, so a storage key built from ids (e.g.
-// `app_<uuid>_<uuid>.webm`) must survive too — the test below now matches a
-// UUID anywhere in the run, not just a run that equals one exactly.
-const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-
-/** Masking order (fix round 4): URL (origin+path, query stripped — a
- *  case-insensitive scheme) → non-ASCII free text (upstream messages carry
- *  no ASCII-pattern secrets the later rules would catch, so this runs right
- *  after the URL step, before anything else can see it) → Bearer token →
- *  labelled credentials (token/apikey/api_key/key/secret/password/
- *  authorization = value — this also catches a secret embedded in a URL
- *  PATH, which the URL step above only strips the QUERY of) → JWT → email
- *  (bounded quantifiers — no nested/overlapping-quantifier ambiguity, paired
- *  with `preBound` above) → opaque 32+-char blobs (base64 / API keys; a run
- *  CONTAINING a canonical UUID is exempt, not just a run that equals one) →
- *  hyphenated JP phone numbers (`090-1234-5678`) → 7+-digit runs (phone/
- *  card-like strings).
- *
- *  Fix round 3: the labelled-credential pattern has no leading `\b` so
- *  prefixed/camelCase names (access_token, clientSecret) are caught as
- *  substrings too; this accepts over-masking an innocent word that merely
- *  ends in a label (e.g. `monkey: banana`).
- *
- *  The blob charset deliberately drops `/` from the base64 alphabet
- *  (`+/_=-`) despite it being a legal base64 char: a URL's kept origin+path
- *  (the step right above) is itself very often a 32+-char run of letters,
- *  digits and `/` between dots, and matching against it there re-mangled an
- *  already-correctly-masked URL into fragments (found empirically running
- *  the pinned URL test in fix round 2). Base64url secrets — the far more
- *  common real-world shape, precisely because it's URL-safe — use `-`/`_`
- *  instead of `+`/`/` and are unaffected. */
-function maskSensitive(s: string): string {
-  let out = s.replace(/https?:\/\/\S+/gi, (m) => {
-    try {
-      const u = new URL(m)
-      return u.origin + u.pathname
-    } catch {
-      return '<url>'
-    }
-  })
-  out = out.replace(/[^\x00-\x7F]+/g, '<text>')
-  out = out.replace(/\bBearer\s+\S+/gi, 'Bearer <token>')
-  out = out.replace(
-    /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
-    '<label>=<redacted>',
-  )
-  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
-  out = out.replace(/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g, '<email>')
-  out = out.replace(/[A-Za-z0-9+_=-]{32,}/g, (m) => (UUID_RE.test(m) ? m : '<blob>'))
-  out = out.replace(/\b0\d{1,4}-\d{1,4}-\d{3,4}\b/g, '<phone>')
-  out = out.replace(/\d{7,}/g, '<digits>')
-  return out
 }
 
 /** The stable JSON body shape for every facade error response. */

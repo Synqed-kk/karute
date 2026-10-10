@@ -296,6 +296,12 @@ export async function secureTake(
  *
  * No discardPending check: bytes are never gated on what a surface may show
  * (take-store's drain note) — a discard is a mark, and its audio is kept.
+ *
+ * THE CONTRACT (S120 G2): one in-memory blob per take, built once at stop
+ * (global-recorder onstop) and reused by every 再試行. The run enforces 「the
+ * longer copy wins」 with a length check (ai-pipeline sealedShorter, pinTakeFallback);
+ * global-pipeline's server-job arm and discard-transcript's collection send the
+ * sealed key without it and rely on this contract.
  */
 export async function ensureAudioOnServer(
   port: RecordingPipelinePort,
@@ -435,7 +441,7 @@ async function secureBlob(
   // audio_path names, and `minted.path` is the SERVER's composed key — the
   // client never assembles a tenant key of its own.
   if ('ok' in result) {
-    await markTakeFinalized(takeId, minted.path)
+    await markTakeFinalized(takeId, minted.path, blob.size)
     return minted.path
   }
   await markTakeSecureError(takeId, result.error)

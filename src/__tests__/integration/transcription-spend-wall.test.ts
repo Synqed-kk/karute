@@ -236,13 +236,59 @@ const storageUpload = jest.fn(
     return { data: { path: key }, error: null }
   },
 )
+// ⚖ S53 A5 — the "transcribing now" lease lives beside the memo
+// (`trc/<audio>.<locale>.lease.json`). Its I/O goes to its OWN map and mocks,
+// so every PR-5 pin above keeps counting memo reads and writes only.
+const leaseStore = new Map<string, string>()
+const isLease = (key: unknown) => typeof key === 'string' && (key.endsWith('.lease.json') || key.endsWith('.claim.json')) // S114: a lease generation's claim lives with the lease
+const leaseDownload = jest.fn(async (key: string) => {
+  const body = leaseStore.get(key)
+  return body === undefined
+    ? { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } }
+    : { data: new Blob([body]), error: null }
+})
+const leaseUpload = jest.fn(async (key: string, body: string, opts?: { upsert?: boolean }) => {
+  if (leaseStore.has(key) && !opts?.upsert) {
+    return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+  }
+  leaseStore.set(key, body)
+  return { data: { path: key }, error: null }
+})
+// ⚖ S57 — the true-up's recorded fact lives beside the memo too
+// (`trc/<audio>.<locale>.trueup.json`, create-only). Its own map and mocks, so
+// the memo pins above still count memo reads and writes only.
+const trueUpStore = new Map<string, string>()
+const isTrueUp = (key: unknown) => typeof key === 'string' && key.endsWith('.trueup.json')
+const trueUpDownload = jest.fn(async (key: string) => {
+  const body = trueUpStore.get(key)
+  return body === undefined
+    ? { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } }
+    : { data: new Blob([body]), error: null }
+})
+const trueUpUpload = jest.fn(async (key: string, body: string, opts?: { upsert?: boolean }) => {
+  if (trueUpStore.has(key) && !opts?.upsert) {
+    return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+  }
+  trueUpStore.set(key, body)
+  return { data: { path: key }, error: null }
+})
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
       from: () => ({
         createSignedUrl,
-        download: (...a: unknown[]) => storageDownload(...(a as [string])),
-        upload: (...a: unknown[]) => storageUpload(...(a as [string, string])),
+        download: (...a: unknown[]) =>
+          isLease(a[0])
+            ? leaseDownload(...(a as [string]))
+            : isTrueUp(a[0])
+              ? trueUpDownload(...(a as [string]))
+              : storageDownload(...(a as [string])),
+        upload: (...a: unknown[]) =>
+          isLease(a[0])
+            ? leaseUpload(...(a as [string, string]))
+            : isTrueUp(a[0])
+              ? trueUpUpload(...(a as [string, string]))
+              : storageUpload(...(a as [string, string])),
         info: jest.fn(async () => ({ data: { size: 1 }, error: null })),
       }),
     },
@@ -358,7 +404,18 @@ import { POST as webTranscribePOST } from '@/app/api/ai/transcribe/route'
 import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/route'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import {
+  LEASE_TAKEOVER_RESERVE_MS,
+  LEASE_WORKER_FUNCTION_LIMIT_MS,
+  LEASE_WORKER_WAIT_MS,
+  TRANSCRIPTION_IN_PROGRESS,
+  runMeteredTranscription,
+} from '@/lib/ai/transcribe'
+import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
+import { maxDuration as JOB_ROUTE_MAX_DURATION_S } from '@/app/api/jobs/process/route'
+import { readTranscriptMemo, takeTranscriptLease, transcriptLeaseLive, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
+import { TRANSCRIPT_LEASE_CLOCK_SKEW_MS, TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
@@ -416,6 +473,8 @@ beforeEach(() => {
   })
   listSegments.mockResolvedValue({ segments: [] })
   memoStore.clear()
+  leaseStore.clear()
+  trueUpStore.clear()
   // Reset, for the same reason as consume: the t2c rows whose key fails the
   // grammar never reach `can`, and their queued answer must not leak.
   ;(can as jest.Mock).mockReset()
@@ -793,6 +852,35 @@ describe('the discard-words door', () => {
     })
   })
 
+  // X9 (S56 stress): the discard door rides the worker's wait; a lease that stays live for the
+  // whole budget ends in the retryable conflict, which THIS door's own catch must turn into its
+  // retryable `failed` — never a throw out of the door, never a payment.
+  it('x9 (S57) a lease live for the WHOLE wait → the conflict at the budget is caught by the discard door: { error: failed }, nothing paid, reserved or written', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      leaseStore.set(`trc/${OWN_KEY}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 330_000 }))
+      const out: { done: boolean; value?: unknown; error?: unknown } = { done: false }
+      transcribeAndPersistDiscardWithClient(discardCore, actor, input).then(
+        (value) => Object.assign(out, { done: true, value }),
+        (error: unknown) => Object.assign(out, { done: true, error }),
+      )
+      for (let i = 0; i < 80 && !out.done; i++) await jest.advanceTimersByTimeAsync(3_000)
+      expect(out.done).toBe(true)
+      expect(out.error).toBeUndefined()
+      expect(out.value).toEqual({ error: 'failed' })
+      // The door's own line names the conflict it caught.
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('[discard-transcript] transcribe failed') && (c[1] as { code?: string })?.code === 'conflict')).toBe(true)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(upsertSegments).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      jest.useRealTimers()
+    }
+  })
+
   it('allowed → the words land, the minutes are debited once, and ONE receipt says door discard', async () => {
     const res = await transcribeAndPersistDiscardWithClient(discardCore, actor, input)
 
@@ -1121,13 +1209,123 @@ describe('the web route (cookie door)', () => {
     }
   })
 
-  it('s46 no row (unbound fallback / an older tab) → the words still come back (paid), and the answer is still remembered', async () => {
+  // ⚖ S53 A1 — THIS PIN IS FLIPPED ON PURPOSE (it reverses the S46 line in
+  // the route; ruling given — Liam, 2026-09-28 19:5x JST:
+  // 「I think both. Yes to both.」). S46 read "no row → no replay": the
+  // unbound fallback's automatic re-POST of the SAME key after a lost response
+  // paid twice on the web door. A1 replays 'no_row' too, and grants nothing
+  // new: the phone door already replays 'no_row' (v1 route, :86-101), and the
+  // read-URL door already hands any same-tenant records.write holder a signed
+  // URL for a 'no_row' key (recording-upload.ts, mintRecordingReadUrl). The
+  // fence (own tenant's take key + records.write) and the 'foreign' refusal
+  // are unchanged — t2c and the colleague's-row case above still pay.
+  it('S53 A1 (was s46) no row (unbound fallback / an older tab) → the memo is READ: the first call pays and is remembered, the same key again REPLAYS', async () => {
     const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
     expect(res.status).toBe(200)
     expect((await res.json()).transcript).toBe('こんにちは')
-    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+
+    const again = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+    expect(again.status).toBe(200)
+    expect((await again.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('S53 A1 switch OFF → the S46 answer exactly: no row → no memo read, it pays, and the answer is still remembered', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).transcript).toBe('こんにちは')
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+    } finally {
+      off.restore()
+    }
+  })
+
+  it("S53 A1 a colleague's row with a remembered answer → still NO replay (the fence A1 leaves standing)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  // ── S53 A2: a core read blip never buys the same audio twice ─────────────
+  const coreBlips = () =>
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('core 500'), { status: 500 }))
+
+  it('a2 core blip + a paid answer already remembered → retryable 502, Deepgram NOT asked, nothing reserved', async () => {
+    await seedMemo()
+    recordUsage.mockClear()
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toBe('could not read the recording')
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+  })
+
+  it('a2 core blip + nothing remembered → pays exactly as before (no availability lost), and the answer is remembered', async () => {
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(memoStore.has(`trc/${OWN_TAKE}.ja.json`)).toBe(true)
+  })
+
+  it('a2 the blip clears → the retry replays: ONE provider call across paid → 502 → replay (the phone door’s shape)', async () => {
+    ownRowHolds(OWN_TAKE)
+    try {
+      const body = { audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }
+      expect((await webTranscribePOST(post(body))).status).toBe(200)
+      coreBlips()
+      expect((await webTranscribePOST(post(body))).status).toBe(502)
+      const replay = await webTranscribePOST(post(body))
+      expect(replay.status).toBe(200)
+      expect((await replay.json()).transcript).toBe('こんにちは')
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it("a2 a colleague's row still pays (the S46 fence is unchanged — only 'unreadable' reads the memo)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it('a6 switch OFF → the pre-S53 answer: core blip + a remembered answer PAYS again (no memo read)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      await seedMemo()
+      coreBlips()
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      off.restore()
+    }
   })
 
   it('t10 a non-URL never reaches the parse — the SSRF guard answers 400 first, nothing read', async () => {
@@ -1355,6 +1553,21 @@ describe('the facade route (Bearer door)', () => {
     expect(receipts[0].severity).toBe('warning')
     expect(receipts[0].detail).toMatchObject({ cents_reserved: 5, debit_recorded: false })
     errorLog.mockRestore()
+  })
+  // ⚖ S57 F1: the hook's row takes the meter's one severity rule too.
+  it('s57 f1l a replay whose memo still owes a true-up, under another call’s live lease → the hook’s row is soft (no warning), six keys, debit_deferred_reason lease_busy', async () => {
+    const key = conformingKey('business-1')
+    memoStore.set(`trc/${key}.ja.json`, JSON.stringify({ v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '', trueUp: { reserveCents: 1, costCents: 45, deltaCents: 44 } }))
+    leaseStore.set(`trc/${key}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 60_000 }))
+    const res = await facadeTranscribePOST(post(), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordUsage).not.toHaveBeenCalled()
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].severity).toBeUndefined()
+    expect(receipts[0].detail).toMatchObject({ replayed: true, debit_recorded: false, debit_deferred_reason: 'lease_busy' })
+    // Five receipt keys + the deferral reason — inside the hook's cap of 8.
+    expect(Object.keys(receipts[0].detail as object)).toHaveLength(6)
   })
 })
 
@@ -1809,8 +2022,21 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
 // writes it only AFTER the provider answered. The assertions count the
 // PROVIDER mock, the consume and the reserve — the three things that cost.
 describe('charge once — the durable transcript memo', () => {
+  const afterThis: Array<() => void> = []
+  afterEach(() => afterThis.splice(0).forEach((undo) => undo()))
   const AUDIO = conformingKey('biz-1')
   const memoKey = (audio: string, locale: 'ja' | 'en' = 'ja') => `trc/${audio}.${locale}.json`
+  /** S120 (G6): the true-up object of the memo generation stored for this audio NOW — one object per
+   *  memo generation, named by that memo's written_at (an unreadable memo names none). */
+  const currentTrueUpKey = (audio: string) => {
+    let writtenAt: unknown
+    try {
+      writtenAt = (JSON.parse(memoStore.get(memoKey(audio)) ?? '{}') as { written_at?: unknown }).written_at
+    } catch {
+      writtenAt = undefined
+    }
+    return transcriptTrueUpKey(memoKey(audio), writtenAt)
+  }
   const call = (audioKey: string | null | undefined, locale = 'ja') =>
     runMeteredTranscription(
       {
@@ -1917,7 +2143,8 @@ describe('charge once — the durable transcript memo', () => {
 
     await expect(call(AUDIO)).rejects.toThrow()
 
-    expect(storageDownload).toHaveBeenCalledTimes(1)
+    // The first read, and the re-read under the lease before paying (S57).
+    expect(storageDownload).toHaveBeenCalledTimes(2)
     expect(storageUpload).not.toHaveBeenCalled()
     expect(memoStore.size).toBe(0)
   })
@@ -1940,15 +2167,32 @@ describe('charge once — the durable transcript memo', () => {
     warn.mockRestore()
   })
 
+  it('N2 (S116 r4) the lease answers unknown and the memo landed after the first read → REPLAYED, not paid again', async () => {
+    const first = await call(AUDIO)
+    expect(first.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    // The first read misses (the other door had not landed yet); the lease's first
+    // create fails without landing → 'unknown'. The memo is there by then.
+    storageDownload.mockResolvedValueOnce({ data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } })
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'Internal' } } as never)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const again = await call(AUDIO)
+    warn.mockRestore()
+    expect(again.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
   it('t8 a duplicate refusal (two doors paid in the same moment) is SILENT — the first copy stands', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     memoStore.set(memoKey(AUDIO), 'first copy')
-    // The read above misses (the other door had not landed yet); the write then
-    // meets the other door's copy.
-    storageDownload.mockResolvedValueOnce({
-      data: null,
-      error: { status: 400, statusCode: '404', message: 'Object not found' },
-    })
+    // The read above misses (the other door had not landed yet), and so does the
+    // re-read under the lease (S57); the write then meets the other door's copy.
+    for (let i = 0; i < 2; i++) {
+      storageDownload.mockResolvedValueOnce({
+        data: null,
+        error: { status: 400, statusCode: '404', message: 'Object not found' },
+      })
+    }
 
     const res = await call(AUDIO)
 
@@ -1978,9 +2222,10 @@ describe('charge once — the durable transcript memo', () => {
       contentType: 'application/json',
       upsert: true,
     })
-    // Two warns, both the corrupt read — the first, and the re-check right
-    // before the repair (Greptile round 2). The repair itself lands silently.
-    expect(warn).toHaveBeenCalledTimes(2)
+    // Three warns, all the corrupt read — the first, the re-read under the lease
+    // before paying (S57), and the re-check right before the repair (Greptile
+    // round 2). The repair itself lands silently.
+    expect(warn).toHaveBeenCalledTimes(3)
     for (const [line] of warn.mock.calls) expect(String(line)).toContain('transcript-memo.corrupt')
 
     const second = await call(AUDIO)
@@ -2006,6 +2251,8 @@ describe('charge once — the durable transcript memo', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const good = JSON.stringify({ v: 1, result: { transcript: 'first' }, duration_seconds: 7, written_at: '' })
     memoStore.set(memoKey(AUDIO), good)
+    // Unreadable on the first read AND on the re-read under the lease (S57).
+    storageDownload.mockResolvedValueOnce({ data: null, error: { status: 500, message: 'storage down' } } as never)
     storageDownload.mockResolvedValueOnce({ data: null, error: { status: 500, message: 'storage down' } } as never)
 
     const res = await call(AUDIO)
@@ -2040,7 +2287,8 @@ describe('charge once — the durable transcript memo', () => {
 
     expect(res.result.transcript).toBe('こんにちは')
     expect(res.receipt.replayed).toBe(false)
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).not.toHaveBeenCalled()
     expect(memoStore.get(memoKey(AUDIO))).toBe(OTHER)
     warn.mockRestore()
@@ -2052,7 +2300,8 @@ describe('charge once — the durable transcript memo', () => {
 
     await call(AUDIO)
 
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
       contentType: 'application/json',
@@ -2076,7 +2325,8 @@ describe('charge once — the durable transcript memo', () => {
 
     const res = await call(AUDIO)
 
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
       contentType: 'application/json',
@@ -2091,7 +2341,10 @@ describe('charge once — the durable transcript memo', () => {
   // Both callers miss before either provider answers, so each pays once —
   // what every call did before PR-5 — and the loser's write meets the
   // duplicate refusal: ONE memo object, and no warn.
-  it('t13 two interleaved callers both miss → two charges, ONE memo, the loser’s write silent, both answered', async () => {
+  // S53 A5 closes this race with the lease (below); OFF keeps this answer exactly.
+  it('t13 (switch OFF) two interleaved callers both miss → two charges, ONE memo, the loser’s write silent, both answered', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    afterThis.push(() => off.restore())
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     let release!: (r: DeepgramTranscribeResult) => void
     transcribeUrlWithDeepgram.mockImplementationOnce(
@@ -2118,5 +2371,1518 @@ describe('charge once — the durable transcript memo', () => {
     expect(second.receipt.replayed).toBe(false)
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  // ⚖ S53 A3 — THE MEMO IS WRITTEN BEFORE THE TRUE-UP. The true-up is up to
+  // three core calls and a second of waits; a process that dies inside it (the
+  // 300 s limit, a crash) used to take the PAID answer with it, and the next
+  // attempt paid again. A true-up that never finishes is exactly that death as
+  // the code sees it: the memo must already be readable while it hangs.
+  it('a3 the TRUE-UP never finishes (the process dies inside it) → the paid answer is already remembered, and the next call replays it', async () => {
+    // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer owes a 44 ¢ true-up.
+    headBytes.current = 600_000
+    let trueUpStarted = false
+    recordUsage
+      .mockResolvedValueOnce(undefined) // the reserve lands
+      .mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {}) // …and the true-up never returns
+      })
+
+    void call(AUDIO)
+    while (!trueUpStarted) await new Promise(setImmediate)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    const memo = await readTranscriptMemo(memoKey(AUDIO))
+    expect(memo).toMatchObject({ state: 'hit', memo: { v: 1, duration_seconds: 5400, result: { transcript: 'こんにちは' } } })
+
+    // The retry after that death reads it: no second provider call.
+    const retry = await call(AUDIO)
+    expect(retry.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a3 a true-up that is LOST (three failures) still leaves exactly one memo, written before the ledger calls', async () => {
+    headBytes.current = 600_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    const paid = await call(AUDIO)
+
+    expect(paid.receipt.debit_recorded).toBe(false)
+    // S57: ONE write, ONE memo — the memo with its debt, never rewritten; and no
+    // true-up object, because the ledger never took the delta.
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    expect(memoStore.size).toBe(1)
+    expect(trueUpUpload).not.toHaveBeenCalled()
+    // The memo write precedes the first true-up attempt in the call order.
+    const uploadOrder = storageUpload.mock.invocationCallOrder[0]
+    const trueUpOrder = recordUsage.mock.invocationCallOrder[1]
+    expect(uploadOrder).toBeLessThan(trueUpOrder)
+    err.mockRestore()
+  })
+
+  it('a6 the switch ships ON (2026-09-28, S53)', () => {
+    expect(RECORDING_SWITCHES.transcribePaidOnce).toBe(true)
+  })
+
+  it('a6 switch OFF → the pre-S53 order: a true-up that never finishes leaves NO memo (the answer dies with the process)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      headBytes.current = 600_000
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {})
+      })
+      void call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(memoStore.size).toBe(0)
+    } finally {
+      off.restore()
+    }
+  })
+
+  it('a6 switch OFF → a lost true-up still writes the memo, AFTER the ledger calls (the pre-S53 order)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      headBytes.current = 600_000
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+      await call(AUDIO)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(storageUpload.mock.invocationCallOrder[0]).toBeGreaterThan(recordUsage.mock.invocationCallOrder[3])
+    } finally {
+      err.mockRestore()
+      off.restore()
+    }
+  })
+
+  // ⚖ S56 — THE TRUE-UP'S DEBT (PR 1 Greptile Finding 1: "Memo can hide unpaid
+  // usage"). The memo is written BEFORE the true-up (A3), so a process that
+  // died between the two left a memo that replayed with a hardcoded
+  // `debit_recorded: true` while the delta was never recorded. The memo now
+  // carries the debt; a replay that finds it owed records the delta first.
+  // ⚖ S57 (Greptile round 2 on #1086, finding 2): the memo is written ONCE and
+  // never rewritten; "recorded" has ONE home — the create-only true-up object
+  // beside it — and a replay records only under the lease (finding 1).
+  // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer costs 45 ¢ → 44 ¢ owed.
+  describe('s56 the true-up debt — a replay never hides an unrecorded delta', () => {
+    const DELTA = 44
+    const trueUpKey = (audio: string) => currentTrueUpKey(audio)
+    const stored = () => JSON.parse(memoStore.get(memoKey(AUDIO))!) as Record<string, unknown> & {
+      trueUp?: Record<string, unknown>
+    }
+    const recordedFact = () => trueUpStore.has(trueUpKey(AUDIO))
+    const deltaCalls = () => recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === DELTA)
+
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+
+    it('s56 t1 order: the memo lands WITH its debt BEFORE recordUsage(delta); the true-up object is created AFTER it, create-only; the memo is never rewritten', async () => {
+      const paid = await call(AUDIO)
+
+      expect(paid.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 45,
+        cents_reserved: 1,
+        debit_recorded: true,
+        replayed: false,
+      })
+      expect(recordUsage.mock.calls).toEqual([
+        ['transcribe', null, null, 1],
+        ['transcribe', null, null, DELTA],
+      ])
+      // ONE memo write, create-only, carrying the debt's numbers only.
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(storageUpload.mock.calls[0][2]).toEqual({ contentType: 'application/json', upsert: false })
+      expect(stored().trueUp).toEqual({ reserveCents: 1, costCents: 45, deltaCents: DELTA })
+      // Call ORDER: the memo < the true-up < the recorded fact.
+      const memoAt = storageUpload.mock.invocationCallOrder[0]
+      const trueUpAt = recordUsage.mock.invocationCallOrder[1]
+      const factAt = trueUpUpload.mock.invocationCallOrder[0]
+      expect(memoAt).toBeLessThan(trueUpAt)
+      expect(trueUpAt).toBeLessThan(factAt)
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+      expect(trueUpUpload.mock.calls[0][0]).toBe(trueUpKey(AUDIO))
+      expect(trueUpUpload.mock.calls[0][2]).toEqual({ contentType: 'application/json', upsert: false })
+      expect(JSON.parse(trueUpStore.get(trueUpKey(AUDIO))!)).toMatchObject({ v: 1, deltaCents: DELTA })
+      expect(memoStore.size).toBe(1)
+      expect(stored().result).toEqual(paid.result)
+    })
+
+    it('s56 t2 the writer is exhausted → debit_recorded false, the debt left owed (no true-up object); the next replay records the delta ONCE under the lease → the object created, true', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('core down'))
+        .mockRejectedValueOnce(new Error('core down')).mockRejectedValueOnce(new Error('core down'))
+
+      const paid = await call(AUDIO)
+      expect(paid.receipt.debit_recorded).toBe(false)
+      expect(stored().trueUp).toEqual({ reserveCents: 1, costCents: 45, deltaCents: DELTA })
+      expect(recordedFact()).toBe(false)
+      const memoAfterPay = memoStore.get(memoKey(AUDIO))
+
+      recordUsage.mockClear()
+      const replay = await call(AUDIO)
+
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(consume).toHaveBeenCalledTimes(1)
+      expect(recordUsage.mock.calls).toEqual([['transcribe', null, null, DELTA]])
+      expect(replay.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: true,
+        replayed: true,
+      })
+      expect(replay.result).toEqual(paid.result)
+      expect(recordedFact()).toBe(true)
+      // The memo itself is byte-for-byte the one the payer wrote.
+      expect(memoStore.get(memoKey(AUDIO))).toBe(memoAfterPay)
+      err.mockRestore()
+    })
+
+    // ⚖ S57 (Greptile round 2 on #1086, finding 1): the dead payer still HOLDS its lease (its
+    // finally never ran), so a replay inside the lease's life never records the delta — it says so
+    // (`lease_busy`) and answers. Once that lease has expired, the next replay takes it over and
+    // records the delta exactly once.
+    it('s56 t2b the process DIES between the memo and the true-up (Greptile’s case) → a replay under its still-live lease records NOTHING (lease_busy); after the lease expires the next replay records the delta exactly once', async () => {
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {}) // the death: the true-up never returns
+      })
+      void call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      expect(stored().trueUp).toEqual({ reserveCents: 1, costCents: 45, deltaCents: DELTA })
+
+      const early = await call(AUDIO)
+      expect(early.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: false,
+        replayed: true,
+        debit_deferred_reason: 'lease_busy',
+      })
+      expect(deltaCalls()).toHaveLength(1) // only the dead payer's own, never the replay's
+      expect(recordedFact()).toBe(false)
+
+      // 330 s later: the dead payer's lease has expired.
+      leaseStore.set(`trc/${AUDIO}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() - 1 }))
+      const replay = await call(AUDIO)
+
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      // the dead true-up, and ONE delta from the replay that held the lease.
+      expect(deltaCalls()).toHaveLength(2)
+      expect(recordUsage.mock.calls[2]).toEqual(['transcribe', null, null, DELTA])
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(replay.receipt.replayed).toBe(true)
+      expect(replay.receipt).not.toHaveProperty('debit_deferred_reason')
+      expect(recordedFact()).toBe(true)
+      // …and it gave the lease back (overwritten as expired, never deleted).
+      expect(JSON.parse(leaseStore.get(`trc/${AUDIO}.ja.lease.json`)!).expires_at).toBe(0)
+    })
+
+    it('s56 t3 replay after success: the true-up object stands → the replay never calls recordUsage, never takes the lease, writes nothing, and debit_recorded is true', async () => {
+      await call(AUDIO)
+      expect(recordedFact()).toBe(true)
+      recordUsage.mockClear()
+      storageUpload.mockClear()
+      trueUpUpload.mockClear()
+      leaseUpload.mockClear()
+
+      const replay = await call(AUDIO)
+
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(leaseUpload).not.toHaveBeenCalled()
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(replay.receipt.replayed).toBe(true)
+    })
+
+    it('s56 t4 the replay keeps failing → the answer still comes back, debit_recorded false (no deferral reason — a lost debit), the debt still owed — never cleared, never deleted, the memo never rewritten', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+
+      const paid = await call(AUDIO)
+      const memoAfterPay = memoStore.get(memoKey(AUDIO))
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual(paid.result)
+      expect(replay.receipt).toEqual({ duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: false, replayed: true })
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      // three attempts on the paid call, three on the replay — all for the delta.
+      expect(deltaCalls()).toHaveLength(6)
+      expect(memoStore.size).toBe(1)
+      expect(memoStore.get(memoKey(AUDIO))).toBe(memoAfterPay)
+      expect(stored().trueUp).toEqual({ reserveCents: 1, costCents: 45, deltaCents: DELTA })
+      expect(recordedFact()).toBe(false)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+
+    it('s56 t5 no delta (the reserve covered it) → no debt at all; the replay is true and calls nothing', async () => {
+      headBytes.current = 32_400_000 // 5,400 s reserved = 45 ¢ = the cost
+      const paid = await call(AUDIO)
+      expect(paid.receipt.debit_recorded).toBe(true)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(stored()).not.toHaveProperty('trueUp')
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      recordUsage.mockClear()
+
+      const replay = await call(AUDIO)
+
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(trueUpDownload).not.toHaveBeenCalled()
+    })
+
+    it('s56 t6 a memo with NO debt (the only shape origin/main writes — after its true-up ran) → replays true, no ledger call, no write, no true-up read', async () => {
+      const legacy = JSON.stringify({ v: 1, result: { transcript: 'legacy' }, duration_seconds: 5400, written_at: '' })
+      memoStore.set(memoKey(AUDIO), legacy)
+
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual({ transcript: 'legacy' })
+      expect(replay.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: true,
+        replayed: true,
+      })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(trueUpDownload).not.toHaveBeenCalled()
+      expect(memoStore.get(memoKey(AUDIO))).toBe(legacy)
+    })
+
+    it('s56 t7 a debt this code cannot read → debit_recorded false (never proven), no number invented, nothing written', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const odd = JSON.stringify({
+        v: 1,
+        result: { transcript: 'odd' },
+        duration_seconds: 5400,
+        written_at: '',
+        trueUp: { deltaCents: 'forty-four' },
+      })
+      memoStore.set(memoKey(AUDIO), odd)
+
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual({ transcript: 'odd' })
+      expect(replay.receipt.debit_recorded).toBe(false)
+      expect(replay.receipt).not.toHaveProperty('debit_deferred_reason')
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(err).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+
+    it('s56 t8 switch OFF → the pre-S53 order writes NO debt (the true-up already ran to its end) and no true-up object', async () => {
+      const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+      try {
+        const paid = await call(AUDIO)
+        expect(paid.receipt.debit_recorded).toBe(true)
+        expect(storageUpload).toHaveBeenCalledTimes(1)
+        expect(storageUpload.mock.invocationCallOrder[0]).toBeGreaterThan(recordUsage.mock.invocationCallOrder[1])
+        expect(stored()).not.toHaveProperty('trueUp')
+        expect(trueUpUpload).not.toHaveBeenCalled()
+      } finally {
+        off.restore()
+      }
+    })
+
+    // ⚖ S56 (stress lens N1): the debt belongs ONLY to the caller whose write CREATED the memo.
+    // Here a delta IS owed: a caller that lost the create race still asks the ledger for its OWN
+    // delta, and never answers for the winner's debt — no true-up object on its account, the
+    // standing memo byte-for-byte.
+    it.each([
+      ['the ledger takes the delta', true],
+      ['the ledger is exhausted', false],
+    ] as const)('s56 t9 a delta is owed and the memo write meets a DUPLICATE refusal (%s) → this call owns no debt: no true-up object for the winner’s debt, the standing memo byte-for-byte, debit_recorded = the ledger’s answer', async (_label, lands) => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      if (!lands) {
+        recordUsage.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('core down'))
+          .mockRejectedValueOnce(new Error('core down')).mockRejectedValueOnce(new Error('core down'))
+      }
+      // Another caller's paid answer already stands — with ITS OWN debt, still owed.
+      const standing = JSON.stringify({
+        v: 1,
+        result: { transcript: 'the other caller' },
+        duration_seconds: 5400,
+        written_at: '2026-09-29T00:00:00.000Z',
+        trueUp: { reserveCents: 1, costCents: 45, deltaCents: DELTA },
+      })
+      memoStore.set(memoKey(AUDIO), standing)
+      // Our read misses (the other caller had not landed yet), and so does our re-read under the
+      // lease (S57); our write then meets its copy.
+      for (let i = 0; i < 2; i++) {
+        storageDownload.mockResolvedValueOnce({
+          data: null,
+          error: { status: 400, statusCode: '404', message: 'Object not found' },
+        })
+      }
+      try {
+        const res = await call(AUDIO)
+
+        expect(res.receipt.replayed).toBe(false)
+        expect(res.result.transcript).toBe('こんにちは')
+        expect(res.receipt.debit_recorded).toBe(lands)
+        // THIS call's own delta: recorded once when the ledger takes it; when it is exhausted,
+        // only the writer's own three attempts — never a second round.
+        expect(deltaCalls()).toHaveLength(lands ? 1 : 3)
+        // ONE write — the create-only attempt the duplicate refusal answered.
+        expect(storageUpload).toHaveBeenCalledTimes(1)
+        expect(storageUpload.mock.calls[0][2]).toEqual({ contentType: 'application/json', upsert: false })
+        // The winner's debt is not ours to answer for: no true-up object, whatever our ledger said.
+        expect(trueUpUpload).not.toHaveBeenCalled()
+        expect(recordedFact()).toBe(false)
+        // The standing memo — answer and debt — is untouched, byte for byte.
+        expect(memoStore.size).toBe(1)
+        expect(memoStore.get(memoKey(AUDIO))).toBe(standing)
+        expect(warn).not.toHaveBeenCalled()
+      } finally {
+        err.mockRestore()
+        warn.mockRestore()
+      }
+    })
+  })
+
+  // ── ⚖ S53 A5 — THE "TRANSCRIBING NOW" LEASE ───────────────────────────────
+  const leaseKey = (audio: string) => `trc/${audio}.ja.lease.json`
+  const liveLease = (audio: string, ms = 330_000) =>
+    leaseStore.set(leaseKey(audio), JSON.stringify({ v: 1, expires_at: Date.now() + ms }))
+
+  it('a5 E2 — a second call while the first is INSIDE the provider → 409, nothing consumed, reserved or paid; the answer then replays: ONE paid call', async () => {
+    let release!: (r: DeepgramTranscribeResult) => void
+    transcribeUrlWithDeepgram.mockImplementationOnce(
+      () => new Promise<DeepgramTranscribeResult>((resolve) => (release = resolve)),
+    )
+    const first = call(AUDIO)
+    while (transcribeUrlWithDeepgram.mock.calls.length < 1) await new Promise(setImmediate)
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now() + 300_000)
+    // S54 B: written with the ONE shared TTL the client's still-working deadline reads.
+    const expiresAt = JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at
+    expect(expiresAt).toBeGreaterThan(Date.now() + TRANSCRIPT_LEASE_TTL_MS - 5_000)
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + TRANSCRIPT_LEASE_TTL_MS)
+
+    const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
+    expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+
+    release({ ...deepgramResult })
+    await first
+    // Released on the way out — overwritten as expired, never deleted.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    const third = await call(AUDIO)
+    expect(third.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 a live lease AND a memo → the memo replays (it is read first; the lease is never consulted)', async () => {
+    await call(AUDIO)
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    const again = await call(AUDIO)
+    expect(again.receipt.replayed).toBe(true)
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 an EXPIRED lease (its holder died) → falls open: taken over, paid, released', async () => {
+    liveLease(AUDIO, -1)
+    const paid = await call(AUDIO)
+    expect(paid.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(leaseUpload).toHaveBeenCalledWith(leaseKey(AUDIO), expect.any(String), expect.objectContaining({ upsert: true }))
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it('a5 the holder’s provider FAILS → the lease is released on the way out, and the retry pays at once (never blocked for the TTL)', async () => {
+    transcribeUrlWithDeepgram.mockRejectedValueOnce(new Error('socket hang up'))
+    await expect(call(AUDIO)).rejects.toThrow('socket hang up')
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    const retry = await call(AUDIO)
+    expect(retry.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(2)
+  })
+
+  it('a5 storage will not answer the lease → pays exactly as before (fail open)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'storage down' } } as never)
+    const paid = await call(AUDIO)
+    expect(paid.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('a5 switch OFF → no lease is read or written at all', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    afterThis.push(() => off.restore())
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    await call(AUDIO)
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(leaseDownload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 a caller that pays regardless (replayMemo false — a colleague’s key) never waits on, nor takes, the lease', async () => {
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    await runMeteredTranscription(
+      { synqed: fakeClient as unknown as Pick<SynqedClient, 'aiRateLimit'>, businessId: 'biz-1', door: 'web', audioKey: AUDIO, replayMemo: false },
+      { audio: { url: 'https://x/audio' }, locale: 'ja', diarize: true, reference: null, mode: 'off', businessType: null },
+    )
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  const jobOn = (audio: string) => {
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, audio_path: audio } })
+      .mockResolvedValueOnce(null)
+  }
+
+  it('a5 the WORKER on a live lease WAITS — the answer lands meanwhile → it replays; complete(), never fail() (no requeue)', async () => {
+    liveLease(AUDIO)
+    jobOn(AUDIO)
+    const run = processRecordingJobs(10_000)
+    // The other call finishes while the worker waits: its memo lands, its lease is released.
+    while (leaseDownload.mock.calls.length < 1) await new Promise(setImmediate)
+    memoStore.set(`trc/${AUDIO}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    await run
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({ door: 'job', replayed: true, cost_cents: 0 })
+  }, 15_000)
+
+  // ⚖ S56 — REWRITTEN. This row asserted that the worker, on a lease that
+  // never clears, waited 90 s and then PAID. That was the double pay: a live
+  // lease at 90 s is a holder still inside its 300 s function, not a dead one.
+  // It now asserts the opposite: the wait runs its whole budget, then the job
+  // FAILS with the retryable conflict word (core requeues while attempts
+  // remain) — no provider call, no reserve, no complete().
+  it('a5 → S56 the WORKER on a lease that never clears waits its budget, then THROWS the retryable conflict — fail() (core requeues), never a payment, never complete()', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    afterThis.push(() => jest.useRealTimers())
+    liveLease(AUDIO)
+    jobOn(AUDIO)
+    const run = processRecordingJobs(10_000_000)
+    for (let i = 0; i < 80 && fail.mock.calls.length === 0; i++) {
+      await jest.advanceTimersByTimeAsync(3_000)
+    }
+    await run
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalledTimes(1)
+    expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${TRANSCRIPTION_IN_PROGRESS}`)
+    expect(memoStore.has(`trc/${AUDIO}.ja.json`)).toBe(false)
+    // Never its own lease: the only lease is the holder's, still live.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+  })
+
+  // ── ⚖ S116 round 5 (R-S116-9) — THE WORKER'S LAST ATTEMPT NEVER ENDS BUSY ──
+  // A tiny core: claim counts attempts ON CLAIM; fail() requeues while attempts <
+  // max_attempts, else FAILED (process-recording.ts:811-813). Invocations run back
+  // to back with the route's 270 s budget. A DEAD holder: its lease reads live for
+  // `stallMs`, it never writes a memo and never releases.
+  describe('R-S116-9 — the last attempt falls open and pays (never FAILED behind a dead holder)', () => {
+    const lastAttemptWarns = () =>
+      (console.warn as unknown as jest.Mock).mock?.calls?.filter((c) => String(c[0]).includes('transcript-lease.last-attempt-fall-open')).length ?? 0
+    const core = (max: number | null, opts: { burned?: number; claimDelayMs?: number } = {}) => {
+      const st = { attempts: opts.burned ?? 0, status: 'QUEUED' as string, claimedAt: [] as number[] }
+      const row = () => ({ ...baseJob, attempts: st.attempts, max_attempts: max, payload: { ...baseJob.payload, audio_path: AUDIO } })
+      claim.mockImplementation(async () => {
+        if (st.status !== 'QUEUED') return null
+        if (opts.claimDelayMs) await new Promise((r) => setTimeout(r, opts.claimDelayMs))
+        st.attempts++
+        st.status = 'RUNNING'
+        st.claimedAt.push(Date.now())
+        return row()
+      })
+      fail.mockImplementation(async () => {
+        st.status = max !== null && st.attempts < max ? 'QUEUED' : 'FAILED'
+        return { ...row(), status: st.status }
+      })
+      complete.mockImplementation(async () => {
+        st.status = 'DONE'
+        return {}
+      })
+      afterThis.push(() => {
+        claim.mockReset()
+        fail.mockReset().mockImplementation(async () => ({}))
+        complete.mockReset().mockImplementation(async () => ({}))
+      })
+      return st
+    }
+    const invoke = async () => {
+      const startedAt = Date.now()
+      let done = false
+      void processRecordingJobs(270_000).then(
+        () => (done = true),
+        () => (done = true),
+      )
+      for (let i = 0; i < 400 && !done; i++) await tick(3_000)
+      return startedAt
+    }
+    const runUntilSettled = async (st: { status: string }) => {
+      for (let inv = 0; inv < 6 && st.status === 'QUEUED'; inv++) await invoke()
+    }
+
+    it.each([
+      ['max_attempts 2, a dead holder for one TTL (330 s)', 2, 0],
+      ['max_attempts 3, one attempt already burned by a late claim killed at the wall (stale reclaim)', 3, 1],
+    ])('%s → the last attempt PAYS (transcribed), never FAILED', async (_n, max, burned) => {
+      fakeClock()
+      jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => (console.warn as unknown as jest.Mock).mockRestore?.())
+      liveLease(AUDIO, 330_000)
+      const st = core(max, { burned })
+      await runUntilSettled(st)
+      expect(st.status).toBe('DONE')
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(fail).toHaveBeenCalledTimes(max - burned - 1)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(lastAttemptWarns()).toBe(1)
+    }, 30_000)
+
+    it('an unreadable max_attempts counts as the last attempt → pays on the first', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(null)
+      await runUntilSettled(st)
+      expect(st.status).toBe('DONE')
+      expect(fail).not.toHaveBeenCalled()
+    }, 30_000)
+
+    it('the LATE-claimed last attempt (claimed 260 s into its invocation) starts its pay before the 270 s claim edge', async () => {
+      fakeClock()
+      liveLease(AUDIO, 600_000 - 270_000)
+      const st = core(3, { burned: 2, claimDelayMs: 260_000 })
+      let paidAt = 0
+      transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
+        paidAt = Date.now()
+        return { ...deepgramResult }
+      })
+      const startedAt = await invoke()
+      expect(st.status).toBe('DONE')
+      expect(paidAt - startedAt).toBeGreaterThanOrEqual(260_000)
+      expect(paidAt - startedAt).toBeLessThan(270_000)
+    }, 30_000)
+
+    it('a NON-last attempt behind the same holder still answers busy (unchanged): fail(), nothing paid', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(3)
+      await invoke()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledTimes(2)
+      expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${TRANSCRIPTION_IN_PROGRESS}`)
+      expect(st.attempts).toBe(2)
+    }, 30_000)
+
+    it('RESIDUAL (named, R-S116-9): a holder still WORKING at the last attempt → the last attempt pays beside it = 2 payers', async () => {
+      fakeClock()
+      liveLease(AUDIO, 330_000)
+      const st = core(1)
+      await invoke()
+      expect(st.status).toBe('DONE')
+      // The holder (outside this call) pays once; the last attempt paid once more while its lease was live.
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+    }, 30_000)
+  })
+
+  // ── ⚖ S56 — THE WORKER DOOR NEVER PAYS AGAINST A LIVE LEASE ───────────────
+  // Fake timers, as the row above: the wait is LEASE_WORKER_WAIT_MS of 3 s
+  // polls (LEASE_POLL_MS). `settle` records how a call ended without awaiting
+  // it, so a row can say "not yet" at a given clock; `flush` lets the storage
+  // fakes' promises (and Blob reads) run without moving the fake clock.
+  const doorCall = (door: 'job' | 'from_session' | 'discard' | 'web' | 'app') =>
+    runMeteredTranscription(
+      { synqed: fakeClient as unknown as Pick<SynqedClient, 'aiRateLimit'>, businessId: 'biz-1', door, audioKey: AUDIO },
+      { audio: { url: 'https://x/audio' }, locale: 'ja', diarize: true, reference: null, mode: 'off', businessType: null },
+    )
+  type Settled = { done: boolean; value?: Awaited<ReturnType<typeof doorCall>>; error?: unknown }
+  const settle = (p: ReturnType<typeof doorCall>): Settled => {
+    const out: Settled = { done: false }
+    p.then(
+      (value) => Object.assign(out, { done: true, value }),
+      (error: unknown) => Object.assign(out, { done: true, error }),
+    )
+    return out
+  }
+  const flush = async () => {
+    for (let i = 0; i < 25; i++) await new Promise(setImmediate)
+  }
+  const tick = async (ms: number) => {
+    await jest.advanceTimersByTimeAsync(ms)
+    await flush()
+  }
+  const fakeClock = () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    afterThis.push(() => jest.useRealTimers())
+  }
+  const untilSettled = async (out: Settled) => {
+    for (let i = 0; i < 40 && !out.done; i++) await tick(0)
+  }
+  const takeovers = () => leaseUpload.mock.calls.filter((c) => (c[2] as { upsert?: boolean } | undefined)?.upsert === true)
+
+  it.each(['job', 'from_session', 'discard'] as const)(
+    'w1 (S56) the %s door on a lease live for the WHOLE wait, no answer ever lands → after its budget it THROWS the retryable conflict (seconds left on the lease): no provider call, no reserve, no memo, no lease of its own',
+    async (door) => {
+      fakeClock()
+      liveLease(AUDIO) // 330 s from now: live well past the 135 s budget
+      const out = settle(doorCall(door))
+      await flush()
+      // The budget is asked at the top of each 3 s look: the first look at or past it throws.
+      const throwAt = Math.ceil(LEASE_WORKER_WAIT_MS / 3_000) * 3_000
+      for (let t = 3_000; t < throwAt; t += 3_000) await tick(3_000)
+      await tick(2_999)
+      // One millisecond short of that look: still waiting (a bare 90 s would have ended it long ago).
+      expect(out.done).toBe(false)
+      await tick(1)
+      await untilSettled(out)
+      expect(out.done).toBe(true)
+      expect(out.error).toMatchObject({
+        code: 'conflict',
+        message: TRANSCRIPTION_IN_PROGRESS,
+        // 330 s lease − 135 s waited = 195 s left, and never under 1.
+        detail: { reason: 'transcribing', retry_after_seconds: Math.ceil((330_000 - throwAt) / 1000) },
+      })
+      expect((out.error as { detail: { retry_after_seconds: number } }).detail.retry_after_seconds).toBeGreaterThanOrEqual(1)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled() // no memo written
+      expect(takeovers()).toEqual([]) // never took the lease over
+      // Every lease write was a refused create-only attempt; the holder's lease stands, untouched.
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+    },
+  )
+
+  it('w1b (S56) the lease clears only in the LAST poll gap, after the last look inside the budget → no takeover past the budget: one free memo read, then the throw (retry_after ≥ 1)', async () => {
+    fakeClock()
+    // The last in-budget look is at budget − 3 s (still live); the lease ends 0.5 s before the budget does.
+    liveLease(AUDIO, LEASE_WORKER_WAIT_MS - 500)
+    const out = settle(doorCall('job'))
+    await flush()
+    for (let t = 3_000; t <= LEASE_WORKER_WAIT_MS; t += 3_000) await tick(3_000)
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing', retry_after_seconds: 1 } })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(takeovers()).toEqual([])
+  })
+
+  it('w2 (S56) the answer lands MID-WAIT → the next look replays it: no provider call, no reserve, no ceiling', async () => {
+    fakeClock()
+    liveLease(AUDIO)
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    memoStore.set(`trc/${AUDIO}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    await tick(3_000) // the very next look (9 s) re-reads the memo — long before the budget ends
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt).toMatchObject({ replayed: true, cost_cents: 0, cents_reserved: 0 })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(takeovers()).toEqual([])
+  })
+
+  it('w3 (S56) the lease EXPIRES mid-wait with budget left → the worker takes it over, pays exactly once, writes the memo, releases the lease on the way out', async () => {
+    fakeClock()
+    liveLease(AUDIO, 7_000) // the holder died: its lease ends 7 s in, the budget is 135 s
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    await tick(3_000) // 9 s: expired → taken over (upsert) → pays
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(takeovers()).toHaveLength(2) // the takeover, then the release (both upserts)
+    expect(JSON.parse(takeovers()[0][1] as string).expires_at).toBeGreaterThan(Date.now())
+    expect(memoStore.has(`trc/${AUDIO}.ja.json`)).toBe(true)
+    // Released in the finally — overwritten as expired, never deleted.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it('w4 (S56) the wait budget is DERIVED from the worker function limit, never a bare number: budget = limit − reserve, over the old 90 s, under the limit, and the limit is the job route’s own maxDuration', () => {
+    expect(LEASE_WORKER_FUNCTION_LIMIT_MS).toBe(JOB_ROUTE_MAX_DURATION_S * 1000)
+    expect(LEASE_TAKEOVER_RESERVE_MS).toBeGreaterThan(0)
+    expect(LEASE_WORKER_WAIT_MS).toBe(LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS)
+    expect(LEASE_WORKER_WAIT_MS).toBeGreaterThan(90_000)
+    expect(LEASE_WORKER_WAIT_MS).toBeLessThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
+    // and the lease outlives any holder the worker waits on
+    expect(TRANSCRIPT_LEASE_TTL_MS).toBeGreaterThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
+  })
+
+  // X5 (S56 stress): w4 alone passes a budget typed as a bare 135_000, because that number
+  // happens to equal the derivation at 300 s. Fed another limit, the constants must follow it.
+  it('w4b (S57, X5) the budget FOLLOWS the limit it is derived from: fed a 200 s limit, the takeover reserve is 115 s and the wait 85 s — a budget typed as a bare number fails here', async () => {
+    let m!: typeof import('@/lib/ai/transcribe')
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('@/lib/jobs/job-route-limit', () => ({ JOB_ROUTE_FUNCTION_LIMIT_MS: 200_000 }))
+      m = await import('@/lib/ai/transcribe')
+    })
+    expect(m.LEASE_WORKER_FUNCTION_LIMIT_MS).toBe(200_000)
+    expect(m.LEASE_TAKEOVER_RESERVE_MS).toBe(30_000 + (200_000 - 30_000) / 2)
+    expect(m.LEASE_WORKER_WAIT_MS).toBe(200_000 - (30_000 + (200_000 - 30_000) / 2))
+    // …and the real module, untouched by the reload, still reads the job route's own 300 s.
+    expect(LEASE_WORKER_WAIT_MS).toBe(135_000)
+  })
+
+  it.each(['web', 'app'] as const)(
+    'w5 (S56) the %s door still answers a live lease AT ONCE (unchanged): no wait, the lease’s own seconds left, nothing spent',
+    async (door) => {
+      fakeClock()
+      liveLease(AUDIO, 60_000)
+      const out = settle(doorCall(door))
+      await flush() // no timer is advanced: an answer here is an answer with no wait
+      expect(out.done).toBe(true)
+      expect(out.error).toMatchObject({
+        code: 'conflict',
+        message: TRANSCRIPTION_IN_PROGRESS,
+        detail: { reason: 'transcribing', retry_after_seconds: 60 },
+      })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(takeovers()).toEqual([])
+    },
+  )
+
+  it('w6 (S56) storage will not answer about the lease → the worker still pays at once (the documented fail-open, unchanged)', async () => {
+    fakeClock()
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    afterThis.push(() => warn.mockRestore())
+    liveLease(AUDIO)
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'storage down' } } as never)
+    const out = settle(doorCall('job'))
+    await flush()
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚖ S57 — A DOOR THAT TAKES THE LEASE RE-READS THE MEMO BEFORE IT PAYS. The rows above land the
+  // answer while the holder's lease stays LIVE. A holder that finishes NORMALLY does two things:
+  // it writes its memo, and (in its `finally`) it RELEASES its lease. A waiting door's next look
+  // then finds the lease released, takes it over (`held`) — and, before S57, went straight to
+  // paying: a second provider call for an answer that was already saved.
+  const holderFinishes = (audio: string) => {
+    memoStore.set(`trc/${audio}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    leaseStore.set(leaseKey(audio), JSON.stringify({ v: 1, expires_at: 0 })) // released: overwritten as expired
+  }
+
+  it('w7 (S57) the holder FINISHES NORMALLY mid-wait (memo written AND lease released) → the worker takes the released lease and REPLAYS: no second provider call, no reserve, no ceiling', async () => {
+    fakeClock()
+    liveLease(AUDIO)
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    holderFinishes(AUDIO) // inside the worker's 3 s sleep
+    await tick(3_000)
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt).toMatchObject({ replayed: true, cost_cents: 0, cents_reserved: 0 })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    // It did take the released lease over (the upsert), and gave it back on the way out.
+    expect(takeovers().length).toBeGreaterThanOrEqual(1)
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it.each(['web', 'app'] as const)(
+    'w7b (S57) the %s door: the first read misses, and the holder finishes between that read and the take (memo written, lease released) → the take is `held`, the re-read under it REPLAYS — never a second payment',
+    async (door) => {
+      // The first memo read misses; the take then finds a released lease (the holder just finished).
+      const realUpload = leaseUpload.getMockImplementation()!
+      leaseUpload.mockImplementationOnce(async (key: string, body: string, opts?: { upsert?: boolean }) => {
+        holderFinishes(AUDIO)
+        return realUpload(key, body, opts)
+      })
+      const res = await doorCall(door)
+      expect(res.receipt).toMatchObject({ replayed: true, cost_cents: 0 })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    },
+  )
+
+  // ── ⚖ S57 F1 — A REPLAY RECORDS AN OWED TRUE-UP ONLY UNDER THE LEASE ──────────────────────────────
+  // Greptile round 2 on #1086, finding 1 (thread PRRT_kwDOSCB5RM6mzfjr, "Concurrent retries
+  // double-charge true-ups"): the usage writer has no dedupe key, so a replay that recorded the
+  // delta while the paying call was still recording it charged it twice. 600,000 B → a 1 ¢ reserve;
+  // the 5,400 s answer costs 45 ¢ → 44 ¢ owed.
+  const F1_DELTA = 44
+  const f1DeltaCalls = () => recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === F1_DELTA)
+  const f1TrueUpKey = () => currentTrueUpKey(AUDIO)
+  /** A memo as another call left it: no debt (`none`), a debt still owed (`owed`), or a debt already recorded (`recorded` — its true-up object stands). */
+  const seedMemo = (debt: 'none' | 'owed' | 'recorded') => {
+    const memo: Record<string, unknown> = { v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '' }
+    if (debt !== 'none') memo.trueUp = { reserveCents: 1, costCents: 45, deltaCents: F1_DELTA }
+    memoStore.set(memoKey(AUDIO), JSON.stringify(memo))
+    if (debt === 'recorded') trueUpStore.set(f1TrueUpKey(), JSON.stringify({ v: 1, deltaCents: F1_DELTA, recorded_at: '' }))
+  }
+  /** Is the audio's owed true-up recorded — by its ONE home, the true-up object? */
+  const debtRecorded = () => trueUpStore.has(f1TrueUpKey())
+  const holderLeaseLive = () => JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at > Date.now()
+
+  describe('s57 F1 a replay records an owed true-up only while it HOLDS the lease', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+
+    it('f1a the FIRST read finds an owed debt while another call holds the lease → never records; debit_recorded false with the reason lease_busy; the memo and the holder’s lease untouched', async () => {
+      seedMemo('owed')
+      const before = memoStore.get(memoKey(AUDIO))
+      liveLease(AUDIO)
+      const res = await call(AUDIO)
+      expect(res.result).toEqual({ transcript: 'the held answer' })
+      expect(res.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: false,
+        replayed: true,
+        debit_deferred_reason: 'lease_busy',
+      })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(memoStore.get(memoKey(AUDIO))).toBe(before)
+      expect(holderLeaseLive()).toBe(true)
+      expect(takeovers()).toEqual([])
+    })
+
+    it('f1b the FIRST read finds an owed debt and the lease is free → takes it, records the delta ONCE under it, true; the lease is given back', async () => {
+      seedMemo('owed')
+      const res = await call(AUDIO)
+      expect(res.receipt).toEqual({ duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true })
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('f1c the FIRST read finds an owed debt and storage will not answer about the lease → never records; debit_recorded false with the reason storage_unknown', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      seedMemo('owed')
+      leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'storage down' } } as never)
+      const res = await call(AUDIO)
+      expect(res.receipt).toMatchObject({ debit_recorded: false, replayed: true, debit_deferred_reason: 'storage_unknown' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(debtRecorded()).toBe(false)
+    })
+
+    it('f1d THE RACE (Greptile’s case): the paying call is INSIDE its true-up, holding the lease, when a retry replays its owed memo → the retry never records; ONE delta in total, recorded by the payer', async () => {
+      let finishTrueUp!: () => void
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>((resolve) => (finishTrueUp = resolve))
+      })
+      const payer = call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      // The payer's memo stands `pending`; the payer holds the lease.
+      expect(debtRecorded()).toBe(false)
+      expect(holderLeaseLive()).toBe(true)
+
+      const retry = await call(AUDIO)
+      expect(retry.receipt).toMatchObject({ debit_recorded: false, replayed: true, debit_deferred_reason: 'lease_busy' })
+      expect(f1DeltaCalls()).toHaveLength(1) // the payer's own, still in flight — never the retry's
+
+      finishTrueUp()
+      const paid = await payer
+      expect(paid.receipt).toMatchObject({ debit_recorded: true, replayed: false })
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    })
+
+    // The three replay sites INSIDE the lease loop answer through the same rule — each asserts the
+    // real answer from the true-up's own state, never a hardcoded one.
+    it.each([
+      ['none', true, undefined],
+      ['recorded', true, undefined],
+      ['owed', false, 'lease_busy'],
+    ] as const)('f1e the loop’s MID-WAIT look finds the answer (debt: %s) while the holder’s lease is still live → debit_recorded %s, reason %s; the holder records, never this door', async (debt, recorded, reason) => {
+      fakeClock()
+      liveLease(AUDIO)
+      const out = settle(doorCall('job'))
+      await flush()
+      await tick(3_000)
+      expect(out.done).toBe(false)
+      seedMemo(debt)
+      await tick(3_000)
+      await untilSettled(out)
+      expect(out.error).toBeUndefined()
+      expect(out.value?.receipt.replayed).toBe(true)
+      expect(out.value?.receipt.debit_recorded).toBe(recorded)
+      expect(out.value?.receipt.debit_deferred_reason).toBe(reason)
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(holderLeaseLive()).toBe(true)
+    })
+
+    it.each([
+      ['none', true, 0],
+      ['recorded', true, 0],
+      ['owed', true, 1],
+    ] as const)('f1f the holder FINISHES (memo written, lease released) with the debt %s → the worker holds the released lease, re-reads, and settles it under the lease: debit_recorded %s, %s delta call(s)', async (debt, recorded, deltas) => {
+      fakeClock()
+      liveLease(AUDIO)
+      const out = settle(doorCall('job'))
+      await flush()
+      await tick(3_000)
+      seedMemo(debt)
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: 0 }))
+      await tick(3_000)
+      await untilSettled(out)
+      expect(out.error).toBeUndefined()
+      expect(out.value?.receipt).toMatchObject({ replayed: true, debit_recorded: recorded })
+      expect(out.value?.receipt).not.toHaveProperty('debit_deferred_reason')
+      expect(f1DeltaCalls()).toHaveLength(deltas)
+      if (debt !== 'none') expect(debtRecorded()).toBe(true)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    })
+
+    it('f1f′ under the held lease the ledger gives up → debit_recorded false with NO deferral reason (a lost debit, the warning row), the debt still owed', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      afterThis.push(() => err.mockRestore())
+      recordUsage.mockRejectedValue(new Error('core down'))
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: false, replayed: true })
+      expect(f1DeltaCalls()).toHaveLength(3)
+      expect(debtRecorded()).toBe(false)
+      const row = rows('recording.transcribe')[0]
+      expect(row.severity).toBe('warning')
+      expect(row.detail).not.toHaveProperty('debit_deferred_reason')
+    })
+
+    // X2 (S56 stress): the answer lands in the LAST poll gap — after the last look inside the budget
+    // — so only the free read AT the budget can find it.
+    it.each([
+      ['none', true, undefined],
+      ['owed', false, 'lease_busy'],
+    ] as const)('f1g (X2) the answer (debt: %s) lands in the LAST poll gap, the holder’s lease still live → the free read at the budget REPLAYS it: no throw, debit_recorded %s, reason %s', async (debt, recorded, reason) => {
+      fakeClock()
+      liveLease(AUDIO)
+      const out = settle(doorCall('job'))
+      await flush()
+      const lastLook = Math.ceil(LEASE_WORKER_WAIT_MS / 3_000) * 3_000 - 3_000
+      for (let t = 3_000; t <= lastLook; t += 3_000) await tick(3_000)
+      expect(out.done).toBe(false)
+      seedMemo(debt) // after the last in-budget look, before the budget's own read
+      await tick(3_000)
+      await untilSettled(out)
+      expect(out.done).toBe(true)
+      expect(out.error).toBeUndefined()
+      expect(out.value?.receipt).toMatchObject({ replayed: true, debit_recorded: recorded })
+      expect(out.value?.receipt.debit_deferred_reason).toBe(reason)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(holderLeaseLive()).toBe(true)
+    })
+
+    it('f1h the audit row of a lease-busy replay is FILED, soft and distinguishable: debit_recorded false + debit_deferred_reason lease_busy, and no warning severity (never counted as a lost debit)', async () => {
+      seedMemo('owed')
+      liveLease(AUDIO)
+      await doorCall('job')
+      const receipts = rows('recording.transcribe')
+      expect(receipts).toHaveLength(1)
+      expect(receipts[0].severity).toBeUndefined()
+      expect(receipts[0].detail).toMatchObject({ door: 'job', replayed: true, debit_recorded: false, debit_deferred_reason: 'lease_busy' })
+    })
+
+    it('f1i the severity rule, ONE home: recorded → none; lost → warning; storage_unknown → warning; lease_busy → none', () => {
+      const base = { duration_seconds: 1, cost_cents: 0, cents_reserved: 0, replayed: true }
+      expect(transcriptionReceiptSeverity({ ...base, debit_recorded: true })).toBeUndefined()
+      expect(transcriptionReceiptSeverity({ ...base, debit_recorded: false })).toBe('warning')
+      expect(transcriptionReceiptSeverity({ ...base, debit_recorded: false, debit_deferred_reason: 'storage_unknown' })).toBe('warning')
+      expect(transcriptionReceiptSeverity({ ...base, debit_recorded: false, debit_deferred_reason: 'lease_busy' })).toBeUndefined()
+    })
+
+    it('f1j switch OFF: a debt an ON deploy left is still recorded only under the lease — busy → deferred; free → taken, recorded once, given back', async () => {
+      const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+      afterThis.push(() => off.restore())
+      seedMemo('owed')
+      liveLease(AUDIO)
+      const busy = await call(AUDIO)
+      expect(busy.receipt).toMatchObject({ debit_recorded: false, debit_deferred_reason: 'lease_busy' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: 0 }))
+      const free = await call(AUDIO)
+      expect(free.receipt).toMatchObject({ debit_recorded: true, replayed: true })
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+    })
+  })
+
+  // ── ⚖ S57 F2 — "RECORDED" HAS ONE HOME, CREATE-ONLY; THE MEMO IS NEVER REWRITTEN FOR IT ────────
+  // Greptile round 2 on #1086, finding 2 (thread PRRT_kwDOSCB5RM6mzfjy, "Mark updates overwrite
+  // concurrent repairs"): two paid calls that both read the same corrupt memo both repair it; the
+  // S56 mark rewrite then replaced the whole memo from an earlier copy and could flip `recorded`
+  // back to `pending`. Here the lease falls open (storage will not answer about it) so both calls
+  // pay at once — the exact path the lease cannot make exclusive.
+  describe('s57 F2 the recorded fact lives in its own create-only object; concurrent repairs never revert it', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+    /** Two calls on the same CORRUPT memo, both inside the provider together (the lease fell open
+     *  for both), X answered first, then Y. `ledgerForY` = whether Y's true-up lands. */
+    const twoRepairs = async (ledgerForY: boolean) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      afterThis.push(() => {
+        warn.mockRestore()
+        err.mockRestore()
+      })
+      memoStore.set(memoKey(AUDIO), CORRUPT)
+      const down = { data: null, error: { statusCode: '500', message: 'storage down' } }
+      leaseUpload.mockResolvedValueOnce(down as never).mockResolvedValueOnce(down as never)
+      let deltas = 0
+      recordUsage.mockImplementation(async (...a: unknown[]) => {
+        if (a[3] === 44 && ++deltas > 1 && !ledgerForY) throw new Error('core down')
+      })
+      const answer = (transcript: string) => ({ ...deepgramResult, transcript })
+      let releaseX!: (r: DeepgramTranscribeResult) => void
+      let releaseY!: (r: DeepgramTranscribeResult) => void
+      transcribeUrlWithDeepgram
+        .mockImplementationOnce(() => new Promise<DeepgramTranscribeResult>((resolve) => (releaseX = resolve)))
+        .mockImplementationOnce(() => new Promise<DeepgramTranscribeResult>((resolve) => (releaseY = resolve)))
+      const x = call(AUDIO)
+      const y = call(AUDIO)
+      while (transcribeUrlWithDeepgram.mock.calls.length < 2) await new Promise(setImmediate)
+      releaseX(answer('X'))
+      const xRes = await x
+      // S120 (G6): a real millisecond apart, so X's and Y's memos are two generations (written_at).
+      await new Promise((resolve) => setTimeout(resolve, 2))
+      // Y's re-check right before ITS repair ran before X's repair landed: it still saw the garbage,
+      // so both repair writes succeed (Greptile's case exactly).
+      storageDownload.mockResolvedValueOnce({ data: new Blob([CORRUPT]), error: null } as never)
+      releaseY(answer('Y'))
+      const yRes = await y
+      return { xRes, yRes, warn }
+    }
+    /** S120 (G6): X's true-up object — the generation of X's repair, the FIRST memo write. */
+    const trueUpKey = () =>
+      transcriptTrueUpKey(memoKey(AUDIO), (JSON.parse(String(storageUpload.mock.calls[0][1])) as { written_at: string }).written_at)
+
+    it('f2a X records its delta, Y’s true-up is lost → the recorded fact STANDS (never reverted); the memo is written exactly twice (the two repairs) and never rewritten; the next replay records Y’s lost delta ONCE (S120, G6), and nothing after', async () => {
+      const { xRes, yRes } = await twoRepairs(false)
+      expect(xRes.receipt).toMatchObject({ replayed: false, debit_recorded: true })
+      expect(yRes.receipt).toMatchObject({ replayed: false, debit_recorded: false })
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(2) // the lease fell open: both paid
+      // Only the two repairs ever touched the memo — upserts over the proven garbage — and nothing after them.
+      expect(storageUpload).toHaveBeenCalledTimes(2)
+      for (const c of storageUpload.mock.calls) expect(c[2]).toEqual({ contentType: 'application/json', upsert: true })
+      expect(JSON.parse(memoStore.get(memoKey(AUDIO))!).result.transcript).toBe('Y')
+      // The recorded fact, created once by X after its ledger took the delta, stands.
+      expect(trueUpStore.has(trueUpKey())).toBe(true)
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+
+      // ⚖ S120 (G6, thread 4131459898): one home per MEMO GENERATION, not per audio. Y's repair is
+      // the memo that stands, and its lost delta stays owed — X's record no longer answers for it —
+      // so the next replay records Y's delta ONCE under the lease, and the one after records nothing.
+      // The two provider payments themselves are A5's stated fall-open. Core answers again from here.
+      recordUsage.mockReset()
+      recordUsage.mockResolvedValue(undefined)
+      const later = await call(AUDIO)
+      expect(later.receipt).toMatchObject({ replayed: true, debit_recorded: true })
+      expect(recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === 44)).toHaveLength(1)
+      expect(trueUpStore.has(trueUpKey())).toBe(true)
+      expect(trueUpStore.has(currentTrueUpKey(AUDIO))).toBe(true)
+      expect(currentTrueUpKey(AUDIO)).not.toBe(trueUpKey())
+      recordUsage.mockClear()
+      const again = await call(AUDIO)
+      expect(again.receipt).toMatchObject({ replayed: true, debit_recorded: true })
+      expect(recordUsage).not.toHaveBeenCalled()
+    })
+
+    // S120 (G6): X and Y repaired two memo generations, so each records its own delta under its own
+    // create-only object — no duplicate refusal any more — and a later replay records nothing.
+    it('f2b both deltas land (two recorders, where the lease fell open) → each generation\'s record is created once, create-only, under its own key; X\'s stands byte-for-byte, no write was ever an upsert, and a later replay records nothing', async () => {
+      const { xRes, yRes, warn } = await twoRepairs(true)
+      expect(xRes.receipt.debit_recorded).toBe(true)
+      expect(yRes.receipt.debit_recorded).toBe(true)
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      for (const c of trueUpUpload.mock.calls) expect(c[2]).toEqual({ contentType: 'application/json', upsert: false })
+      expect(trueUpUpload.mock.calls.map((c) => c[0])).toEqual([trueUpKey(), currentTrueUpKey(AUDIO)])
+      expect(trueUpStore.get(trueUpKey())).toBe(trueUpUpload.mock.calls[0][1])
+      const taken = warn.mock.calls.filter((c) => String(c[0]).includes('already recorded'))
+      expect(taken).toHaveLength(0)
+      recordUsage.mockClear()
+      const later = await call(AUDIO)
+      expect(later.receipt).toMatchObject({ replayed: true, debit_recorded: true })
+      expect(recordUsage).not.toHaveBeenCalled()
+    })
+
+    it('f2c the true-up object cannot be read (storage erred) → the replay never records and never takes the lease: debit_recorded false, storage_unknown', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      seedMemo('owed')
+      trueUpDownload.mockResolvedValueOnce({ data: null, error: { status: 500, statusCode: '500', message: 'storage down' } } as never)
+      leaseUpload.mockClear()
+      const res = await call(AUDIO)
+      expect(res.receipt).toMatchObject({ replayed: true, debit_recorded: false, debit_deferred_reason: 'storage_unknown' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(leaseUpload).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+    })
+
+    it('f2d UNDER the lease the recorded fact is read AGAIN: the call that held the lease before this one recorded it between this replay’s first read and its take → true, and the ledger is never asked twice', async () => {
+      seedMemo('owed')
+      // This replay's FIRST (free) read still finds no object; by the time it holds the lease the
+      // previous holder has recorded the delta and created it.
+      trueUpDownload.mockImplementationOnce(async () => {
+        trueUpStore.set(currentTrueUpKey(AUDIO), JSON.stringify({ v: 1, deltaCents: 44, recorded_at: '' }))
+        return { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } } as never
+      })
+      const res = await call(AUDIO)
+      expect(res.receipt).toEqual({ duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(trueUpDownload).toHaveBeenCalledTimes(2)
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    })
+  })
+
+  // ── ⚖ S58 M1 — THE TRUE-UP MARKER'S WRITE RESULT IS READ ──────────────────────────────────────────
+  // Blind read S58 #1: both recorders ignored recordTranscriptTrueUp's answer, so a marker that would
+  // not land left the ledger holding the delta, the receipt saying `debit_recorded: true` soft, and
+  // no object — every later lease-winning replay then recorded the delta again, silently. Now: one
+  // retry, then `debit_mark: 'failed'` on the receipt and a warning row. 600,000 B → 1 ¢ reserve,
+  // 45 ¢ cost → 44 ¢ delta (F1_DELTA).
+  describe('s58 M1 the true-up marker: one retry, then a warning row and an honest receipt', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+    const MARK_FAILED = { data: null, error: { statusCode: '500', message: 'storage write refused' } }
+    const MARK_TAKEN = { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+    /** The marker upload fails for as long as the test runs. Bounded at 50 only so an UNBOUNDED retry
+     *  (mutant X3) terminates and is counted instead of starving the event loop. */
+    const markerAlwaysFails = () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      const real = trueUpUpload.getMockImplementation()!
+      trueUpUpload.mockImplementation(async (...a: Parameters<typeof real>) =>
+        trueUpUpload.mock.calls.length > 50 ? real(...a) : (MARK_FAILED as never))
+      afterThis.push(() => trueUpUpload.mockImplementation(real))
+    }
+    const markerFailsOnceThen = (second?: typeof MARK_TAKEN) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      trueUpUpload.mockResolvedValueOnce(MARK_FAILED as never)
+      if (second) trueUpUpload.mockResolvedValueOnce(second as never)
+    }
+    const REPLAY_TODAY = { duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true }
+    const PAID_TODAY = { duration_seconds: 5400, cost_cents: 45, cents_reserved: 1, debit_recorded: true, replayed: false }
+    const receiptRows = () => rows('recording.transcribe')
+
+    it('s58 m1 — m1a replay path: the ledger records, the marker fails TWICE → debit_recorded true + debit_mark failed, warning, upload 2×, ledger 1×', async () => {
+      markerAlwaysFails()
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      expect(transcriptionReceiptSeverity(res.receipt)).toBe('warning')
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(false)
+      expect(receiptRows()).toHaveLength(1)
+      expect(receiptRows()[0].severity).toBe('warning')
+      expect(receiptRows()[0].detail).toMatchObject({ debit_recorded: true, debit_mark: 'failed', replayed: true })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m1 — m1b replay path: the marker fails once then lands → written, NO mark field, upload 2×, ledger 1×, soft', async () => {
+      markerFailsOnceThen()
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — m1c payer path: the paying call’s own marker fails TWICE → debit_recorded true + debit_mark failed, warning, upload 2×, ledger delta 1×', async () => {
+      markerAlwaysFails()
+      const res = await doorCall('job')
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(res.receipt).toEqual({ ...PAID_TODAY, debit_mark: 'failed' })
+      expect(transcriptionReceiptSeverity(res.receipt)).toBe('warning')
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(false)
+      expect(receiptRows()).toHaveLength(1)
+      expect(receiptRows()[0].severity).toBe('warning')
+      expect(receiptRows()[0].detail).toMatchObject({ debit_recorded: true, debit_mark: 'failed', replayed: false })
+    })
+
+    it('s58 m1 — m1d payer path: the marker fails once then lands → written, NO mark field, upload 2×, ledger delta 1×, soft', async () => {
+      markerFailsOnceThen()
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(PAID_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    // THE RESIDUAL, pinned as visible behaviour: while the marker keeps failing, every lease-winning
+    // replay records the delta AGAIN — closable only by an idempotency key on the usage writer (the
+    // queued core ask). What this pins is that each over-count files its own warning row.
+    it('s58 m1 — m1e THE RESIDUAL: after m1a a second lease-winning replay records the delta AGAIN and files a SECOND warning row (countable, never silent)', async () => {
+      markerAlwaysFails()
+      seedMemo('owed')
+      const first = await doorCall('job')
+      expect(first.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      const second = await doorCall('job')
+      expect(second.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      expect(f1DeltaCalls()).toHaveLength(2)
+      expect(trueUpUpload).toHaveBeenCalledTimes(4)
+      expect(receiptRows()).toHaveLength(2)
+      expect(receiptRows().map((r) => r.severity)).toEqual(['warning', 'warning'])
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m1 — m1f happy path: a replay and a payer whose markers land first time carry EXACTLY today’s keys (whole-receipt equality), upload 1× each, soft', async () => {
+      seedMemo('owed')
+      const replay = await doorCall('job')
+      expect(replay.receipt).toEqual(REPLAY_TODAY)
+      expect(Object.keys(replay.receipt).sort()).toEqual(Object.keys(REPLAY_TODAY).sort())
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+
+      memoStore.clear()
+      trueUpStore.clear()
+      trueUpUpload.mockClear()
+      const paid = await doorCall('job')
+      expect(paid.receipt).toEqual(PAID_TODAY)
+      expect(Object.keys(paid.receipt).sort()).toEqual(Object.keys(PAID_TODAY).sort())
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+      expect(receiptRows().map((r) => r.severity)).toEqual([undefined, undefined])
+    })
+
+    it('s58 m1 — m1g the retry meets TAKEN (another call marked it) → counted as marked: no mark field, soft, upload 2×', async () => {
+      markerFailsOnceThen(MARK_TAKEN)
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — layer-off: switch OFF never attempts a marker, so a failing marker store changes nothing: no mark field, no upload, soft', async () => {
+      const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+      afterThis.push(() => off.restore())
+      markerAlwaysFails()
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(PAID_TODAY)
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — the severity rule, ONE home: debit_mark failed → warning even with debit_recorded true', () => {
+      expect(transcriptionReceiptSeverity({ ...PAID_TODAY, debit_mark: 'failed' })).toBe('warning')
+      expect(transcriptionReceiptSeverity({ ...REPLAY_TODAY, debit_mark: 'failed' })).toBe('warning')
+      expect(transcriptionReceiptSeverity(PAID_TODAY)).toBeUndefined()
+    })
+  })
+
+  // ── ⚖ S58 M2 — A BAD MEMO OR LEASE OBJECT NEVER BRICKS AN AUDIO ──────────────────────────────────
+  // The Opus attack (build-s58/ATTACK-S58.md, findings 4 · 5 · 6; fixtures from
+  // build-s58/evidence-attack/meter-attack.test.ts C1 and B6): a `trueUp` of null threw on every call;
+  // a fractional delta was debited as-is; a lease expiry of 1e400 (→ Infinity) made the audio busy
+  // forever. Each guard falls back to the path the code already has for "unreadable".
+  describe('s58 M2 a bad memo or lease object never bricks an audio', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+    const REPLAY_TODAY = { duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true }
+    const seedTrueUp = (trueUp: unknown) =>
+      memoStore.set(memoKey(AUDIO), JSON.stringify({ v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '', trueUp }))
+    const quiet = () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      afterThis.push(() => { warn.mockRestore(); err.mockRestore() })
+      return { warn, err }
+    }
+    const expiryWarned = (warn: jest.SpyInstance) =>
+      warn.mock.calls.some((c) => typeof c[0] === 'string' && c[0].includes('"where":"transcript-lease.expiry"'))
+
+    it('s58 m2 — m2a a memo whose trueUp is NULL → no throw: UNREADABLE — the answer replays, the ledger is never asked, debit_recorded false, a warning row (a corrupted field never erases a debt)', async () => {
+      const { err } = quiet()
+      seedTrueUp(null)
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(res.result).toEqual({ transcript: 'the held answer' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+      expect(err).toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a string', 'x'],
+      ['a number', 5],
+    ])('s58 m2 — m2a′ a memo whose trueUp is %s → no throw: UNREADABLE — ledger never asked, debit_recorded false, a warning row', async (_label, trueUp) => {
+      quiet()
+      seedTrueUp(trueUp)
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+    })
+
+    it('s58 m2 — m2b a FRACTIONAL delta (1.5) → unreadable: the ledger is never asked, debit_recorded false, warning, the memo untouched', async () => {
+      const { err } = quiet()
+      seedTrueUp({ reserveCents: 1, costCents: 2.5, deltaCents: 1.5 })
+      const before = memoStore.get(memoKey(AUDIO))
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+      expect(memoStore.get(memoKey(AUDIO))).toBe(before)
+      expect(err).toHaveBeenCalled()
+    })
+
+    it('s58 m2 — m2b′ a HUGE but safe-integer delta (1e12) is recorded as-is — only integrality is enforced, never an invented cap', async () => {
+      seedTrueUp({ reserveCents: 1, costCents: 1e12 + 1, deltaCents: 1e12 })
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(recordUsage.mock.calls).toEqual([['transcribe', null, null, 1e12]])
+    })
+
+    it.each([
+      ['1e400 (→ Infinity, the attack’s body)', '{"v":1,"expires_at":1e400}'],
+      ['a finite expiry a trillion ms out', () => JSON.stringify({ v: 1, expires_at: Date.now() + 1e12 })],
+    ])('s58 m2 — m2c a lease expiring at %s → UNREADABLE: warned, the call falls open and pays (never busy forever)', async (_label, body) => {
+      const { warn } = quiet()
+      leaseStore.set(leaseKey(AUDIO), typeof body === 'string' ? body : body())
+      const paid = await call(AUDIO)
+      expect(paid.receipt.replayed).toBe(false)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(expiryWarned(warn)).toBe(true)
+      // The memo lands, so the next call replays: the bad lease ends here.
+      const again = await call(AUDIO)
+      expect(again.receipt.replayed).toBe(true)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    })
+
+    // ⚖ S116 round 4 (SF3): the reader allowance is two takeover margins, 60 s (round 3's 29 s reverted).
+    it('s58 m2 — m2c′ a lease 1 s inside the clock-skew allowance past the TTL is still a live lease → 409, nothing paid', async () => {
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: Date.now() + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS - 1_000 }))
+      const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
+      expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + the allowance → busy; one ms past → unusable (warned) and taken over (S120 G5)', async () => {
+      const { warn } = quiet()
+      const NOW = 1_700_000_000_000
+      expect(TRANSCRIPT_LEASE_CLOCK_SKEW_MS).toBe(60_000)
+      const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + TRANSCRIPT_LEASE_CLOCK_SKEW_MS
+      // The take advances `now` by the real time its create took (S120, R-S118-7): freeze it at a 1-ms boundary.
+      const frozen = jest.spyOn(Date, 'now').mockReturnValue(NOW)
+      // …and the create's stall clock (S120: the take times it on performance.now).
+      const frozenStall = jest.spyOn(performance, 'now').mockReturnValue(0)
+      try {
+        leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
+        expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
+        expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
+        expect(expiryWarned(warn)).toBe(false)
+        leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND + 1 }))
+        expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
+        expect((await takeTranscriptLease(memoKey(AUDIO), NOW)).state).toBe('held')
+        expect(expiryWarned(warn)).toBe(true)
+      } finally {
+        // An assert that fails must not leave either clock frozen for the tests after it.
+        frozenStall.mockRestore()
+        frozen.mockRestore()
+      }
+    })
+  })
+})
+
+describe('S53 A5 — the web door answers a live lease with a retryable 409', () => {
+  it('409 + Retry-After, nothing spent (the caller’s OWN row — independent of A1)', async () => {
+    const key = conformingKey('business-1')
+    const row = '5a0e0c1d-2b3c-4d5e-8f60-718293a4b5c6'
+    jest.mocked(getCurrentUserStaffId).mockResolvedValue('login-recorder')
+    recordingsGet.mockResolvedValue({ id: row, business_id: 'business-1', staff_id: 'login-recorder', store_id: 'store-a', audio_storage_path: key, duration_seconds: 60, customer_id: 'cust-1' } as never)
+    leaseStore.set(`trc/${key}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 60_000 }))
+    const res = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ audioUrl: `https://test-local.supabase.co/storage/v1/object/sign/recordings/${key}?token=t`, locale: 'ja', recordingSessionId: row }),
+      }),
+    ).finally(() => jest.mocked(getCurrentUserStaffId).mockResolvedValue(null))
+    expect(res.status).toBe(409)
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(await res.json()).toMatchObject({ reason: 'transcribing' })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+  })
+  // ⚖ S57 F1: the web route files its OWN receipt row, through the meter's one severity rule.
+  it('s57 f1k a replay whose memo still owes a true-up, under another call’s live lease → 200 with the answer; the route’s row is soft (no warning) and carries debit_deferred_reason lease_busy', async () => {
+    const key = conformingKey('business-1')
+    const row = '5a0e0c1d-2b3c-4d5e-8f60-718293a4b5c6'
+    jest.mocked(getCurrentUserStaffId).mockResolvedValue('login-recorder')
+    recordingsGet.mockResolvedValue({ id: row, business_id: 'business-1', staff_id: 'login-recorder', store_id: 'store-a', audio_storage_path: key, duration_seconds: 60, customer_id: 'cust-1' } as never)
+    memoStore.set(`trc/${key}.ja.json`, JSON.stringify({ v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '', trueUp: { reserveCents: 1, costCents: 45, deltaCents: 44 } }))
+    leaseStore.set(`trc/${key}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 60_000 }))
+    const res = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ audioUrl: `https://test-local.supabase.co/storage/v1/object/sign/recordings/${key}?token=t`, locale: 'ja', recordingSessionId: row }),
+      }),
+    ).finally(() => jest.mocked(getCurrentUserStaffId).mockResolvedValue(null))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ transcript: 'the held answer' })
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    const filed = (auditWeb as jest.Mock).mock.calls[0][0] as Record<string, unknown>
+    expect('severity' in filed).toBe(false)
+    expect(filed.detail).toMatchObject({ replayed: true, debit_recorded: false, debit_deferred_reason: 'lease_busy' })
   })
 })

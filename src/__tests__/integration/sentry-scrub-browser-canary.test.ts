@@ -15,9 +15,22 @@
  *
  * PLANT RULE: every plant is joined from fragments.
  */
+import { KEY32, PHONE_HY } from './helpers/sentry-exit-plants'
+
 const C = ['BCAN', 'ARY'].join('')
 const LCP = C + '-LCP'
 const INP = C + '-INP'
+// item 102 C3: lcp.element on the root span, and THE HEADER PLANT in a route-sourced
+// root name (it carries a space so the event-level `transaction` rule drops it too).
+const ELEM = C + '-ELEM'
+const HDR = C + '-HDR'
+const hdrRoute = () => '/ja/customers/' + HDR + ' x'
+// item 102 fix batch 1 (N8): phone, key and Bearer plants on the root span's data.
+const n8Data = () => ({
+  'next.route': '/search/' + PHONE_HY,
+  'http.route': '/k/' + KEY32,
+  'user_agent.original': 'Mozilla Bearer ' + KEY32.slice(4),
+})
 
 const sent: string[] = []
 
@@ -69,7 +82,13 @@ async function runPipeline(): Promise<Item[]> {
   const root = Sentry.getActiveSpan()
   expect(root).toBeDefined()
   root!.setAttribute('lcp.url', lcpUrl())
-  Sentry.startInactiveSpan(inpOptions()).end()
+  root!.setAttribute('lcp.element', 'div.' + ELEM)
+  root!.updateName(hdrRoute())
+  root!.setAttribute('sentry.source', 'route')
+  for (const [k, v] of Object.entries(n8Data())) root!.setAttribute(k, v)
+  const inp = Sentry.startInactiveSpan(inpOptions())
+  inp.addEvent('inp', { 'sentry.measurement_unit': 'millisecond', 'sentry.measurement_value': 120 })
+  inp.end()
   root!.end()
   await Sentry.flush(3000)
   return items()
@@ -83,13 +102,17 @@ describe('PR-A0 browser canary: real instrumentation-client with the scrub', () 
     expect(types).toContain('span')
     expect(types).toContain('transaction')
     expect(sent.join('\n')).not.toContain(C)
+    for (const p of [PHONE_HY, KEY32.slice(4)]) expect(sent.join('\n')).not.toContain(p)
+    const inpSpan = all.find((i) => i.type === 'span')!.payload as { measurements?: Record<string, { value?: number }> }
+    expect(inpSpan.measurements?.inp?.value).toBe(120)
     // Positive control: the path survives, only the query is cut.
     const tx = all.find((i) => i.type === 'transaction')!.payload as {
       contexts: { trace: { data: Record<string, unknown> } }
     }
     expect(tx.contexts.trace.data['lcp.url']).toBe('https://p.supabase.co/storage/v1/object/sign/photos/b/c/a.jpg')
     const span = all.find((i) => i.type === 'span')!.payload
-    expect(span.description).toBe('/photos')
+    // The exit (item 102 § 2.5): an INP span's description is always its op.
+    expect(span.description).toBe('ui.interaction.click')
   }, 20000)
 })
 
