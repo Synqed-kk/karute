@@ -10,7 +10,8 @@ type StoreBookingPolicy = Awaited<ReturnType<FillCore['storePolicies']['get']>>
 
 const isYmd = (d: unknown): d is string =>
   typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d
-const isHhmm = (t: unknown): t is string => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(t)
+// 24:00 is a real close (store 1's special-open 2026-11-17 closes 24:00); mins() and jstIso() take 1440
+const isHhmm = (t: unknown): t is string => typeof t === 'string' && /^(([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?|24:00(:00)?)$/.test(t)
 
 export async function readLiveCalendar(core: Pick<FillCore, 'storePolicies'>, storeId: string, window: { from: string; to: string },
   read: <T>(fn: () => Promise<T>) => Promise<T>, recipeHours: WeeklyHours, log: (l: string) => void, known?: StoreBookingPolicy): Promise<LiveCalendar> {
@@ -22,15 +23,16 @@ export async function readLiveCalendar(core: Pick<FillCore, 'storePolicies'>, st
   const total = (res as { total?: unknown }).total
   if (typeof total === 'number' && total > rows.length) throw new Error(`store ${storeId}: listClosedDays returned ${rows.length} of ${total} rows`)
   const inWindow = (d: string) => d >= window.from && d <= window.to
-  const bad = (what: string, r: { id?: unknown; date?: unknown } | null) => log(`live calendar: store ${storeId}: ${what} ${String(r?.id ?? '')} has a malformed date or time (${JSON.stringify(r?.date)}), ignored`)
+  // special-open rows carry no id: the row is named by its position, and the whole row is printed
+  const bad = (what: string, ref: string, r: unknown) => log(`live calendar: store ${storeId}: ${what} ${ref} has a malformed date or time (${JSON.stringify(r)}), ignored`)
   const closedDates = new Set<string>()
-  for (const r of rows as { id?: unknown; date?: unknown }[]) {
-    if (!isYmd(r?.date)) bad('closed-day row', r)
+  for (const [i, r] of (rows as { id?: unknown; date?: unknown }[]).entries()) {
+    if (!isYmd(r?.date)) bad('closed-day row', r?.id != null ? String(r.id) : `#${i}`, r)
     else if (inWindow(r.date)) closedDates.add(r.date)
   }
   const specialOpen = new Map<string, { open: string; close: string }>()
-  for (const s of policy.special_open_days ?? []) {
-    if (!isYmd(s?.date) || !isHhmm(s.open) || !isHhmm(s.close)) bad('special-open day', s)
+  for (const [i, s] of (policy.special_open_days ?? []).entries()) {
+    if (!isYmd(s?.date) || !isHhmm(s?.open) || !isHhmm(s?.close)) bad('special-open day', `#${i}`, s)
     else if (inWindow(s.date)) specialOpen.set(s.date, { open: s.open, close: s.close })
   }
   // a default policy, or a row with no weekly_hours, is given the recipe hours by this same fill run (fill.ts, QUEUE-S93 b)

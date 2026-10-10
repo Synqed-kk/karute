@@ -933,12 +933,16 @@ async function main() {
     const mk = (res: unknown, pol: Record<string, unknown>) => ({ storePolicies: {
       get: async () => pol, listClosedDays: async (_: string, q: unknown) => (calls.push(q), res) } }) as unknown as FillCore
     const rows = { closed_days: [{ id: 'a', date: '2026-10-24' }, { id: 'b', date: '2031-03-03' }, { id: 'c', date: '2026-13-45' }, { id: 'd', date: '2026-02-30' }, { id: 'e', date: '2026-10-02' }] }
-    const special = [{ date: '2026-10-20', open: '10:00', close: '19:00' }, { date: '2031-03-10', open: '10:00', close: '19:00' }, { date: '2026-10-21', open: 'late', close: '19:00' }]
+    const special = [{ date: '2026-10-20', open: '10:00', close: '19:00' }, { date: '2031-03-10', open: '10:00', close: '19:00' }, { date: '2026-10-21', open: 'late', close: '19:00' }, { date: '2026-10-22', open: '10:00', close: '24:00' }]
     const c1 = await readLiveCalendar(mk(rows, { source: 'custom', weekly_hours: { mon: null }, special_open_days: special }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, (l) => void lines.push(l))
     assert.deepEqual(calls, [{ from: w.from, to: '2026-10-25' }], 'the read asks for the full window, `to` exclusive = window end + 1')
     assert.deepEqual([...c1.closedDates].sort(), ['2026-10-02', '2026-10-24'], 'the last window day counts; 2031 and malformed dates do not')
-    assert.deepEqual([...c1.specialOpen.keys()], ['2026-10-20'], 'special-open: in window, well-formed only')
+    assert.deepEqual([...c1.specialOpen.keys()], ['2026-10-20', '2026-10-22'], 'special-open: in window, well-formed only (a 24:00 close is well-formed)')
     assert.equal(lines.filter((l) => l.includes('malformed')).length, 3, 'one line per malformed row')
+    assert.ok(!lines.some((l) => l.includes('2026-10-22')) && lines.some((l) => l.includes('special-open day #2 has a malformed') && l.includes('"open":"late"')), 'the 24:00 row is not logged; a bad special-open row is named by position and printed whole')
+    const night = { key: 'tw:x:BC-0001:2026-10-22', date: '2026-10-22', startsAt: jstIso('2026-10-22', 22 * 60 + 30), endsAt: jstIso('2026-10-22', 23 * 60 + 30) } as Plan['appointments'][number]
+    const kept = applyLiveCalendar({ window: w, staff: [], resources: [], menus: [], customers: [], packs: [], appointments: [night], karutes: [], dropped: [] }, c1)
+    assert.ok(kept.appointments.length === 1 && kept.dropped.length === 0, 'a booking ending 23:30 on a special-open day closing 24:00 survives')
     assert.deepEqual(c1.weeklyHours, { mon: null }, 'a custom policy: its live hours')
     const c2 = await readLiveCalendar(mk({ closed_days: [] }, { source: 'default', weekly_hours: null }), STORE, w, (fn) => fn(), recipe.policy.weekly_hours, () => {})
     assert.ok(c2.weeklyHours === recipe.policy.weekly_hours && c2.closedDates.size === 0, 'a default policy: the recipe hours, 0 closed')
