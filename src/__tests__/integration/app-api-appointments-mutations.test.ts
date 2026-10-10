@@ -77,6 +77,9 @@ const addRedemption = jest.fn(
   }),
 )
 jest.mock('@/lib/packs/store', () => ({
+  // S126 § 6b (R-S126-3 b): the reader's ledger seams stay real; the ledger is the use-ledger fake
+  usageLedgerFor: jest.requireActual('@/lib/packs/store').usageLedgerFor,
+  applyLedgerToPacks: jest.requireActual('@/lib/packs/store').applyLedgerToPacks,
   listCustomerPacksWithClient: (_synqed: unknown, _id: string) => listPacks(),
   addRedemptionWithClient: (_synqed: unknown, input: unknown) => addRedemption(input as never),
 }))
