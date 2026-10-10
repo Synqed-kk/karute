@@ -105,14 +105,24 @@ jest.mock('@/lib/packs/packs.core', () => ({
 // lines, never relative to plain const/jest.mock statements that precede it
 // in source order).
 const proveAppointmentForCustomer = jest.fn(async (..._args: unknown[]) => {})
-jest.mock('@/lib/app-api/customer-facade', () => ({
-  proveCustomerInBusiness: jest.fn(async () => {}),
-  provePackForCustomer: jest.fn(async () => {}),
-  proveAppointmentForCustomer: (...a: unknown[]) =>
-    proveAppointmentForCustomer(...(a as [unknown, unknown, unknown])),
-  requireIdempotencyKey: jest.fn(() => {}),
-  resolveSelfStaffId: jest.fn(async () => 'staff-1'),
-}))
+jest.mock('@/lib/app-api/customer-facade', () => {
+  const provePackForCustomer = jest.fn(async (..._a: unknown[]) => {})
+  return {
+    proveCustomerInBusiness: jest.fn(async () => {}),
+    provePackForCustomer,
+    proveAppointmentForCustomer: (...a: unknown[]) =>
+      proveAppointmentForCustomer(...(a as [unknown, unknown, unknown])),
+    // S126 (R2 one definition / S126 W3 origin mark): the route's pack +
+    // appointment proofs now go through customer-facade's proveRedeemTargets —
+    // the same composition over the two mocked proofs above (setup only).
+    proveRedeemTargets: async (s: unknown, c: unknown, p: unknown, a: unknown) => {
+      await provePackForCustomer(s, c, p)
+      if (typeof a === 'string') await proveAppointmentForCustomer(s, c, a)
+    },
+    requireIdempotencyKey: jest.fn(() => {}),
+    resolveSelfStaffId: jest.fn(async () => 'staff-1'),
+  }
+})
 
 import { AppApiError } from '@/lib/app-api/errors'
 import { GET as dayFacts } from '@/app/api/app/v1/recovery/day-facts/route'
