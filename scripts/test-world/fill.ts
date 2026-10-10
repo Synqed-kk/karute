@@ -31,7 +31,7 @@ import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { setPlannedStatus, todayStatusFixes } from './close-out'
 import { namePoolFor, STAFF_NAMES } from './names'
-import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, plan, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, applyLiveCalendar, bookingNotes, hoursOn, jstIso, plan, redeemsOf, rng, type LiveCalendar, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 import { liveLine, readLiveCalendar } from './live-calendar'
 
 export type FillCore = Pick<
@@ -495,6 +495,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       }))
     })
     const dateOf = new Map(p.appointments.map((a) => [a.key, a.date]))
+    const redeems = redeemsOf(p) // S96: only keys whose booking survived the live calendar (done() would skip the rest too)
     await pool(p.packs, async (k) => {
       const pid = packId.get(k.key)
       if (!pid) return
@@ -502,7 +503,7 @@ export async function apply(raw: FillCore, o: ApplyOpts): Promise<number> {
       const redeemed = pid.startsWith('dry:') ? [] : await read(() => core.packs.listRedemptions(cid))
       const burnt = new Set(redeemed.map((r) => `${r.pack_id}|${r.redeemed_on}`))
       let used = redeemed.filter((r) => r.pack_id === pid).length // ⚖ Q7: every burn counts, a same-day double burn too (never distinct dates)
-      for (const key of k.redeem) {
+      for (const key of redeems(k)) {
         if (used >= k.size) break // ⚖ R5: never more burns than the pack holds (never 6 on a 5)
         const aid = done(key)
         if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
@@ -556,6 +557,7 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
   const packs = await each(ours, (c) => core.packs.listPacks(c.id))
   const burns = await each([...new Set(packs.map((k) => k.customer_id))], (id) => core.packs.listRedemptions(id))
   const tagged = appts.filter((a) => a.notes?.includes('[tw:'))
+  const redeems = redeemsOf(p)
   const status = JSON.stringify(tagged.reduce<Record<string, number>>((o, a) => ((o[a.status] = (o[a.status] ?? 0) + 1), o), {}))
   return [
     ['section', 'planned', 'in core now'],
@@ -565,7 +567,7 @@ async function readBack(core: FillCore, storeId: string, p: Plan, size: number):
     ['menus of the store (all)', p.menus.length, menus.filter((m) => m.store_id === storeId).length],
     ['customers (recipe member numbers)', p.customers.length, ours.length],
     ['packs of those customers', p.packs.length, packs.length],
-    ['redemptions on those packs', p.packs.reduce((n, k) => n + k.redeem.length, 0), burns.length],
+    ['redemptions on those packs', p.packs.reduce((n, k) => n + redeems(k).length, 0), burns.length],
     ['appointments (fill-tagged)', p.appointments.length, `${tagged.length} ${status}`],
     ['appointments of the store (all)', '', appts.length],
     ['karuteRecords of the store (all)', p.karutes.length, karutes.length],
@@ -578,10 +580,11 @@ export function summarize(p: Plan, today: string, hours: WeeklyHours) {
   const visits = Object.values(by(p.appointments, (a) => a.member)).sort((a, b) => a - b)
   let days = 0
   for (let d = p.window.from; d <= p.window.to; d = addDays(d, 1)) days += hoursOn(hours, d) ? 1 : 0
-  const full = p.packs.filter((k) => k.redeem.length === k.size).length
+  const redeems = redeemsOf(p)
+  const full = p.packs.filter((k) => redeems(k).length === k.size).length
   return {
     window: `${p.window.from} … ${p.window.to} (today ${today})`, staff: p.staff.length, resources: p.resources.length, menus: p.menus.length,
-    customers: p.customers.length, packs: `${p.packs.length} (${full} fully used)`, redemptions: p.packs.reduce((n, k) => n + k.redeem.length, 0),
+    customers: p.customers.length, packs: `${p.packs.length} (${full} fully used)`, redemptions: p.packs.reduce((n, k) => n + redeems(k).length, 0),
     appointments: `${p.appointments.length} ${JSON.stringify(by(p.appointments, (a) => a.status))}`,
     perOpenDay: (p.appointments.length / days).toFixed(1), visitsPerCustomer: `min ${visits[0]} · median ${visits[visits.length >> 1]} · max ${visits[visits.length - 1]}`,
     karuteRecords: p.karutes.length,

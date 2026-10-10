@@ -433,6 +433,14 @@ export function applyLiveCalendar(p: Plan, cal: LiveCalendar): Plan {
   return { ...p, appointments: p.appointments.filter((a) => !gone.has(a.key)), karutes: p.karutes.filter((k) => !gone.has(k.key)), dropped: [...p.dropped, ...dropped] }
 }
 
+/** S96 — THE one count of a pack's redemptions on a plan: a redeem key counts only while its booking is still among the
+ *  plan's appointments. applyLiveCalendar leaves every pack object as planned (D1); a key whose booking it dropped has no
+ *  booking to burn against, so it is neither written nor counted. summarize, readBack and fill's redemption loop read this. */
+export function redeemsOf(p: Plan): (k: Plan['packs'][number]) => string[] {
+  const booked = new Set(p.appointments.map((a) => a.key))
+  return (k) => k.redeem.filter((key) => booked.has(key))
+}
+
 /** ⚖ R4 — THE SIDE RULE (one rule, two halves; the other half is src/business/lib/practice-door/sample-day.ts shiftDay):
  *  on a day longer than 10 h the store's staff, sorted by NAME, alternate early (open..open+9h) and late (close−9h..close)
  *  by index parity — both sides staffed from two people on, one person = early; a day longer than 18 h adds a middle side

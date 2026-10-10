@@ -10,7 +10,7 @@ import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { closeOut, movedLine, todayStatusFixes } from './close-out'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { readLiveCalendar, windowOf } from './live-calendar'
-import { apply, DEFAULT_THROTTLE, jstToday, lastWindowEnd, NEW_START_FUTURE_DAYS, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
+import { apply, DEFAULT_THROTTLE, summarize, jstToday, lastWindowEnd, NEW_START_FUTURE_DAYS, limiter, parseThrottle, poolOf, runCli, settleAll, SATURATED_LINE, Saturated, storeCtx, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest, type Throttle } from './fill'
 import { addDays, applyLiveCalendar, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, mins, plan, preferredStart, type LiveCalendar, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -1008,6 +1008,24 @@ async function main() {
     assert.equal(await runCli(['plan', '--store', STORE], async () => { throw new Error('no client offline') }, { log: (...l: unknown[]) => void pl.push(l.join(' ')), today: TODAY }), 0)
     assert.ok(pl[0] === 'live calendar: not read (no core env)', 'the plan command offline says so and plans')
     console.log('✓ S95 T9–T11: lastWindowEnd today + 14 · weekly_hours null → recipe hours · failed calendar read exit 1, 0 writes · plan offline')
+    // S96 finding 2 — counts follow the filtered plan (redeemsOf): a closed day holding a redemption
+    {
+      const pk = base.packs.find((k) => k.redeem.length > 1)!
+      const rk = pk.redeem[1]
+      const rd = base.appointments.find((a) => a.key === rk)!.date
+      const onDay = base.packs.reduce((n, k) => n + k.redeem.filter((key) => base.appointments.some((a) => a.key === key && a.date === rd)).length, 0)
+      const pf = applyLiveCalendar(base, { weeklyHours: recipe.policy.weekly_hours, closedDates: new Set([rd]), specialOpen: new Map() })
+      const [sb, sf] = [summarize(base, TODAY, recipe.policy.weekly_hours), summarize(pf, TODAY, recipe.policy.weekly_hours)]
+      assert.ok(onDay >= 1 && sf.redemptions === sb.redemptions - onDay, `S96: the redemption count drops by the ${onDay} on ${rd}`)
+      assert.ok(pf.packs === base.packs && pf.packs.find((k) => k.key === pk.key)!.redeem.includes(rk), 'S96: the pack objects are unchanged (D1)')
+      assert.equal(sb.redemptions, base.packs.reduce((n, k) => n + k.redeem.length, 0), 'S96: without a calendar every redeem key counts, as before')
+      const [fo, fx] = [fakeCore(), fakeCore({ closed: [rd] })]
+      assert.equal(await apply(fo.core, opts(empty())), 0)
+      assert.equal(await apply(fx.core, opts(empty())), 0)
+      const on = (t: { burns: object[] }) => t.burns.filter((b) => (b as { redeemed_on?: unknown }).redeemed_on === rd).length
+      assert.ok(on(fo.t) >= 1 && on(fx.t) === 0, `S96: no redemption is written on the closed ${rd}`)
+      console.log(`✓ S96 redeemsOf: closed ${rd} → redemptions ${sb.redemptions} → ${sf.redemptions}, packs unchanged, burns on ${rd} ${on(fo.t)} → ${on(fx.t)}`)
+    }
   }
   // T7 close-out after a closure added once rows exist · stress 9 fill leaves them · T8 a CANCELLED booking's karute
   {
