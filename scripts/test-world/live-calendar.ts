@@ -31,7 +31,7 @@ export async function readLiveCalendar(core: Pick<FillCore, 'storePolicies'>, st
   if (typeof total === 'number' && total > rows.length) throw new Error(`store ${storeId}: listClosedDays returned ${rows.length} of ${total} rows`)
   const inWindow = (d: string) => d >= window.from && d <= window.to
   // special-open rows carry no id: the row is named by its position, and the whole row is printed
-  const bad = (what: string, ref: string, r: unknown) => log(`live calendar: store ${storeId}: ${what} ${ref} has a malformed date or window (${JSON.stringify(r)}), ignored`)
+  const bad = (what: string, ref: string, r: unknown, then = 'ignored') => log(`live calendar: store ${storeId}: ${what} ${ref} has a malformed date or window (${JSON.stringify(r)}), ${then}`)
   const closedDates = new Set<string>()
   for (const [i, r] of (rows as { id?: unknown; date?: unknown }[]).entries()) {
     if (!isYmd(r?.date)) bad('closed-day row', r?.id != null ? String(r.id) : `#${i}`, r)
@@ -45,13 +45,13 @@ export async function readLiveCalendar(core: Pick<FillCore, 'storePolicies'>, st
   }
   // a default policy, or a row with no weekly_hours, is given the recipe hours by this same fill run (fill.ts, QUEUE-S93 b)
   const live = policy.source === 'default' || policy.weekly_hours == null ? recipeHours : policy.weekly_hours
-  // S96: a weekday whose live window is malformed is ignored — it falls through to the recipe's hours for that weekday (the
-  // source a missing weekly_hours takes above), as resolveDayHours falls through; a null weekday stays closed (D1 ii)
+  // S96 (lead's ruling): a live weekday whose window fails windowOf is CLOSED, the one path a null weekday takes (D1 ii) —
+  // the live calendar is the truth and the loader only removes, so it never falls back to hours the store may refuse
   let weeklyHours = live
   for (const [day, h] of Object.entries(live)) {
     if (h == null || windowOf(h)) continue
-    bad('weekly hours', day, h)
-    weeklyHours = { ...weeklyHours, [day]: recipeHours[day as keyof WeeklyHours] ?? null }
+    bad('weekly hours', day, h, 'the weekday is closed')
+    weeklyHours = { ...weeklyHours, [day]: null }
   }
   return { weeklyHours, closedDates, specialOpen }
 }
