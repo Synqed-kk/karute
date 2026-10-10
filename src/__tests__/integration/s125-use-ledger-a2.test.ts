@@ -124,7 +124,7 @@ describe('C7 / R-S127-4 — a thrown store write inside attemptIntent never abor
       const sum = await settlePending({ store, clientFor: (b) => (b === B ? c1.synqed : c2.synqed), rotate: (ids) => [...ids], dailyPass: false })
       expect(sum).toMatchObject({ businesses: 2, attempted: 1, settled: 1 })
       const alarms = errSpy.mock.calls.filter((a) => a[0] === '[alarm]').map((a) => JSON.parse(a[1] as string))
-      expect(alarms).toContainEqual(expect.objectContaining({ kind: 'ledger.attempt_threw', business_id: B, ref: r1.id, facts: { error: 'lease claim failed' } }))
+      expect(alarms).toContainEqual(expect.objectContaining({ kind: 'ledger.attempt_threw', business_id: B, ref: r1.id, facts: expect.objectContaining({ error: 'lease claim failed' }) }))
     } finally { errSpy.mockRestore() }
     const [a] = await store.getAllById(r1.id); const [b] = await store.getAllById(r2.id)
     expect(a).toMatchObject({ state: 'pending' })
