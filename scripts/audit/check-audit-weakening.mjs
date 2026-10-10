@@ -369,11 +369,21 @@ export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
     ['RAW_SUPABASE_WRITE_ALLOWLIST', mainV.rawAllowlist, headV.rawAllowlist],
   ]
   for (const [listName, mainList, headList] of allowlistSources) {
-    const mainById = new Map(mainList.map((e) => [`${e.file}::${e.call}`, e]))
+    // Union symbols across duplicate (file, call) entries: main carries two
+    // transcript-memo entries with the same id, and a last-wins Map dropped
+    // the first entry's symbols so the head looked like it ADDED them
+    // (R-S126-10 a, 2026-10-11).
+    const mainById = new Map()
+    for (const e of mainList) {
+      const id = `${e.file}::${e.call}`
+      const symbols = mainById.get(id) ?? new Set()
+      for (const symbol of e.symbols ?? []) symbols.add(symbol)
+      mainById.set(id, symbols)
+    }
     for (const entry of headList) {
       const id = `${entry.file}::${entry.call}`
-      const mainEntry = mainById.get(id)
-      if (!mainEntry) {
+      const mainSymbols = mainById.get(id)
+      if (!mainSymbols) {
         // Key carries the LIST and the FILE too (blind-round find,
         // 2026-07-28): a bare call string collided with action names, and
         // omitting the file let one line cover the same call added to any
@@ -388,7 +398,6 @@ export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
       // grants amnesty to a NEW site the entry never covered before — the
       // same "newly-legalized silent write" class as a brand-new entry, just
       // scoped one level deeper.
-      const mainSymbols = new Set(mainEntry.symbols ?? [])
       for (const symbol of entry.symbols ?? []) {
         if (!mainSymbols.has(symbol)) {
           weakenings.push({

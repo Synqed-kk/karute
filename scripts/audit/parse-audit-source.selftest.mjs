@@ -158,4 +158,19 @@ ok('live kind swap view↔mutation is flagged', () => {
   assert.deepEqual(keysOf(ws), ['map:k'])
 })
 
+ok('duplicate (file, call) allowlist entries on main: symbols union, not last-wins', () => {
+  const dup = [
+    { file: 'src/m.ts', call: 'memo.write', symbols: ['first'] },
+    { file: 'src/m.ts', call: 'memo.write', symbols: ['second'] },
+  ]
+  const same = findAllowlistWeakenings({ sdkAllowlist: dup, rawAllowlist: [] }, { sdkAllowlist: dup, rawAllowlist: [] }, false)
+  assert.deepEqual(same, [])
+  const added = findAllowlistWeakenings(
+    { sdkAllowlist: dup, rawAllowlist: [] },
+    { sdkAllowlist: [dup[0], { ...dup[1], symbols: ['second', 'third'] }], rawAllowlist: [] },
+    false,
+  )
+  assert.deepEqual(keysOf(added), ['SDK_WRITE_ALLOWLIST:src/m.ts::memo.write#third'])
+})
+
 console.log(`[parse-audit-source.selftest] ${n} checks passed`)
