@@ -121,6 +121,21 @@ describe('S125 use ledger — the numbered list', () => {
     jest.restoreAllMocks()
   })
 
+  test('S127 · settleTo rejecting (a thrown PostgREST error) is caught by attemptIntent → pending precheck_error, never a rejection', async () => {
+    const store = memStore(); const core = fakeCore()
+    const row = sysRow({ id: 'aaaaaaaa-0000-4000-8000-0000000000f1' }); await store.insertIgnore(row)
+    const realUpdate = store.update.bind(store)
+    store.update = async (b, id, w, patch) => {
+      if (patch.state === 'settled') throw new Error('PostgREST 500: connection reset')
+      return realUpdate(b, id, w, patch)
+    }
+    store.claimedCoreIds = async () => { throw new Error('PostgREST 500: connection reset') }
+    const out = await attemptIntent(deps(store, core), row)
+    // attemptIntent's catch: 'a pre-check / pre-read that errors = pending' (keepPending, lease released)
+    expect(out).toMatchObject({ state: 'pending', last_error_code: 'precheck_error', last_error_text: 'PostgREST 500: connection reset', leased_until: null })
+    expect(core.packs.addRedemption).toHaveBeenCalledTimes(1)
+  })
+
   test('3 · 503 IDEMPOTENT_IN_FLIGHT → pending, Retry-After honoured as the lease', async () => {
     const store = memStore(); const core = fakeCore()
     core.packs.addRedemption.mockRejectedValue(coreErr(503, 'in flight', { code: 'IDEMPOTENT_IN_FLIGHT', body: { retry_after: 7 } }))

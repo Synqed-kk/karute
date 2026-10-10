@@ -47,7 +47,8 @@ export const IN_FLIGHT_RETRY_DEFAULT_MS = 5_000
  *  never at import: mutations.ts imports this module, and a bad env must not take
  *  down the cancel/no-show routes. Unset or malformed = null → the R4 pre-read
  *  keeps the intent pending + alarm 'ledger.cutover_unset'. jest.config.ts sets
- *  one fixed day for the tests. */
+ *  one fixed day for the tests.
+ *  Under jest, jest.config.ts fills 2026-10-11 only when the variable is unset or empty; export the real deploy day before a live run. */
 export function cutoverDay(): string | null {
   const v = process.env.KARUTE_LEDGER_CUTOVER_DAY?.trim()
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
@@ -472,7 +473,7 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
   try {
     if (replay || row.withdraw_requested_at) {
       const { match } = await runPreRead(synqed, store, row, now)
-      if (match) return settleTo(store, row, match.id, now, `matched:${match.id}`)
+      if (match) return await settleTo(store, row, match.id, now, `matched:${match.id}`)
       if (row.withdraw_requested_at) {
         return (await store.update(row.business_id, row.id, { state: 'pending' }, {
           state: 'withdrawn', withdrawn_at: iso(now), withdrawn_by: 'system', leased_until: null,
@@ -508,12 +509,12 @@ export async function attemptIntent(deps: AttemptDeps, start: IntentRow): Promis
         ...(p.counts_as_visit === undefined ? {} : { countsAsVisit: p.counts_as_visit }),
         idempotencyKey: cur.id,
       })
-      if (res.ok) return settleTo(store, cur, res.id, now, 'system')
+      if (res.ok) return await settleTo(store, cur, res.id, now, 'system')
       const c = classifyCoreFailure(res, Boolean(p.appointment_id))
       const err = { last_error_status: res.status ?? null, last_error_text: res.message ?? res.error }
       if (c.kind === 'booked_duplicate') {
         const pr = await runPreRead(synqed, store, cur, now)
-        if (pr.match) return settleTo(store, cur, pr.match.id, now, `matched:${pr.match.id}`)
+        if (pr.match) return await settleTo(store, cur, pr.match.id, now, `matched:${pr.match.id}`)
         // S126 hole 3: this booking's core row is already claimed by ANOTHER intent
         // → this row is a duplicate (one booking = one burn): withdrawn, never pending forever
         const owner = pr.mine.map((r) => (r.appointment_id === cur.appointment_id ? pr.claimed.get(r.id) : undefined)).find((x) => x && x !== cur.id)
