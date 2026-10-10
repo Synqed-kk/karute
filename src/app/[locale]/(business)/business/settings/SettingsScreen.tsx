@@ -737,8 +737,26 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [reserveSavedAt, setReserveSavedAt] = useState<string | null>(props.saveReservePolicy?.updatedAt ?? null)
   const reserveLinked = props.saveReservePolicy !== undefined
   const reserveBasedOn = useRef(props.saveReservePolicy?.basedOn ?? '')
+  /** S69 (Greptile #1157 P1) — THE ONE WAY the save token moves: `basedOn` vouches for the six in `saved`, so it never
+   *  advances apart from them. The dials take `draft` (core's row, or a stale answer's merge), the baseline core's
+   *  row, 最終変更 its stamp — all in this one transition (a 200, a stale answer, a re-read of this store). */
+  const adoptReserveRow = useCallback((basedOn: string, row: ReservePolicy, updatedAt: string | null, draft: ReservePolicy) => {
+    reserveBasedOn.current = basedOn
+    setValues((prev) => ({ ...prev, ...reserveValuesOf(draft) }))
+    setSaved((prev) => ({ ...prev, ...reserveValuesOf(row) }))
+    setReserveSavedAt(updatedAt)
+  }, [])
+  // a re-read of the SAME store (same key, new props): with no unsaved edit the screen takes the new row with its token;
+  // with one, the token stays the displayed baseline's, so the next save is refused as stale and merges (S67 F3).
+  const [reserveReadSeen, setReserveReadSeen] = useState(props.saveReservePolicy?.basedOn)
   const freshBasedOn = props.saveReservePolicy?.basedOn
-  useEffect(() => { if (freshBasedOn !== undefined) reserveBasedOn.current = freshBasedOn }, [freshBasedOn]) // a re-read's row
+  if (freshBasedOn !== undefined && freshBasedOn !== reserveReadSeen) {
+    setReserveReadSeen(freshBasedOn)
+    if (Object.values(RESERVE_IDS).every((id) => String(values[id] ?? '') === String(saved[id] ?? ''))) {
+      const row = reservePolicyOf(seedOf(props))
+      adoptReserveRow(freshBasedOn, row, props.saveReservePolicy?.updatedAt ?? null, row)
+    }
+  }
   /** ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while `props.saveStoreDays` is set: each
    *  own state (never `listRows`/`savedRows` — R8, the save bar never counts them),
    *  seeded once from the payload, updated only from core's OWN returned array/row.
@@ -1149,22 +1167,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
       if (result.stale === undefined) return
       // S67 F3 (the lead's ruling) — a three-way merge: a field the manager left as it was (draft == base) takes core's
       // current value, a field they changed keeps theirs; the next press sends the merged six against the new basedOn.
-      reserveBasedOn.current = result.stale.basedOn
       const theirs = result.stale.current
-      if (theirs === null) return
+      if (theirs === null) return // S69 — no row to vouch for, so the token stays the displayed baseline's
       const merged = Object.fromEntries(RESERVE_FIELDS.map((k) => [k, policy[k] === base[k] ? theirs[k] : policy[k]])) as unknown as ReservePolicy
-      setValues((prev) => ({ ...prev, ...reserveValuesOf(merged) }))
-      setSaved((prev) => ({ ...prev, ...reserveValuesOf(theirs) }))
-      setReserveSavedAt(result.stale.updatedAt)
+      adoptReserveRow(result.stale.basedOn, theirs, result.stale.updatedAt, merged)
       return
     }
-    reserveBasedOn.current = result.basedOn
-    const next = reserveValuesOf(result.row)
-    setValues((prev) => ({ ...prev, ...next }))
     commitSection(target, true)
-    setSaved((prev) => ({ ...prev, ...next }))
-    setReserveSavedAt(result.updatedAt) // S67 F2 — 最終変更 follows core's answer, no second GET
-  }, [values, saved, commitSection])
+    adoptReserveRow(result.basedOn, result.row, result.updatedAt, result.row) // S67 F2 — 最終変更 follows core's answer, no second GET
+  }, [values, saved, commitSection, adoptReserveRow])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */

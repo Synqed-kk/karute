@@ -329,3 +329,48 @@ describe('Reserve S67 — the grid is any positive whole minutes', () => {
     expect([reservePolicyOf({ ...six, 'reserve.grid': '' }), reservePolicyOf({ ...six, 'reserve.grid': '45' })].map((p) => p.reserve_start_grid_min)).toEqual([null, 45])
   })
 })
+
+// S69 fix round (Greptile #1157) — P1: the save token never advances apart from the baseline it vouches for;
+// P2: a nullable number field (the grid) remembers its empty state as a last good state.
+describe('Reserve S69 — the save token and the grid’s last good state', () => {
+  const page = () => SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo }) }) as Promise<ReactElement>
+  const theirs = { ...SIX, no_show_pct: 50 }
+  const reread = async (rerender: (el: ReactElement) => void) => {
+    // another manager saved 無断キャンセル料 50; the same store is read again (same key → the same screen)
+    mockUi.tokyo = async () => ({ ...POLICIES[STORE.tokyo], ...theirs, updated_at: STAMP })
+    const el = await page()
+    await act(async () => { rerender(el) })
+    await settle()
+  }
+  const mountKeep = async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'reserve-acceptance' }) })) as ReactElement
+    const r = render(el)
+    await act(async () => {})
+    return r
+  }
+
+  it('P1: a re-read with no unsaved edit → the dials, the baseline AND the token take the new row together', async () => {
+    const { rerender } = await mountKeep()
+    await reread(rerender)
+    expect(inp('無断キャンセル料').value).toBe('50')
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    replies = [{ status: 200, body: { ok: true, row: { ...theirs, booking_open_days: 22 }, basedOn: 'h' } }]
+    await press()
+    expect(fetchLog[0].body.policy).toEqual({ ...theirs, booking_open_days: 22 })
+    expect(fetchLog[0].body.basedOn).toBe(policyHash(theirs))
+  })
+
+  it('P1: a re-read while the draft has an unsaved edit → the token stays the displayed baseline’s, the save is refused as stale', async () => {
+    const { rerender } = await mountKeep()
+    fireEvent.change(daysInput(), { target: { value: '22' } })
+    await reread(rerender)
+    expect([daysInput().value, inp('無断キャンセル料').value]).toEqual(['22', '100'])
+    replies = [{ status: 409, body: { ok: false, reason: 'stale', message: STALE_LINE, current: { ...theirs, updated_at: STAMP }, basedOn: policyHash(theirs) } }]
+    await press()
+    expect(fetchLog[0].body.policy).toEqual(DRAFT)
+    expect(fetchLog[0].body.basedOn).toBe(policyHash(SIX))
+    expect(alertLine()).toBe(STALE_LINE)
+    expect(inp('無断キャンセル料').value).toBe('50')
+  })
+})
+})
