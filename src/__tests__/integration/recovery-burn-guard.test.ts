@@ -68,6 +68,7 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { redeemSessionAction } from '@/actions/packs'
 import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
 

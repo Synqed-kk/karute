@@ -54,6 +54,7 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 
+jest.mock('@/lib/packs/use-ledger', () => jest.requireActual('./helpers/ledger-fake').ledgerModuleFake()) // S125: the use-ledger fake (setup only)
 import { redeemSessionAction } from '@/actions/packs'
 
 const lastForwardedAppointmentId = () => mockAddRedemption.mock.calls[0][1].appointmentId
