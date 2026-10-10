@@ -1070,6 +1070,14 @@ export const SDK_WRITE_ALLOWLIST: {
       'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). DECISIONS-S49 R86 (Liam 10/1 「If there\'s no harm in doing it now, use it now.」): お店ページ\'s 16 switches — the CORE-47 wire record under ONE key per store (reserve_store_capabilities:<storeId>, sent alone) until CORE-47 lands; strict record parse, settings.manage + a store the operator may see + the admitted practice tenant only (real mode DISCONNECTED), read-before-write with server-side stamps; one structured server log line per real write; a core audit row is R5 (later).',
     dated: '2026-10-01',
   },
+  {
+    file: 'src/business/lib/practice-door/door-reserve-policy.ts',
+    call: 'storePolicies.set',
+    symbols: ['setReservePolicy'],
+    justification:
+      'Reserve S66 (DESIGN-BUILD2 §9 R2/R9/R16, option A: its own door file, so its own file::call key) — the store\'s six booking rules (受付): a store the operator may see, settings.manage AND core\'s HQ_ADMIN grant (OWNER by role, else businessGrants.check), every value checked against core\'s ranges before any call, read-before-write with a fingerprint precondition (stale refused), a body of acting_staff_id + the six fields only, one structured server log line per real write; core\'s own store_policy.edit audit row covers this write server-side.',
+    dated: '2026-10-08',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────
