@@ -834,9 +834,17 @@ export async function settlePending(opts: {
           if (row.state === 'parked') {
             row = (await opts.store.update(businessId, row.id, { state: 'parked' }, { state: 'pending', resumed_at: iso(clock()) })) ?? row
           }
-          s.attempted += 1
+          // S127 delta read item 3: a throw from one row (lease claim, reread, the
+          // catch-block write) never rejects the pass; it is alarmed and counted nowhere.
           let leasedByThisPass = false
-          const out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
+          let out: IntentRow
+          try {
+            out = await attemptIntent({ store: opts.store, synqed, now: clock, ...systemDepsFor(row, synqed, opts.store), onLease: () => { leasedByThisPass = true } }, row)
+          } catch (error) {
+            reportFailure({ product: 'karute', kind: 'ledger.attempt_threw', business_id: businessId, ref: row.id, facts: { error: error instanceof Error ? error.message : String(error) } })
+            continue
+          }
+          s.attempted += 1
           if (out.state === 'settled') s.settled += 1
           else if (out.state === 'refused') s.refused += 1
           else if (out.state === 'pending' && opts.dailyPass && out.created_at &&

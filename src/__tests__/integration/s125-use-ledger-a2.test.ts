@@ -102,6 +102,35 @@ describe('C7 / R-S127-4 — a thrown store write inside attemptIntent never abor
     expect(b).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
     expect(noShow.addRedemption).toHaveBeenCalledTimes(1)
   })
+
+  it('S127 delta item 3: a store whose update throws for one row (the lease claim, before the try) → that row is alarmed ledger.attempt_threw and counted nowhere; the pass still reaches the NEXT business and returns a summary', async () => {
+    const B2 = '00000000-0000-4000-8000-0000000000b2'
+    const base = memLedgerStore()
+    const store: LedgerStore = {
+      ...base,
+      async update(b, id, w, patch) {
+        if (b === B) throw new Error('lease claim failed')
+        return base.update(b, id, w, patch)
+      },
+    }
+    const r1 = await p3(store)
+    const r2 = await insertP3Intent(store, {
+      businessId: B2, ownerUserId: null, source: 'no_show', customerId: 'cust-2', appointmentId: 'appt-1',
+      bookingDay: '2026-10-09', packId: 'pack-1', createdBy: 'staff-1',
+    })
+    const c1 = fakeCore('NO_SHOW'); const c2 = fakeCore('NO_SHOW')
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const sum = await settlePending({ store, clientFor: (b) => (b === B ? c1.synqed : c2.synqed), rotate: (ids) => [...ids], dailyPass: false })
+      expect(sum).toMatchObject({ businesses: 2, attempted: 1, settled: 1 })
+      const alarms = errSpy.mock.calls.filter((a) => a[0] === '[alarm]').map((a) => JSON.parse(a[1] as string))
+      expect(alarms).toContainEqual(expect.objectContaining({ kind: 'ledger.attempt_threw', business_id: B, ref: r1.id, facts: { error: 'lease claim failed' } }))
+    } finally { errSpy.mockRestore() }
+    const [a] = await store.getAllById(r1.id); const [b] = await store.getAllById(r2.id)
+    expect(a).toMatchObject({ state: 'pending' })
+    expect(c1.addRedemption).not.toHaveBeenCalled()
+    expect(b).toMatchObject({ state: 'settled', settled_core_id: 'core-1' })
+  })
 })
 
 describe('A4 — the settle pass clock', () => {
