@@ -24,8 +24,10 @@
  *   (ii') one settle pass (settlePending with the real client, rotated to the Dev Salon only)
  *         → (ii)'s row settled.
  *   (iv)  S127, the P3 path (attack hole 1: created_by '' kept every no-show burn pending forever):
- *         a booking today 12:00 JST is written with core's own appointments.create (it stays, marked
- *         NO_SHOW — nothing is deleted), then markNoShowAppointmentCore (the web action's and the
+ *         a 30-minute booking on the run day is written with core's own appointments.create at the
+ *         first of 12:00…17:00 JST where an acting staff is free and core does not refuse the slot
+ *         (STORE_CLOSED / SLOT_CONTENTION / RESOURCE_TAKEN → next hour; any other error throws) — it
+ *         stays, marked NO_SHOW, nothing is deleted; then markNoShowAppointmentCore (the web action's and the
  *         facade's one entry) runs with burnPack:true, the acting staff = an active Dev Salon staff
  *         card with a login uuid, and ONLY packs on the dead host → the P3 row is written (pack read
  *         error, § 6a) and stays pending; one settle pass with the real client → settled, and core's
@@ -35,7 +37,7 @@
  * (ii') after settle, settle summary, (iv) after no-show, (iv) after settle, (iv) core redemption,
  * settle summary; then 「Tests: 6 passed」 (the guard test included).
  */
-import type { SynqedClient } from '@synqed-kk/client'
+import type { Appointment, Staff, SynqedClient } from '@synqed-kk/client'
 
 /** The Dev Salon (dev@karute.test): the only tenant this proof may write to. */
 const DEV_SALON = 'fb44dd68-4af7-44b0-8cc7-4ee10c54491d'
@@ -156,15 +158,43 @@ const say = (label: string, intentId: string | undefined, state: string | undefi
     const { ymdInJst } = await import('@/lib/date/jst')
     // The acting staff: an active Dev Salon card linked to a login — user_id is the profile uuid
     // the web action passes as actorId, which the P3 entry sends as created_by.
-    const actor = (await real.staff.list()).staff.find((s) => s.is_active && !!s.user_id && UUID_RE.test(s.user_id))
-    if (!actor?.user_id) throw new Error('no active Dev Salon staff with a login uuid')
+    const { SynqedError } = await import('@synqed-kk/client')
+    const actors = (await real.staff.list()).staff.filter((s) => s.is_active && !!s.user_id && UUID_RE.test(s.user_id))
+    if (!actors.length) throw new Error('no active Dev Salon staff with a login uuid')
     const { stores } = await real.stores.list()
     const storeId = stores.find((s) => s.is_primary)?.id ?? stores[0]?.id ?? null
-    const startsAt = new Date(`${ymdInJst()}T12:00:00+09:00`)
-    const appt = await real.appointments.create({
-      customer_id: customerId, staff_id: actor.id, store_id: storeId, starts_at: startsAt.toISOString(),
-      ends_at: new Date(startsAt.getTime() + 30 * 60_000).toISOString(), notes: 'S127 live proof (iv): P3 no-show burn',
-    }, { idempotencyKey: globalThis.crypto.randomUUID() })
+    // The run day's bookings, read once (paged): the acting staff must be free in the slot.
+    const day = ymdInJst()
+    const dayStart = new Date(`${day}T00:00:00+09:00`)
+    const booked: Appointment[] = []
+    for (let page = 1; page <= 20; page++) {
+      const r = await real.appointments.list({ from: dayStart.toISOString(), to: new Date(dayStart.getTime() + 86_400_000).toISOString(), page, page_size: 200 })
+      booked.push(...r.appointments)
+      if (!r.appointments.length || booked.length >= r.total) break
+    }
+    const busy = (staffId: string, from: number, to: number) => booked.some((a) => a.staff_id === staffId &&
+      a.status !== 'CANCELLED' && Date.parse(a.starts_at) < to && Date.parse(a.ends_at) > from)
+    // Core's slot refusals (SynqedError.code; SDK dist/appointments.js:2-8) → the next hour. Nothing else is caught.
+    const SLOT_REFUSALS = new Set(['STORE_CLOSED', 'SLOT_CONTENTION', 'RESOURCE_TAKEN'])
+    let appt: Appointment | null = null
+    let actor: Staff | undefined
+    for (const hour of [12, 13, 14, 15, 16, 17]) {
+      const startsAt = new Date(`${day}T${hour}:00:00+09:00`)
+      const endsAt = new Date(startsAt.getTime() + 30 * 60_000)
+      actor = actors.find((s) => !busy(s.id, startsAt.getTime(), endsAt.getTime()))
+      if (!actor) continue
+      try {
+        appt = await real.appointments.create({
+          customer_id: customerId, staff_id: actor.id, store_id: storeId, starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(), notes: 'S127 live proof (iv): P3 no-show burn',
+        }, { idempotencyKey: globalThis.crypto.randomUUID() })
+        break
+      } catch (e) {
+        if (!(e instanceof SynqedError && e.code && SLOT_REFUSALS.has(e.code))) throw e
+        console.log(`[live-proof] (iv) ${hour}:00 JST refused by core (${e.code}) → next hour`)
+      }
+    }
+    if (!appt || !actor?.user_id) throw new Error('no 12:00-17:00 JST slot on the run day took the booking')
     // The booking reads + the NO_SHOW write go to core; only `packs` is on the dead host, so the
     // P3 pick read errors (pack_id null) and the attempt's history probe throws → pending.
     const split = Object.assign(Object.create(real), { packs: dead.packs }) as SynqedClient
