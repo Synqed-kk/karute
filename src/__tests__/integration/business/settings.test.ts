@@ -33,6 +33,7 @@
  * guard for the room-8 N8-1 class, which this room shipped once. Read it before
  * adding any string.
  */
+import type { PreviewDrop } from '@/business/lib/settings'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -102,6 +103,7 @@ import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/
 // ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
 // pin below follows the constant rather than restating it.
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
+import { RESERVE_GRID_UNSET_STEP, RESERVE_POLICY_DEFAULTS, RESERVE_POLICY_RANGES } from '@/business/lib/practice-door/reserve-policy'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -1519,9 +1521,16 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('const ceilingLive = effectiveCeiling(c, values)')
     expect(SCREEN_CODE).toContain('const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY')
     expect(SCREEN_CODE).not.toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
-    expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))')
+    // S69 (Greptile #1157 P2) — an emptyLabel field's empty box is a last good state too; every other field seeds the clamped number
+    expect(SCREEN_CODE).toContain("const goodOf = (t: string): number | '' => (k.emptyLabel && t.trim() === '' ? '' : clampInt(Number(t), k.min, ceiling))")
+    expect(SCREEN_CODE).toContain("const lastGood = useRef<number | ''>(goodOf(text))")
     expect(SCREEN_CODE).not.toContain('n >= k.min && n <= k.max) lastGood.current')
-    expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1) // ONE home: the onBlur commit
+    // ONE home, still: the single setter `remember`; it is called by the onBlur commit and by the resync of a value that
+    // arrived from OUTSIDE the field (S69 round 2) — never by a keystroke
+    expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1)
+    expect(SCREEN_CODE).toContain("const remember = (v: number | '') => { lastGood.current = v }")
+    expect((SCREEN_CODE.match(/remember\(/g) ?? []).length).toBe(2)
+    expect(SCREEN_CODE).toContain('useEffect(() => { if (text !== ownText.current) { ownText.current = text; remember(goodOf(text)) } })')
     // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, never a
     // number to round (「1.5」→2, 「1e2」→100). `isIntegerTextAtLeast` is the
     // SAME predicate `commitMinutes` (StorePolicySection.tsx) uses — imported
@@ -1530,8 +1539,9 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('isIntegerTextAtLeast')
     expect(SCREEN_SRC).toMatch(/import\s*\{[^}]*isIntegerTextAtLeast[^}]*\}\s*from\s*'\.\/StorePolicySection'/)
     expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''")
-    expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? \'\')')
-    expect(SCREEN_CODE).toContain('lastGood.current = commit.value')
+    // S69 — the last good state is read once as `back`; an empty one (emptyLabel fields only) commits '' instead
+    expect(SCREEN_CODE).toContain('commitNumberField(raw, back === \'\' ? k.min : back, k.min, ceiling, k.unit ?? \'\')')
+    expect(SCREEN_CODE).toContain('remember(commit.value)')
     expect(SCREEN_CODE).toContain('setMessage(commit.message)')
     expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
     // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) omits the DOM
@@ -2739,7 +2749,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // census now reads number/number/segment.
     expect(controlOf(props, 'reserve.days').control.kind).toBe('number')
     expect(controlOf(props, 'reserve.free').control.kind).toBe('number')
-    expect(controlOf(props, 'reserve.noshow').control.kind).toBe('segment')
+    expect(controlOf(props, 'reserve.noshow').control.kind).toBe('number') // Reserve S66 R3 — any whole percent
   })
 
   /** ⚖ D-15 (round 3, A2) — EVERY LENGTH ROW RENDERS `kind:'number'`, WITH ITS
@@ -2750,7 +2760,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
    *  pin exists to catch. */
   it('⚖ D-15 (round 3, A2) — the five converted rows are free minute fields, unit 分, store value never snapped', async () => {
     const props = await room({ store: STORE_A })
-    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+    for (const id of ['reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
       const c = controlOf(props, id)
       expect({ id, kind: c.control.kind }).toEqual({ id, kind: 'number' })
       expect(c.control.kind === 'number' && c.control.unit).toBe('分')
@@ -2796,7 +2806,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // was the OLD server-only spelling D-36 found stale against a live page).
     const props = await room({ store: STORE_A })
     const dayLen = weeklyDayLen()
-    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+    for (const id of ['reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBe(dayLen)
       // ⚖ D-36 — AND THE CEILING FOLLOWS THE LIVE WEEKLY HOURS: every LENGTH
@@ -2807,13 +2817,38 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     }
     // …and the four 「before start」/「days ahead」/「hours before」 fields have
     // NO ceiling at all (⚖ D-15's own rule: no honest bound exists for them).
-    for (const id of ['reserve.days', 'reserve.cutoff', 'reserve.lead', 'reserve.free', 'reserve.autorelease-min']) {
+    for (const id of ['reserve.lead', 'reserve.autorelease-min']) {
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBeNull()
     }
+    // Reserve S66 — the store's booking rules carry core's OWN ranges (reserve-policy.ts), not an invented cap.
+    expect(controlOf(props, 'reserve.days').control).toMatchObject({ min: 1, max: 365 })
+    expect(controlOf(props, 'reserve.cutoff').control).toMatchObject({ min: 0, max: 10080, zeroLabel: '締め切らない' })
+    expect(controlOf(props, 'reserve.free').control).toMatchObject({ min: 0, max: 720 })
+    expect(controlOf(props, 'reserve.sameday').control).toMatchObject({ min: 0, max: 100, unit: '%' })
+    // S67 — the grid is any positive whole minutes (core holds any > 0; ⚖ NO HARDCODED DURATIONS): a free field
+    // with no ceiling, its empty box = core's unset, read as 標準（30分）. No fixed list.
+    expect(controlOf(props, 'reserve.grid').control).toEqual({ kind: 'number', min: 1, max: null, step: 1, unit: '分', emptyLabel: `標準（${RESERVE_GRID_UNSET_STEP}分）` })
+    const SIX_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
+    for (const [k, id] of Object.entries(SIX_IDS) as Array<[keyof typeof SIX_IDS, string]>) {
+      expect({ id, ...controlOf(props, id).control }).toMatchObject({ id, min: RESERVE_POLICY_RANGES[k].min, max: RESERVE_POLICY_RANGES[k].max })
+    }
+    const baseOf = (id: string) => rowsOf(props).find((r) => r.controls.some((c) => c.id === id))!.trio!.base
+    const D = RESERVE_POLICY_DEFAULTS
+    expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map(baseOf)).toEqual([
+      `初期値: ${D.booking_open_days}日`,
+      `初期値: ${D.cutoff_minutes === 0 ? '締め切らない' : `${D.cutoff_minutes}分前`}`,
+      `初期値: ${D.reserve_start_grid_min === null ? `標準（${RESERVE_GRID_UNSET_STEP}分）` : `${D.reserve_start_grid_min}分`}`,
+      `初期値: ${D.cancel_free_until_hours}時間前`,
+      `初期値: ${D.cancel_late_pct}%`,
+      `初期値: ${D.no_show_pct}%`,
+    ])
+    // …and those six read as core's defaults today (30 · 0 · null · 24 · 0 · 0).
+    expect(['reserve.days', 'reserve.cutoff', 'reserve.grid', 'reserve.free', 'reserve.sameday', 'reserve.noshow'].map(baseOf))
+      .toEqual(['初期値: 30日', '初期値: 締め切らない', '初期値: 標準（30分）', '初期値: 24時間前', '初期値: 0%', '初期値: 0%'])
     // ⚖ D-32 F6 — AND THE FLOOR, since a floor with no pin is a mutant
     // (1 → 0, or 0 → -1) nothing in this battery would notice.
-    for (const id of ['reserve.days', 'reserve.grid', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
+    for (const id of ['reserve.days', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
       const c = controlOf(props, id)
       expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 1 })
     }
@@ -2863,7 +2898,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // LENGTH row's ceiling on THIS page are the same initial number, because
     // both are `longestOpenDayMin` over the same weekly rows.
     expect(policy.dayLenMin).toBe(expected)
-    expect(controlOf(props, 'reserve.grid').control).toMatchObject({ max: expected })
+    expect(controlOf(props, 'reserve.session').control).toMatchObject({ max: expected })
     // …and the screen mounts #812's section with a LIVE override of that
     // field, spelled through the one shared `WEEK_CEILING`, never a second
     // ids list — the source line the D-36 fix actually added.
@@ -2898,7 +2933,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(zeroLabelOf('reserve.lead')).toBe('制限なし')
     // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
     expect(zeroLabelOf('reserve.gapfill')).toBe('販売なし')
-    expect(zeroLabelOf('reserve.free')).toBe('いつでも無料')
+    expect(zeroLabelOf('reserve.free')).toBe('来店時刻まで無料')
     // …and `labelOfValue` answers the zeroLabel exactly at 0, the real number
     // otherwise — the SAME function the preview sentence and this field's own
     // display both read through.
@@ -3029,22 +3064,28 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const dropped = previewTemplate(preview, { ...seed, 'reserve.gapfill': '0' })
     expect(dropped).not.toContain('引き')
     // …exactly the named sentence is gone, nothing else about the template moved.
-    expect(dropped + preview.dropWhen!.sentence).toBe(preview.template)
+    expect(dropped + (preview.dropWhen as PreviewDrop).sentence).toBe(preview.template)
     const kept = previewTemplate(preview, { ...seed, 'reserve.gapfill': '30' })
     expect(kept).toBe(preview.template)
     const noDropWhen: SettingsBlock['preview'] = { template: preview.template }
     expect(previewTemplate(noDropWhen!, seed)).toBe(preview.template)
   })
 
+  it('S68 — previewTemplate orWhen: a drop matches when its own control OR any orWhen control matches; not inverts both', () => {
+    const p = (not?: true): NonNullable<SettingsBlock['preview']> => ({ template: 'A。B。', dropWhen: { controlId: 'x', is: '0', orWhen: [{ controlId: 'y', is: '0' }], sentence: 'A。', ...(not ? { not } : {}) } })
+    const at = (x: string, y: string) => [previewTemplate(p(), { x, y }), previewTemplate(p(true), { x, y })]
+    expect([at('0', '5'), at('5', '0'), at('0', '0'), at('5', '5')]).toEqual([['B。', 'A。B。'], ['B。', 'A。B。'], ['B。', 'A。B。'], ['A。B。', 'B。']])
+  })
+
   it('⚖ D-35 (2) pin (ii) — a guard leg: the Reserve window template really contains the sentence it can drop', async () => {
     const props = await room({ store: STORE_A })
     const preview = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.preview!
-    expect(preview.dropWhen?.controlId).toBe('reserve.gapfill')
-    expect(preview.dropWhen?.is).toBe('0')
-    expect(preview.dropWhen!.sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
+    expect((preview.dropWhen as PreviewDrop | undefined)?.controlId).toBe('reserve.gapfill')
+    expect((preview.dropWhen as PreviewDrop | undefined)?.is).toBe('0')
+    expect((preview.dropWhen as PreviewDrop).sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
     // …a silent no-op drop (a `sentence` the template never contained) is
     // exactly the failure this leg catches.
-    expect(preview.template.includes(preview.dropWhen!.sentence)).toBe(true)
+    expect(preview.template.includes((preview.dropWhen as PreviewDrop).sentence)).toBe(true)
   })
 
   it('⚖ D-35 (2) pin (iv) — the screen resolves the block preview through previewTemplate before fillTemplate, at the one call site', () => {

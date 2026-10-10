@@ -74,6 +74,9 @@ import {
 import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { jstClock } from '@/business/lib/clock'
+// Types only: a 'use client' file never value-imports the practice door (foundation.test.ts, TRANSITIVE).
+import type { ReserveGrid, ReservePolicy } from '@/business/lib/practice-door/reserve-policy'
+import { lateFromBooking, policyAuditLine } from '@/business/lib/reserve-policy-view'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
@@ -390,7 +393,7 @@ export function jumpAnchorsOf(sectionId: string | undefined, blocks: ReadonlyArr
  *  of truth is settings.css's `html:has(.biz .page.pg-settings) { --st-topbar: 62px }`; a suite pins the two equal. */
 const TOPBAR_FALLBACK_PX = 62
 
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave; saveReservePolicy?: ReservePolicySave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
@@ -483,6 +486,88 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
   tenant: 'ここからはこの事業の設定を保存できないため、ボードの色はこれまでのままです。',
   invalid: '選んだ色が色の一覧にないため保存できず、ボードの色はこれまでのままです。',
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
+}
+
+// ── Reserve S66 §9 R10 — Reserve 受付's six booking rules, saved per store (予約の色分け's twin) ──────────
+// page.tsx hands this over ONLY while the door is ON, a store is in the lens and its rules read live. `basedOn`
+// is the fingerprint of the six as read; every save sends it and takes the next one from core's answer.
+export type ReservePolicySave = { businessId: string; storeId: string; canSave: boolean; basedOn: string; updatedAt: string | null; lateNote: string }
+const RESERVE_POLICY_URL = '/api/business/reserve-policy'
+const RESERVE_SECTION_ID = 'reserve-acceptance'
+const RESERVE_IDS = { booking_open_days: 'reserve.days', cutoff_minutes: 'reserve.cutoff', reserve_start_grid_min: 'reserve.grid', cancel_free_until_hours: 'reserve.free', cancel_late_pct: 'reserve.sameday', no_show_pct: 'reserve.noshow' } as const
+/** The six dials → the route's `policy`; the grid's empty box is core's unset (null). */
+export const reservePolicyOf = (values: Record<string, RowValue>): ReservePolicy => ({
+  booking_open_days: Number(values[RESERVE_IDS.booking_open_days]),
+  cutoff_minutes: Number(values[RESERVE_IDS.cutoff_minutes]),
+  reserve_start_grid_min: String(values[RESERVE_IDS.reserve_start_grid_min] ?? '').trim() === '' ? null : (Number(values[RESERVE_IDS.reserve_start_grid_min]) as ReserveGrid),
+  cancel_free_until_hours: Number(values[RESERVE_IDS.cancel_free_until_hours]),
+  cancel_late_pct: Number(values[RESERVE_IDS.cancel_late_pct]),
+  no_show_pct: Number(values[RESERVE_IDS.no_show_pct]),
+})
+const RESERVE_FIELDS = Object.keys(RESERVE_IDS) as Array<keyof ReservePolicy>
+/** S67 F7 — the five number dials; a value that is not a whole number never reaches the PUT (no Number('') = 0). */
+const RESERVE_NUMBER_IDS = [RESERVE_IDS.booking_open_days, RESERVE_IDS.cutoff_minutes, RESERVE_IDS.cancel_free_until_hours, RESERVE_IDS.cancel_late_pct, RESERVE_IDS.no_show_pct]
+const RESERVE_CONTROL_IDS: ReadonlySet<string> = new Set<string>(Object.values(RESERVE_IDS))
+/** S67 F1 — the six while a save is in flight (lock reason, sibling register). */
+const RESERVE_BUSY_LOCK = '保存しています'
+const reserveSixOf = (row: Record<string, unknown>) => Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy
+const reserveStampOf = (row: Record<string, unknown>) => (typeof row.updated_at === 'string' ? row.updated_at : null)
+/** S67 F1/F2 — Reserve 受付 while it saves live: the late note follows the DRAFT, 最終変更 the last saved row, and
+ *  the six are locked while a save is in flight. The rest of the section is the server's, unchanged. */
+function reserveViewOf(s: SettingsSection, lateNote: string, values: Record<string, RowValue>, savedAt: string | null, busy: boolean): SettingsSection {
+  const late = lateFromBooking(reservePolicyOf(values))
+  const auditLine = policyAuditLine(savedAt)
+  return {
+    ...s,
+    blocks: s.blocks.map((b) => {
+      if (b.id !== 'reserve.window' && b.id !== 'reserve.cancel') return b
+      const rows = busy ? b.rows.map((r) => ({ ...r, controls: r.controls.map((c) => (RESERVE_CONTROL_IDS.has(c.id) ? { ...c, locked: RESERVE_BUSY_LOCK } : c)) })) : b.rows
+      const facts = b.id === 'reserve.cancel' ? [...(b.facts ?? []).filter((f) => f !== lateNote), ...(late ? [lateNote] : [])] : b.facts
+      return { ...b, rows, facts, audit: auditLine ?? null }
+    }),
+  }
+}
+/** Core's six → the dials' values (the linked 直前の空きは売らない follows 直前締切). */
+const reserveValuesOf = (p: ReservePolicy): Record<string, RowValue> => ({
+  ...Object.fromEntries(RESERVE_FIELDS.map((k) => [RESERVE_IDS[k], p[k] === null ? '' : String(p[k])])),
+  'reserve.lead': String(p.cutoff_minutes),
+})
+/** The writer's line is printed verbatim; these are ONLY for a refusal the route sends without one (its own
+ *  same-origin 403, X-Expected-Business 409, body-shape 400) or no answer at all — 予約の色分け's register. */
+const RESERVE_SAVE_FAIL = {
+  forbidden: READ_ONLY_NOTE,
+  tenant: 'ここからはこの事業の設定を保存できないため、受付ルールはこれまでのままです。',
+  invalid: '設定できる範囲を超えた値があるため保存できず、受付ルールはこれまでのままです。',
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（受付ルールはこれまでのままです）。',
+} as const
+const reserveFallback = (reason: string): string => (reason === 'forbidden' || reason === 'tenant' || reason === 'invalid' ? RESERVE_SAVE_FAIL[reason] : RESERVE_SAVE_FAIL.core)
+export type ReservePolicyAnswer =
+  | { ok: true; row: ReservePolicy; updatedAt: string | null; basedOn: string }
+  | { ok: false; reason: string; message: string; stale?: { basedOn: string; current: ReservePolicy | null; updatedAt: string | null } }
+/** The route's answer → the room's: core's six and the next `basedOn` on 200, else the door's own line. */
+export async function putReservePolicy(save: ReservePolicySave, policy: ReservePolicy, basedOn: string): Promise<ReservePolicyAnswer> {
+  try {
+    const res = await fetch(RESERVE_POLICY_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, policy, basedOn }),
+    })
+    const answer = ((await res.json().catch(() => null)) ?? {}) as { ok?: unknown; row?: unknown; basedOn?: unknown; reason?: unknown; message?: unknown; current?: unknown }
+    if (res.ok && answer.ok === true && typeof answer.basedOn === 'string' && answer.row !== null && typeof answer.row === 'object') {
+      const row = answer.row as Record<string, unknown>
+      return { ok: true, row: reserveSixOf(row), updatedAt: reserveStampOf(row), basedOn: answer.basedOn }
+    }
+    const reason = typeof answer.reason === 'string' ? answer.reason : 'core'
+    const message = typeof answer.message === 'string' && answer.message !== '' ? answer.message : reserveFallback(reason)
+    // A 'stale' 409 carries core's current six and their fingerprint: the screen merges them (S67 F3).
+    if (reason === 'stale' && typeof answer.basedOn === 'string') {
+      const cur = answer.current !== null && typeof answer.current === 'object' ? (answer.current as Record<string, unknown>) : null
+      return { ok: false, reason, message, stale: { basedOn: answer.basedOn, current: cur && reserveSixOf(cur), updatedAt: cur && reserveStampOf(cur) } }
+    }
+    return { ok: false, reason, message }
+  } catch {
+    return { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
+  }
 }
 
 // ── ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE (Liam 9/28 20:0x) ──────────────
@@ -646,6 +731,35 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
   const bookingSaving = useRef(false)
+  const [reserveFail, setReserveFail] = useState<string | null>(null)
+  const reserveSaving = useRef(false)
+  const [reserveBusy, setReserveBusy] = useState(false)
+  const [reserveSavedAt, setReserveSavedAt] = useState<string | null>(props.saveReservePolicy?.updatedAt ?? null)
+  const reserveLinked = props.saveReservePolicy !== undefined
+  // S69 round 2 — the token is React STATE, never a ref: it is committed in the same update as the baseline it vouches
+  // for, so a render React abandons (a navigation's transition) can never leave it ahead of `saved`.
+  const [reserveBasedOn, setReserveBasedOn] = useState(props.saveReservePolicy?.basedOn ?? '')
+  /** S69 (Greptile #1157 P1) — THE ONE WAY the save token moves: `basedOn` vouches for the six in `saved`, so it never
+   *  advances apart from them. The dials take `draft` (core's row, or a stale answer's merge), the baseline core's
+   *  row, 最終変更 its stamp — all set in this one batch, so they commit together. Its only callers: the re-read check
+   *  just below (render time, setState only), saveReserveSection's stale answer, and saveReserveSection's 200. */
+  const adoptReserveRow = useCallback((basedOn: string, row: ReservePolicy, updatedAt: string | null, draft: ReservePolicy) => {
+    setReserveBasedOn(basedOn)
+    setValues((prev) => ({ ...prev, ...reserveValuesOf(draft) }))
+    setSaved((prev) => ({ ...prev, ...reserveValuesOf(row) }))
+    setReserveSavedAt(updatedAt)
+  }, [])
+  // a re-read of the SAME store (same key, new props): with no unsaved edit the screen takes the new row with its token;
+  // with one, the token stays the displayed baseline's, so the next save is refused as stale and merges (S67 F3).
+  const [reserveReadSeen, setReserveReadSeen] = useState(props.saveReservePolicy?.basedOn)
+  const freshBasedOn = props.saveReservePolicy?.basedOn
+  if (freshBasedOn !== undefined && freshBasedOn !== reserveReadSeen) {
+    setReserveReadSeen(freshBasedOn)
+    if (Object.values(RESERVE_IDS).every((id) => String(values[id] ?? '') === String(saved[id] ?? ''))) {
+      const row = reservePolicyOf(seedOf(props))
+      adoptReserveRow(freshBasedOn, row, props.saveReservePolicy?.updatedAt ?? null, row)
+    }
+  }
   /** ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while `props.saveStoreDays` is set: each
    *  own state (never `listRows`/`savedRows` — R8, the save bar never counts them),
    *  seeded once from the payload, updated only from core's OWN returned array/row.
@@ -775,6 +889,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const at = id === DENSITY_ID || id === EMPHASIS_ID ? jstClock(new Date()) : ''
     setValues((prev) => {
       const merged = { ...prev, [id]: next }
+      if (id === RESERVE_IDS.cutoff_minutes && reserveLinked) merged['reserve.lead'] = next // S67 F5 — the linked row shows the draft
       if (id === DENSITY_ID || id === EMPHASIS_ID) {
         try {
           // ⚖ G3 — no identity, no row. The choice still applies to what is on
@@ -796,10 +911,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
     })
     // ⚖ G3 — keyed on `prefKey`, so the writer can never capture the FIRST
     // reader's key for the life of the page (the F20 lesson, one door over).
-  }, [prefKey])
+  }, [prefKey, reserveLinked])
 
   const shownId = picked ?? props.openingSectionId
-  const section = props.sections.find((s) => s.id === shownId) ?? null
+  const shownSection = props.sections.find((s) => s.id === shownId) ?? null
+  const section = shownSection !== null && shownSection.id === RESERVE_SECTION_ID && props.saveReservePolicy
+    ? reserveViewOf(shownSection, props.saveReservePolicy.lateNote, values, reserveSavedAt, reserveBusy)
+    : shownSection
   const isDetail = picked !== null
   /** ⚖ S17 fix round 4 · H2 + M6 — IS THAT SECTION'S PANEL REALLY ON SCREEN?
    *
@@ -1018,6 +1136,50 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
   }, [values, saved, commitSection])
 
+  /** Reserve S66 — 受付's six rules with the door ON: core first (the route), the page commits ONLY on core's
+   *  yes and the baseline takes core's six; a refusal is ONE line under 保存する, never a modal. Six unchanged →
+   *  no request, the section commits locally (its sample rows are page-only), exactly like 予約の色分け. */
+  const saveReserveSection = useCallback(async (target: SettingsSection, save: ReservePolicySave) => {
+    if (reserveSaving.current) return
+    if (RESERVE_NUMBER_IDS.some((id) => !/^\d+$/.test(String(values[id] ?? ''))) || !/^([1-9]\d*)?$/.test(String(values[RESERVE_IDS.reserve_start_grid_min] ?? '').trim())) {
+      setReserveFail(RESERVE_SAVE_FAIL.invalid) // S67 F7 — nothing is sent
+      return
+    }
+    const policy = reservePolicyOf(values)
+    const base = reservePolicyOf(saved)
+    if (RESERVE_FIELDS.every((k) => policy[k] === base[k])) {
+      commitSection(target, false)
+      return
+    }
+    reserveSaving.current = true
+    setReserveBusy(true) // S67 F1 — the six are locked until core answers
+    setReserveFail(null)
+    let result: ReservePolicyAnswer
+    try {
+      result = await putReservePolicy(save, policy, reserveBasedOn) // the committed token
+    } catch {
+      // S68 round 2 — a thrown save shows the failure line under 保存する, like no answer at all
+      result = { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
+    } finally {
+      // S68 — cleared even when the save throws, so the screen is never left locked
+      reserveSaving.current = false
+      setReserveBusy(false)
+    }
+    if (!result.ok) {
+      setReserveFail(result.message)
+      if (result.stale === undefined) return
+      // S67 F3 (the lead's ruling) — a three-way merge: a field the manager left as it was (draft == base) takes core's
+      // current value, a field they changed keeps theirs; the next press sends the merged six against the new basedOn.
+      const theirs = result.stale.current
+      if (theirs === null) return // S69 — no row to vouch for, so the token stays the displayed baseline's
+      const merged = Object.fromEntries(RESERVE_FIELDS.map((k) => [k, policy[k] === base[k] ? theirs[k] : policy[k]])) as unknown as ReservePolicy
+      adoptReserveRow(result.stale.basedOn, theirs, result.stale.updatedAt, merged)
+      return
+    }
+    commitSection(target, true)
+    adoptReserveRow(result.basedOn, result.row, result.updatedAt, result.row) // S67 F2 — 最終変更 follows core's answer, no second GET
+  }, [values, saved, reserveBasedOn, commitSection, adoptReserveRow])
+
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
   const openSection = useCallback((id: string, fromRail: boolean) => {
@@ -1025,6 +1187,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
     setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null) // …and an old 予約の色分け refusal
+    setReserveFail(null) // …and an old 受付ルール refusal
     setPicked(id)
     setJumpPin(null)
     setInView(null)
@@ -1035,6 +1198,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setCardFail(null) // G7 — leaving the section clears an old card refusal
     setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null)
+    setReserveFail(null)
     setPicked(null)
     if (!id) return
     // The rail is only mounted again once `picked` is null, so the focus move
@@ -1452,6 +1616,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
   const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
+  /** Reserve S66 — Reserve 受付 while page.tsx has said its six rules save for real. */
+  const liveReserve = section?.id === RESERVE_SECTION_ID ? props.saveReservePolicy : undefined
   /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
    *  GATE IS SHUT. The server no longer assembles it (`settings-props.ts`): the
    *  roster, the named restrictions, the pricing frame and every policy value
@@ -1593,7 +1759,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : section.id === RESERVE_SECTION_ID && props.saveReservePolicy ? void saveReserveSection(section, props.saveReservePolicy) : commitSection(section, false))}
         >
           保存する
         </button>
@@ -1956,6 +2122,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
+                    : liveReserve && !liveReserve.canSave
+                      ? <p className="st-foot">{READ_ONLY_NOTE}</p>
+                    : liveReserve
+                      ? <p className="st-foot">{props.reserveSaveLine}</p>
                     : storeDaysLive
                       ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
                       : <p className="st-foot">{props.demoSaveLine}</p>}
@@ -1967,6 +2137,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   <>
                     {liveColors.canSave === false ? null : roomSave(section)}
                     {bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}
+                  </>
+                ) : liveReserve ? (
+                  <>
+                    {liveReserve.canSave ? roomSave(section) : null}
+                    {reserveFail && <p className="st-act-error" role="alert">{reserveFail}</p>}
                   </>
                 ) : roomSave(section),
                 (id) => {
@@ -3287,7 +3462,15 @@ function NumberField({
   // field's math already understands (⚖ D-15).
   const ceilingLive = effectiveCeiling(c, values)
   const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
-  const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
+  // S69 (Greptile #1157 P2) — an `emptyLabel` field's empty box is a real state (core's null), so it is a last good state too
+  const goodOf = (t: string): number | '' => (k.emptyLabel && t.trim() === '' ? '' : clampInt(Number(t), k.min, ceiling))
+  const lastGood = useRef<number | ''>(goodOf(text))
+  /** S69 round 2 — THE ONE HOME of `lastGood`'s writes: the onBlur commit, and the resync below. */
+  const remember = (v: number | '') => { lastGood.current = v }
+  // the last text this field itself sent (a keystroke or its commit); a value that arrives different came from OUTSIDE
+  // (a re-read, a stale merge, core's 200) and is the new last good state — keystrokes still never move it (D-27/D-30)
+  const ownText = useRef(text)
+  useEffect(() => { if (text !== ownText.current) { ownText.current = text; remember(goodOf(text)) } })
   const [message, setMessage] = useState<string | null>(null)
   // The unit is the field's DESCRIPTION, never folded into its name: a screen
   // reader hears 「…の清掃時間、分」 while every name-based query keeps its name.
@@ -3311,7 +3494,7 @@ function NumberField({
         aria-describedby={k.unit ? unitId : undefined}
         value={text}
         {...inert}
-        onChange={locked ? noop : (e) => { setMessage(null); onChange(c.id, e.target.value) }}
+        onChange={locked ? noop : (e) => { setMessage(null); ownText.current = e.target.value; onChange(c.id, e.target.value) }}
         // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
         // every character makes 「1」 unreachable on the way to 「14」 — the
         // guardrail would be fighting the reader instead of protecting them.
@@ -3329,9 +3512,14 @@ function NumberField({
         // to `commitNumberField` as `''`, which restores the previous value
         // and says so.
         onBlur={locked ? undefined : (e) => {
+          // S67 — an `emptyLabel` field: the cleared box IS the state (core's null), committed as ''.
+          const cleared = Boolean(k.emptyLabel) && e.target.value.trim() === ''
           const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''
-          const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? '')
-          lastGood.current = commit.value
+          // S69 — a cleared emptyLabel box, or invalid text over an empty last good state, commits '' (no message)
+          const back = lastGood.current
+          const commit = cleared || (raw === '' && back === '') ? { value: '' as const, message: null } : commitNumberField(raw, back === '' ? k.min : back, k.min, ceiling, k.unit ?? '')
+          remember(commit.value)
+          ownText.current = String(commit.value)
           setMessage(commit.message)
           onChange(c.id, String(commit.value))
         }}
@@ -3345,6 +3533,7 @@ function NumberField({
           always leaves `text` as `String(commit.value)`), not `Number(text)
           === 0`, which also reads true for an empty box mid-edit. */}
       {k.zeroLabel && text === '0' && <span className="st-unit">{k.zeroLabel}</span>}
+      {k.emptyLabel && text === '' && <span className="st-unit">{k.emptyLabel}</span>}
       {/* ⚠ THE REGION IS ALWAYS MOUNTED and its TEXT is what changes (⚖ F10's
           own lesson, one section over): a live region that appears and vanishes
           is announced unevenly, and one whose text never changes is silent. The

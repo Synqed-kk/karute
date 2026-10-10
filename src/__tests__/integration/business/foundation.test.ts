@@ -937,11 +937,13 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/reserve-policy',
         '@/business/lib/practice-door/sample-facade',
         // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
         '@/business/lib/practice-door/store-hours',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
+        '@/business/lib/reserve-policy-view',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -992,6 +994,9 @@ describe('the fixture data door', () => {
         // clock.ts imports nothing but React's cache(), so no path to data or the practice door.
         '@/business/lib/clock',
         '@/business/lib/guide',
+        '@/business/lib/practice-door/reserve-policy',
+        // S67 F2/F8 — the late note + 最終変更 line, shared with settings-props (pure; imports only reserve-policy).
+        '@/business/lib/reserve-policy-view',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
         // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the

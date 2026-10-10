@@ -829,7 +829,7 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
   it('on a desk the panel always shows something, never a blank', () => {
     // `picked ?? openingSectionId` — and `openingSectionId` is the first section
     // this READER may open, so nobody lands on an empty frame.
-    expect(SRC_CODE).toContain('const section = props.sections.find((s) => s.id === shownId) ?? null')
+    expect(SRC_CODE).toContain('const shownSection = props.sections.find((s) => s.id === shownId) ?? null')
     for (const role of ['オーナー', '店舗管理者', 'スタッフ', '不明', '']) {
       const opening = firstOpenSection(accessFor(role, rulebook))
       expect({ role, opens: opening?.id ?? null }).not.toEqual({ role, opens: null })
@@ -936,7 +936,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are お店ページ (カードの見た目)
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : section.id === RESERVE_SECTION_ID && props.saveReservePolicy ? void saveReserveSection(section, props.saveReservePolicy) : commitSection(section, false))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
