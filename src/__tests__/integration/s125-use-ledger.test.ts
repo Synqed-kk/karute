@@ -409,7 +409,11 @@ describe('S125 use ledger — the numbered list', () => {
   })
 
   test('D · the settle pass leaves a fresh P3 row (attempts 0, younger than MAX_CALLER_DURATION_MS) to its own request; an older one is attempted', async () => {
-    const store = memStore(); const core = fakeCore()
+    const store = memStore(); const base = fakeCore()
+    // S126 A2 finisher (fixture only, the d26dd7ca2 shape): the older P3 row's R2 re-check reads
+    // its booking before the send — a NO_SHOW booking on the row's redeemed_on keeps it a no-show
+    // use; without appointments.get the precheck throws (precheck_error) and the row stays pending.
+    const core = { ...base, appointments: { ...base.appointments, get: jest.fn().mockResolvedValue({ status: 'NO_SHOW', status_reason: null, starts_at: `${TODAY}T03:00:00.000Z`, created_at: `${TODAY}T00:00:00.000Z` }) } }
     await store.insertIgnore(sysRow({ id: 'd-fresh', created_at: new Date(NOW.getTime() - 1_000).toISOString() }))
     await store.insertIgnore(sysRow({ id: 'd-old', appointment_id: 'appt-2', created_at: OLD }))
     const out = await settlePending({ store, clientFor: () => core as never, rotate: (ids) => [...ids], dailyPass: false, now: () => NOW })
