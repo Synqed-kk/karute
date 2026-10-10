@@ -473,9 +473,10 @@ describe.each(LAYERS)('paid calls — %s', (_label, fixOn, flipOn, column) => {
 // globalPipeline.retry() while a first attempt is still inside the provider (VERIFY-S55-PR3-MATRIX).
 // r1 restores that coverage on the lost row (no_session with a take), fix ON, both flip layers,
 // both doors, and asserts the OUTCOME only: the same pinned key on every POST, paid once, no new
-// mint, `review`, one transcript. r1a — the tab lock (navigator.locks) is live, so attempt 1 holds
-// it; r1b — no lock at all (a relaunched app, a second tab): the retry's POST meets the lease's 409
-// and rides it out through the capped wait loop.
+// mint, `review`, one transcript. r1a — the tab lock (navigator.locks) is live and attempt 1 holds
+// it in 'processing', so the retry is a no-op (no new run, no POST); r1b — no lock at all (a relaunched
+// app, a second tab): the retry from 'error' POSTs, meets the lease's 409 and rides it out through the
+// capped wait loop.
 const KEY = /app_business-1_[0-9a-f-]{36}\.webm/
 // r1a runs ONE test lock manager on every runtime (Node 20 on CI has no navigator; Node 24's native
 // manager is shadowed for the cell), so CI and local prove the same thing. Its surface is exactly what
@@ -516,7 +517,7 @@ const installLocks = (locks: unknown) => {
 const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   let finish!: () => void
   providerHolds.push(new Promise<void>((r) => (finish = r)))
-  // r1a: attempt 1 finishes once the 再試行 is queued (or at a 409, where the lock does not order the two);
+  // r1a: attempt 1 finishes once the 再試行 has returned as a no-op (it starts no run, so nothing is queued);
   // r1b: attempt 1 finishes only at the SECOND 409, so the retry first rides two capped waits.
   onStillWorking = lock === 'held' ? () => finish() : () => stillWorkingServed >= 2 && finish()
   const lockManager = testLockManager()
