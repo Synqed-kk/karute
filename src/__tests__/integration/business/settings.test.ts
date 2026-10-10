@@ -1521,7 +1521,8 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('const ceilingLive = effectiveCeiling(c, values)')
     expect(SCREEN_CODE).toContain('const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY')
     expect(SCREEN_CODE).not.toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
-    expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))')
+    // S69 (Greptile #1157 P2) — an emptyLabel field's empty box is a last good state too; every other field seeds the clamped number
+    expect(SCREEN_CODE).toContain("const lastGood = useRef<number | ''>(k.emptyLabel && text.trim() === '' ? '' : clampInt(Number(text), k.min, ceiling))")
     expect(SCREEN_CODE).not.toContain('n >= k.min && n <= k.max) lastGood.current')
     expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1) // ONE home: the onBlur commit
     // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, never a
@@ -1532,7 +1533,8 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('isIntegerTextAtLeast')
     expect(SCREEN_SRC).toMatch(/import\s*\{[^}]*isIntegerTextAtLeast[^}]*\}\s*from\s*'\.\/StorePolicySection'/)
     expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''")
-    expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? \'\')')
+    // S69 — the last good state is read once as `back`; an empty one (emptyLabel fields only) commits '' instead
+    expect(SCREEN_CODE).toContain('commitNumberField(raw, back === \'\' ? k.min : back, k.min, ceiling, k.unit ?? \'\')')
     expect(SCREEN_CODE).toContain('lastGood.current = commit.value')
     expect(SCREEN_CODE).toContain('setMessage(commit.message)')
     expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
